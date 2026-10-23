@@ -51,7 +51,7 @@ test("blocker trade: both die when damage is lethal to both", () => {
 });
 
 test("bigger creature survives with damage marked, which heals at end of turn", () => {
-  let g = setup([creature("a", "ogre-brute", "p1")], [creature("b", "goblin-scout", "p2")]);
+  let g = setup([creature("a", "rumbling-baloth", "p1")], [creature("b", "mons-s-goblin-raiders", "p2")]);
   g = act(g, "p1", { type: "declareAttackers", attackers: ["a"] });
   g = act(g, "p2", { type: "declareBlockers", blocks: [{ attacker: "a", blocker: "b" }] });
   assert.equal(g.players.p2.battlefield.length, 0);
@@ -75,7 +75,7 @@ test("summoning-sick and tapped creatures can't attack; defender can't pass bloc
   assert.equal(applyAction(g, "p1", { type: "declareAttackers", attackers: ["a"] }).ok, false);
   assert.deepEqual(getPossibleAttackers(g), []);
 
-  const g2 = setup([creature("a", "hill-giant", "p1")], [creature("b", "goblin-scout", "p2")]);
+  const g2 = setup([creature("a", "hill-giant", "p1")], [creature("b", "mons-s-goblin-raiders", "p2")]);
   const blocking = act(g2, "p1", { type: "declareAttackers", attackers: ["a"] });
   assert.deepEqual(getPossibleBlockers(blocking), ["b"]);
   assert.equal(applyAction(blocking, "p1", { type: "declareBlockers", blocks: [] }).ok, false); // wrong player
@@ -85,7 +85,7 @@ test("summoning-sick and tapped creatures can't attack; defender can't pass bloc
 test("invalid blocks are rejected", () => {
   let g = setup(
     [creature("a", "hill-giant", "p1"), creature("c", "hill-giant", "p1")],
-    [creature("b", "goblin-scout", "p2")],
+    [creature("b", "mons-s-goblin-raiders", "p2")],
   );
   g = act(g, "p1", { type: "declareAttackers", attackers: ["a", "c"] });
   const two = applyAction(g, "p2", {
@@ -97,7 +97,7 @@ test("invalid blocks are rejected", () => {
 });
 
 test("lethal damage ends the game", () => {
-  let g = setup([creature("a", "ogre-brute", "p1")], []);
+  let g = setup([creature("a", "rumbling-baloth", "p1")], []);
   g.players.p2.life = 4;
   g = act(g, "p1", { type: "declareAttackers", attackers: ["a"] });
   g = act(g, "p2", { type: "declareBlockers", blocks: [] });

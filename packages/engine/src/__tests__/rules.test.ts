@@ -89,8 +89,8 @@ function combat(p1: ReturnType<typeof creature>[], p2: ReturnType<typeof creatur
 
 test("two creatures can block the same attacker, then the attacker divides its damage", () => {
   let g = combat(
-    [creature("a", "ogre-brute", "p1")], // 4/4
-    [creature("b1", "goblin-scout", "p2"), creature("b2", "grizzly-bears", "p2")], // 1/1 and 2/2
+    [creature("a", "rumbling-baloth", "p1")], // 4/4
+    [creature("b1", "mons-s-goblin-raiders", "p2"), creature("b2", "grizzly-bears", "p2")], // 1/1 and 2/2
   );
   g = act(g, "p1", { type: "declareAttackers", attackers: ["a"] });
   g = act(g, "p2", {
@@ -113,7 +113,7 @@ test("two creatures can block the same attacker, then the attacker divides its d
 });
 
 test("the attacker must assign exactly its power, only among its blockers", () => {
-  let g = combat([creature("a", "hill-giant", "p1")], [creature("b1", "goblin-scout", "p2"), creature("b2", "goblin-scout", "p2")]);
+  let g = combat([creature("a", "hill-giant", "p1")], [creature("b1", "mons-s-goblin-raiders", "p2"), creature("b2", "mons-s-goblin-raiders", "p2")]);
   g = act(g, "p1", { type: "declareAttackers", attackers: ["a"] });
   g = act(g, "p2", { type: "declareBlockers", blocks: [{ attacker: "a", blocker: "b1" }, { attacker: "a", blocker: "b2" }] });
   assert.match(refused(g, "p1", { type: "assignDamage", assignments: [{ attacker: "a", blocker: "b1", amount: 1 }] }), /exactly 3/);
@@ -123,14 +123,14 @@ test("the attacker must assign exactly its power, only among its blockers", () =
 });
 
 test("a single blocker still resolves immediately, with no assignment step", () => {
-  let g = combat([creature("a", "hill-giant", "p1")], [creature("b", "goblin-scout", "p2")]);
+  let g = combat([creature("a", "hill-giant", "p1")], [creature("b", "mons-s-goblin-raiders", "p2")]);
   g = act(g, "p1", { type: "declareAttackers", attackers: ["a"] });
   g = act(g, "p2", { type: "declareBlockers", blocks: [{ attacker: "a", blocker: "b" }] });
   assert.equal(g.phase, "main2");
 });
 
 test("a creature still can't block two different attackers", () => {
-  let g = combat([creature("a", "hill-giant", "p1"), creature("c", "hill-giant", "p1")], [creature("b", "goblin-scout", "p2")]);
+  let g = combat([creature("a", "hill-giant", "p1"), creature("c", "hill-giant", "p1")], [creature("b", "mons-s-goblin-raiders", "p2")]);
   g = act(g, "p1", { type: "declareAttackers", attackers: ["a", "c"] });
   refused(g, "p2", { type: "declareBlockers", blocks: [{ attacker: "a", blocker: "b" }, { attacker: "c", blocker: "b" }] });
 });

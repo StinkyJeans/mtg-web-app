@@ -3,10 +3,10 @@ import type { CardDef, GameState } from "./types.js";
 const defs: CardDef[] = [
   { id: "mountain", name: "Mountain", type: "land", cost: 0 },
   { id: "forest", name: "Forest", type: "land", cost: 0 },
-  { id: "goblin-scout", name: "Goblin Scout", type: "creature", cost: 1, power: 1, toughness: 1 },
+  { id: "mons-s-goblin-raiders", name: "Mons's Goblin Raiders", type: "creature", cost: 1, power: 1, toughness: 1 },
   { id: "grizzly-bears", name: "Grizzly Bears", type: "creature", cost: 2, power: 2, toughness: 2 },
   { id: "hill-giant", name: "Hill Giant", type: "creature", cost: 3, power: 3, toughness: 3 },
-  { id: "ogre-brute", name: "Ogre Brute", type: "creature", cost: 4, power: 4, toughness: 4 },
+  { id: "rumbling-baloth", name: "Rumbling Baloth", type: "creature", cost: 4, power: 4, toughness: 4 },
 ];
 
 /** Built-in card set: used by tests and as an offline fallback. The real set lives in Supabase. */
@@ -25,8 +25,8 @@ export function getCard(state: Pick<GameState, "cards">, defId: string): CardDef
 export const STARTER_DECK: string[] = [
   ...Array(12).fill("mountain"),
   ...Array(12).fill("forest"),
-  ...Array(4).fill("goblin-scout"),
+  ...Array(4).fill("mons-s-goblin-raiders"),
   ...Array(4).fill("grizzly-bears"),
   ...Array(4).fill("hill-giant"),
-  ...Array(4).fill("ogre-brute"),
+  ...Array(4).fill("rumbling-baloth"),
 ];

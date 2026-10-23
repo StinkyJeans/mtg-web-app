@@ -51,10 +51,8 @@ create policy "signed-in users can read cards"
 insert into public.cards (id, name, type, cost, power, toughness) values
   ('mountain',      'Mountain',      'land',     0, null, null),
   ('forest',        'Forest',        'land',     0, null, null),
-  ('goblin-scout',  'Goblin Scout',  'creature', 1, 1, 1),
   ('grizzly-bears', 'Grizzly Bears', 'creature', 2, 2, 2),
-  ('hill-giant',    'Hill Giant',    'creature', 3, 3, 3),
-  ('ogre-brute',    'Ogre Brute',    'creature', 4, 4, 4);
+  ('hill-giant',    'Hill Giant',    'creature', 3, 3, 3);
 
 -- ───────── decks (private to their owner) ─────────
 create table public.decks (
