@@ -94,6 +94,11 @@ export default function Lobby() {
           </form>
         )}
 
+        {online.reconnecting && (
+          <p role="status" className="rounded-xl border border-amber-300/40 bg-slate-950/70 px-3 py-2 text-[15px] text-amber-100">
+            ⟳ Reconnecting to your room…
+          </p>
+        )}
         {online.error && (
           <p role="alert" className="rounded-xl border border-red-300/40 bg-red-950/70 px-3 py-2 text-[15px] text-[#fecaca]">
             {online.error}

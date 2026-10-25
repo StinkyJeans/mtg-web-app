@@ -1,5 +1,6 @@
 import { defineServer, defineRoom, LobbyRoom, monitor, playground } from "colyseus";
 import { MatchRoom } from "./rooms/MatchRoom.js";
+import { pruneLive } from "./supabase.js";
 
 /**
  * The live game server.
@@ -11,6 +12,9 @@ const server = defineServer({
     lobby: defineRoom(LobbyRoom),
     match: defineRoom(MatchRoom).enableRealtimeListing(),
   },
+
+  // matches saved before a restart wait for their players to come back; ones nobody came back to are cleared out
+  beforeListen: () => pruneLive(),
 
   express: (app) => {
     app.get("/health", (_req, res) => {

@@ -1,7 +1,8 @@
-import { Room, Client, CloseCode } from "colyseus";
+import { Room, Client, CloseCode, ServerError } from "colyseus";
+import type { Delayed } from "colyseus";
 import { applyAction, botAction, createGame, HIDDEN_CARD_ID, playerToAct, viewFor } from "@mtg/engine";
 import type { Action, CardDef, GameEvent, GameState, PlayerId } from "@mtg/engine";
-import { accountFromToken, loadCards, saveMatch } from "../supabase.js";
+import { accountFromToken, dropLive, loadCards, loadLive, saveLive, saveMatch } from "../supabase.js";
 import type { Account } from "../supabase.js";
 
 /**
@@ -15,11 +16,16 @@ import type { Account } from "../supabase.js";
  *   over     → someone won (or left)
  *
  * Nothing secret is ever sent: each player gets a view of the game with the opponent's hand and both libraries face down.
+ *
+ * The match is saved after every change. When the server restarts (a deploy) it is saved once more and the players are let
+ * go; their browsers then ask for it back with `restore`, which brings it back under the same room id.
  */
 export type Stage = "waiting" | "vote" | "decks" | "coin" | "playing" | "over";
 export const DECK_SIZES = [20, 40, 60] as const;
 /** Close code for a guest the host removed: the browser says so, and doesn't try to reconnect. */
 export const KICKED = 4100;
+/** Error code (sent as the HTTP status, so it must be one) for a restore of a match that has ended or was never saved: the browser stops trying. */
+export const MATCH_GONE = 410;
 
 interface Member {
   sessionId: string;
@@ -63,7 +69,22 @@ export interface RoomSnapshot {
 
 type Side = "heads" | "tails";
 
+/** Everything needed to bring a match back after a restart. It never leaves the server: it holds the password and both hands. */
+interface SavedMatch {
+  title: string;
+  password: string;
+  banned: string[];
+  members: Pick<Member, "account" | "seat" | "vote" | "deck" | "isBot">[];
+  stage: Stage;
+  size: number | null;
+  mismatch: boolean;
+  coin: RoomSnapshot["coin"];
+  game: GameState | null;
+  deckNames: Record<PlayerId, string>;
+}
+
 const RECONNECT_SECONDS = 60;
+const SAVE_DELAY_MS = 300; // changes in quick succession are saved once
 
 export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   maxClients = 2;
@@ -83,6 +104,12 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   private defs: Record<string, CardDef> = {};
   private busy = false; // actions are handled one at a time
   private botTimer?: ReturnType<typeof setTimeout>;
+  private saveTimer: Delayed | undefined;
+  private saving: Promise<void> = Promise.resolve(); // saves (and the final delete) go out one after another, in order
+  private ended = false; // over, or closed: nothing to bring back
+  private shuttingDown = false;
+  private restored = false; // brought back after a restart, and the player hasn't returned yet
+  private endingTurn: { seat: PlayerId; turn: number } | null = null; // "End turn" was pressed: it carries on after a choice along the way
 
   messages = {
     startVote: (client: Client) => {
@@ -182,7 +209,8 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
     endTurn: (client: Client) => {
       const m = this.member(client);
-      if (!m) return;
+      if (!m || !this.game) return;
+      this.endingTurn = { seat: m.seat, turn: this.game.turn };
       this.play(m, () => this.passThroughTurn(m.seat));
     },
 
@@ -227,24 +255,61 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     if (this.members.some((m) => m.account.id === account.id && m.connected)) throw new Error("You are already in this room.");
     // a player coming back to their own seat doesn't need the password again
     const member = this.members.some((m) => m.account.id === account.id);
+    // a room holding a seat for someone who dropped is unlocked so they can come back; nobody else gets in
+    if (!member && this.members.length >= 2) throw new Error("This room is full.");
     if (this.password && !member && options?.password !== this.password) throw new Error(options?.password ? "Wrong password." : "This room needs a password.");
     return account;
   }
 
-  onCreate(options: { name?: string; password?: string }) {
+  async onCreate(options: { name?: string; password?: string; restore?: string }) {
+    if (options?.restore) return this.restore(String(options.restore));
     this.title = String(options?.name ?? "").trim().slice(0, 40) || "Room";
     this.password = String(options?.password ?? "").slice(0, 40);
+  }
+
+  /** After a restart: the match as it was saved, under its old id. Both players are away until their browsers rejoin. */
+  private async restore(roomId: string) {
+    const saved = (await loadLive(roomId)) as SavedMatch | null;
+    if (!saved) throw new ServerError(MATCH_GONE, "That match has ended.");
+    this.roomId = roomId;
+    this.title = saved.title;
+    this.password = saved.password;
+    this.banned = new Set(saved.banned);
+    this.members = saved.members.map((m) => ({ ...m, sessionId: m.isBot ? "bot" : "", connected: m.isBot === true })); // the bot has no browser to wait for
+    this.stage = saved.stage;
+    this.size = saved.size;
+    this.mismatch = saved.mismatch;
+    this.coin = saved.coin;
+    this.game = saved.game;
+    this.deckNames = saved.deckNames;
+    const deckIds = this.members.flatMap((m) => m.deck?.ids ?? []);
+    if (deckIds.length > 0) Object.assign(this.defs, await loadCards(deckIds)); // the decks chosen before the game started
+    this.restored = true;
+    this.clock.setTimeout(() => this.giveUpOnAbsent(), RECONNECT_SECONDS * 2 * 1000);
+  }
+
+  /** A restart (a deploy): the match is saved as it stands, then the players are let go. Their browsers rejoin once the server is back. */
+  async onBeforeShutdown() {
+    this.shuttingDown = true;
+    clearTimeout(this.botTimer); // a bot move after the last save would be lost
+    await this.flush();
+    await this.disconnect(CloseCode.SERVER_SHUTDOWN);
   }
 
   onJoin(client: Client, _options: unknown, account?: Account) {
     const acc = (account ?? (client.auth as Account | undefined))!;
     const back = this.members.find((x) => x.account.id === acc.id);
     if (back) {
-      // a player coming back after a lost connection
+      // a player coming back after a lost connection, or after a restart
       back.sessionId = client.sessionId;
       back.connected = true;
+      if (this.members.length === 2 && this.members.every((x) => x.connected)) void this.lock();
       this.publish();
       this.sendGame(back);
+      if (this.restored) {
+        this.restored = false;
+        this.resumeBot();
+      }
       return;
     }
     const seat: PlayerId = this.members.some((x) => x.seat === "p1") ? "p2" : "p1";
@@ -254,6 +319,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   }
 
   async onLeave(client: Client, code: number) {
+    if (this.shuttingDown) return; // the restart letting everyone go: the match was saved and goes on afterwards
     const m = this.members.find((x) => x.sessionId === client.sessionId);
     if (!m) return;
     const leftOnPurpose = code === CloseCode.CONSENTED;
@@ -261,6 +327,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     if (this.stage === "playing" && !leftOnPurpose) {
       // a dropped connection: hold the seat for a while
       m.connected = false;
+      void this.unlock();
       this.publish();
       try {
         const back = await this.allowReconnection(client, RECONNECT_SECONDS);
@@ -269,10 +336,29 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
         this.publish();
         return; // the browser now asks "hello" and gets the game as it stands
       } catch {
+        if (m.sessionId !== client.sessionId) return; // they came back through a fresh join instead
         m.connected = false;
       }
     }
+    this.gone(m);
+  }
 
+  /** After a restart: whoever hasn't come back by now is treated as having left. */
+  private giveUpOnAbsent() {
+    if (this.ended || this.members.length === 0) return;
+    const away = this.members.filter((m) => !m.connected);
+    if (this.members.every((m) => !m.connected || m.isBot)) {
+      // nobody came back: the match quietly goes away, with no result
+      this.forget();
+      this.stage = "over";
+      void this.disconnect();
+      return;
+    }
+    for (const m of away) this.gone(m);
+  }
+
+  /** A player has left for good: during the game the other player wins; before it, a guest frees the seat and the host closes the room. */
+  private gone(m: Member) {
     if (this.stage === "playing") {
       this.finish(m.seat === "p1" ? "p2" : "p1", `${m.account.username} left the game.`);
       return;
@@ -285,6 +371,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     // before the game: the host leaving closes the room, a guest leaving just frees the seat
     if (m.seat === "p1") {
       this.broadcast("closed", { message: `${m.account.username} (the host) closed the room.` });
+      this.forget();
       this.members = [];
       void this.disconnect();
       return;
@@ -329,6 +416,47 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     for (const m of this.members) this.clientOf(m)?.send("room", this.snapshot(m));
     const host = this.members.find((x) => x.seat === "p1");
     void this.setMetadata({ name: this.title, host: host?.account.username ?? "", players: this.members.map((x) => x.account.username), status: this.stage, turn: this.game?.turn ?? 0, locked: this.password !== "", bot: this.bot !== undefined });
+    this.persist();
+  }
+
+  /** Saves the match shortly after a change, so a restart can bring it back. */
+  private persist() {
+    if (this.ended || this.shuttingDown || this.members.length === 0) return;
+    this.saveTimer ??= this.clock.setTimeout(() => void this.flush(), SAVE_DELAY_MS);
+  }
+
+  /** Saves now. Resolves once this save (and any before it) is done. */
+  private flush(): Promise<void> {
+    this.saveTimer?.clear();
+    this.saveTimer = undefined;
+    if (this.ended || this.members.length === 0) return this.saving;
+    const json = JSON.stringify(this.toSaved());
+    this.saving = this.saving.then(() => saveLive(this.roomId, json));
+    return this.saving;
+  }
+
+  /** The match is over, or the room closed: the saved copy is deleted, after any save still on its way so that can't bring it back. */
+  private forget() {
+    this.ended = true;
+    this.saveTimer?.clear();
+    this.saveTimer = undefined;
+    const roomId = this.roomId;
+    this.saving = this.saving.then(() => dropLive(roomId));
+  }
+
+  private toSaved(): SavedMatch {
+    return {
+      title: this.title,
+      password: this.password,
+      banned: [...this.banned],
+      members: this.members.map(({ account, seat, vote, deck, isBot }) => ({ account, seat, vote, deck, isBot })),
+      stage: this.stage,
+      size: this.size,
+      mismatch: this.mismatch,
+      coin: this.coin,
+      game: this.game,
+      deckNames: this.deckNames,
+    };
   }
 
   /** The coin waits for the guest to call it (the host already started the vote); the "call" message flips it. */
@@ -393,7 +521,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
   /** One action at a time, only from the right player, and the new state goes out to both. */
   private play(m: Member, run: () => { ok: true; state: GameState; events: GameEvent[] } | { ok: false; error: string }) {
-    if (this.stage !== "playing" || !this.game || this.busy) return;
+    if (this.stage !== "playing" || !this.game || this.busy || this.shuttingDown) return;
     this.busy = true;
     try {
       const r = run();
@@ -403,10 +531,12 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       }
       this.game = r.state;
       this.sendUpdate(r.events);
+      this.persist();
       if (this.game.winner) this.finish(this.game.winner, null);
     } finally {
       this.busy = false;
     }
+    this.continueEndTurn();
     this.scheduleBot();
   }
 
@@ -429,6 +559,17 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     }, 60);
   }
 
+  /** After a restart, once the player is back: the bot carries on with what it was about to do. */
+  private resumeBot() {
+    const bot = this.bot;
+    if (bot && this.stage === "coin" && this.coin && !this.coin.call) this.startCoin(); // it calls the coin again
+    else if (bot && this.stage === "coin" && this.coin?.winner === bot.seat && !this.coin.chose) {
+      this.coin.chose = "first";
+      void this.startGame(bot.seat);
+      this.publish();
+    } else this.scheduleBot();
+  }
+
   private get bot(): Member | undefined {
     return this.members.find((x) => x.isBot);
   }
@@ -440,6 +581,28 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     const r = applyAction(held, seat, action);
     if (r.ok) r.state.players[seat].spareMana = undefined;
     return r;
+  }
+
+  /**
+   * "End turn" stops where something needs a choice first, like the target of a "beginning of combat" trigger (it
+   * triggers even without an attack). Once that has resolved and it's the player's move again, the turn carries on ending.
+   */
+  private continueEndTurn() {
+    const e = this.endingTurn;
+    const g = this.game;
+    if (!e || !g) return;
+    if (this.stage !== "playing" || g.turn !== e.turn || g.winner || g.phase === "cleanup") {
+      this.endingTurn = null;
+      return;
+    }
+    if (playerToAct(g) !== e.seat || g.priority || g.pendingChoice || g.pendingPick) return; // still settling
+    const m = this.members.find((x) => x.seat === e.seat);
+    const r = this.passThroughTurn(e.seat);
+    if (!m || !r.ok) {
+      this.endingTurn = null;
+      return;
+    }
+    this.play(m, () => r);
   }
 
   /** "End turn": passes through the rest of the turn in one go, as the hot-seat button does. */
@@ -470,6 +633,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.winner = winner;
     this.endReason = reason;
     this.stage = "over";
+    this.forget(); // the result is recorded below; there is nothing left to bring back
     const a = this.members.find((x) => x.seat === "p1");
     const b = this.members.find((x) => x.seat === "p2");
     if (a && b && !this.bot) void saveMatch({ p1: a.account.id, p2: b.account.id, winner: winner === "draw" ? null : (winner === "p1" ? a : b).account.id, turns: this.game?.turn ?? 0 });

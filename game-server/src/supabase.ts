@@ -105,3 +105,62 @@ export async function saveMatch(match: { p1: string; p2: string; winner: string 
     console.warn("Could not save the match:", e);
   }
 }
+
+// ───────── matches in progress ─────────
+// Saved after every change, so a restart of the server (a deploy) doesn't end them: see supabase/04-live-matches.sql.
+// Without Supabase settings, or with LIVE_MATCHES=memory (the tests), they are only kept in this process.
+const memory = new Map<string, string>();
+const inMemory = () => process.env.LIVE_MATCHES === "memory" || !URL || !SECRET;
+const KEEP_HOURS = 24; // a saved match nobody came back to is deleted after this long
+
+const warned = new Set<string>();
+const warnOnce = (key: string, ...message: unknown[]) => {
+  if (warned.has(key)) return; // a missing table would otherwise log on every move
+  warned.add(key);
+  console.warn(...message);
+};
+
+async function live(method: "POST" | "DELETE", query: string, body?: string): Promise<void> {
+  try {
+    const res = await fetch(`${URL}/rest/v1/live_matches${query}`, {
+      method,
+      headers: { apikey: SECRET, "content-type": "application/json", prefer: "resolution=merge-duplicates,return=minimal" },
+      body,
+    });
+    if (!res.ok) warnOnce(`${method}${res.status}`, `Could not ${method === "POST" ? "save" : "delete"} a match in progress:`, res.status, await res.text());
+  } catch (e) {
+    warnOnce("unreachable", "Could not reach Supabase for a match in progress:", e);
+  }
+}
+
+/**
+ * `json` is the match already turned into text, so later changes to the room can't leak into a save that is still waiting.
+ * It is stored as text inside the jsonb column: jsonb would reorder the keys, and the match must come back exactly as it was.
+ */
+export async function saveLive(roomId: string, json: string): Promise<void> {
+  if (inMemory()) return void memory.set(roomId, json);
+  await live("POST", "", JSON.stringify({ room_id: roomId, updated_at: new Date().toISOString(), data: json }));
+}
+
+export async function loadLive(roomId: string): Promise<unknown | null> {
+  if (inMemory()) {
+    const json = memory.get(roomId);
+    return json ? JSON.parse(json) : null;
+  }
+  const res = await fetch(`${URL}/rest/v1/live_matches?select=data&room_id=eq.${encodeURIComponent(roomId)}`, { headers: { apikey: SECRET } });
+  if (!res.ok) throw new Error(`Could not load the match (${res.status}).`);
+  const rows = (await res.json()) as { data: unknown }[];
+  const data = rows[0]?.data;
+  return typeof data === "string" ? JSON.parse(data) : (data ?? null);
+}
+
+export async function dropLive(roomId: string): Promise<void> {
+  if (inMemory()) return void memory.delete(roomId);
+  await live("DELETE", `?room_id=eq.${encodeURIComponent(roomId)}`);
+}
+
+/** At start-up: forgets matches that nobody came back to. */
+export async function pruneLive(): Promise<void> {
+  if (inMemory()) return;
+  await live("DELETE", `?updated_at=lt.${new Date(Date.now() - KEEP_HOURS * 3600_000).toISOString()}`);
+}

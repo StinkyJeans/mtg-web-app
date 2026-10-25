@@ -5,7 +5,7 @@ import { Client } from "@colyseus/sdk";
 import type { Room } from "@colyseus/sdk";
 import { createClient } from "@/lib/supabase/client";
 import { setPlayerNames } from "@/app/play/log";
-import { KICKED } from "./protocol";
+import { KICKED, MATCH_GONE } from "./protocol";
 import type { ChatLine, LobbyRoomInfo, RoomSnapshot, StartPayload, UpdatePayload } from "./protocol";
 
 // The browser's one connection to the live game server: the lobby (the list of rooms) and, at most, one match room.
@@ -22,9 +22,11 @@ export interface OnlineState {
   matchId: string | null;
   chat: ChatLine[];
   error: string | null;
+  /** The connection to the match was lost (or the server restarted) and the browser is getting back in. */
+  reconnecting: boolean;
 }
 
-const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null };
+const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null, reconnecting: false };
 let state: OnlineState = empty;
 const listeners = new Set<() => void>();
 const set = (patch: Partial<OnlineState>) => {
@@ -67,7 +69,11 @@ function flash(message: string) {
 const explain = (e: unknown) => (e instanceof Error && e.message ? e.message : typeof e === "string" ? e : "Could not reach the game server.");
 
 // ───────── the lobby: the list of rooms ─────────
+const LOBBY_RETRY_MS = 4000;
+let wantLobby = false; // the dashboard is open: a lost lobby connection (a server restart) is picked up again
+
 export async function connectLobby(): Promise<void> {
+  wantLobby = true;
   if (lobbyRoom || state.lobby === "connecting") return;
   set({ lobby: "connecting", error: null });
   try {
@@ -97,15 +103,18 @@ export async function connectLobby(): Promise<void> {
     room.onLeave(() => {
       lobbyRoom = null;
       set({ lobby: "off", rooms: [] });
+      if (wantLobby) setTimeout(() => void connectLobby(), LOBBY_RETRY_MS);
     });
     set({ lobby: "on" });
   } catch (e) {
     lobbyRoom = null;
     set({ lobby: "off", error: `${explain(e)} (Is the game server running?)` });
+    if (wantLobby) setTimeout(() => void connectLobby(), LOBBY_RETRY_MS);
   }
 }
 
 export function disconnectLobby(): void {
+  wantLobby = false;
   void lobbyRoom?.leave(true);
   lobbyRoom = null;
   set({ lobby: "off", rooms: [] });
@@ -127,9 +136,12 @@ const keep = (token: string | null) => {
 
 function attach(room: Room) {
   matchRoom = room;
+  rejoinFor = null;
   keep(room.reconnectionToken); // a refreshed page can use this to come back to the same seat
   queued.length = 0;
-  set({ snapshot: null, game: null, matchId: room.roomId, chat: [], error: null });
+  // back in the same match (after a server restart): the screen keeps showing it until the server's copy arrives
+  const same = room.roomId === state.matchId;
+  set({ ...(same ? {} : { snapshot: null, game: null, chat: [] }), matchId: room.roomId, reconnecting: false, error: null });
   room.onMessage("room", (s: RoomSnapshot) => set({ snapshot: s }));
   room.onMessage("start", (g: StartPayload) => {
     setPlayerNames(g.names); // the account names are used from the very first frame
@@ -142,13 +154,18 @@ function attach(room: Room) {
   room.onMessage("chat", (m: { from: ChatLine["from"]; name: string; text: string }) => set({ chat: [...state.chat, { id: chatId++, ...m }].slice(-80) }));
   room.onMessage("error", (m: { message: string }) => flash(m.message));
   room.onMessage("closed", (m: { message: string }) => flash(m.message));
+  room.onDrop(() => set({ reconnecting: true })); // the SDK first tries to get the same connection back by itself
+  room.onReconnect(() => set({ reconnecting: false }));
   room.onLeave((code: number) => {
-    if (matchRoom === room) {
-      matchRoom = null;
-      if (code === 4000 || code === KICKED) keep(null); // a deliberate leave: nothing to come back to
-      set({ snapshot: null, game: null, chat: [] });
-      if (code === KICKED) flash("The host removed you from this room.");
+    if (matchRoom !== room) return;
+    matchRoom = null;
+    if (code !== 4000 && code !== KICKED) {
+      void rejoin(room.roomId); // the connection was lost, or the server restarted
+      return;
     }
+    keep(null); // a deliberate leave: nothing to come back to
+    set({ snapshot: null, game: null, chat: [] });
+    if (code === KICKED) flash("The host removed you from this room.");
   });
   room.send("hello"); // handlers are ready: now ask where things stand
 }
@@ -177,11 +194,57 @@ export async function joinRoom(roomId: string, password?: string): Promise<boole
 
 export function leaveRoom(): void {
   keep(null);
+  rejoinFor = null;
   const room = matchRoom;
   matchRoom = null;
   setPlayerNames();
-  set({ snapshot: null, game: null, chat: [] });
+  set({ snapshot: null, game: null, chat: [], reconnecting: false });
   void room?.leave(true);
+}
+
+// ───────── getting back into a match ─────────
+const REJOIN_FOR_MS = 120_000; // long enough for a deploy to finish
+let rejoinFor: string | null = null; // the match being got back into; cleared once in, or when the player leaves it
+
+/** The room again: still running, or brought back from the server's saved copy after a restart. */
+async function findRoom(roomId: string): Promise<Room> {
+  const token = await accessToken();
+  try {
+    return await getClient().joinById(roomId, { token });
+  } catch (e) {
+    if (!(e instanceof Error) || !/not found/.test(e.message)) throw e;
+    return getClient().create("match", { token, restore: roomId });
+  }
+}
+
+/** After a lost connection or a server restart: keeps trying to get back in, with the match still on screen. */
+async function rejoin(roomId: string): Promise<void> {
+  rejoinFor = roomId;
+  set({ reconnecting: true });
+  let ended = false;
+  for (let wait = 1000, until = Date.now() + REJOIN_FOR_MS; Date.now() < until; wait = Math.min(wait * 2, 8000)) {
+    try {
+      const room = await findRoom(roomId);
+      if (rejoinFor !== roomId || matchRoom) {
+        void room.leave(true); // the player moved on while this was on its way
+        return;
+      }
+      attach(room);
+      return;
+    } catch (e) {
+      if ((e as { code?: number }).code === MATCH_GONE) {
+        ended = true;
+        break;
+      }
+    }
+    await new Promise((r) => setTimeout(r, wait));
+    if (rejoinFor !== roomId) return;
+  }
+  if (rejoinFor !== roomId) return;
+  rejoinFor = null;
+  keep(null);
+  set({ snapshot: null, game: null, chat: [], reconnecting: false });
+  flash(ended ? "That match has ended." : "Lost the connection to the match.");
 }
 
 let rejoining = false;
@@ -199,7 +262,12 @@ export async function tryReconnect(): Promise<void> {
   try {
     attach(await getClient().reconnect(ticket));
   } catch {
-    keep(null); // too late: the seat was given up
+    // the server may have restarted since (a deploy): the ticket starts with the room id, and the match can be brought back
+    try {
+      attach(await findRoom(ticket.split(":")[0]));
+    } catch {
+      keep(null); // too late: the seat was given up, or the match is over
+    }
   } finally {
     rejoining = false;
   }

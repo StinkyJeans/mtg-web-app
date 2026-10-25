@@ -136,8 +136,16 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   // falling back to the player to act would flip the screen (and the end popup) to the opponent's side.
   const [seat, setSeat] = useState<PlayerId | null>(null);
   if (online && net.game && net.game.you !== seat) setSeat(net.game.you);
+  // Online: after getting back in (a lost connection, a server restart) the server's copy of the game replaces the one on screen.
+  const [startSeen, setStartSeen] = useState(net.game);
+  if (online && net.game !== startSeen) {
+    setStartSeen(net.game);
+    if (net.game && localGame) setGame(net.game.view);
+  }
   const gameRef = useRef<GameState | null>(null);
   const commitRef = useRef<(r: { state: GameState; events: GameEvent[] }) => Promise<void>>(async () => {});
+  const endTurnRef = useRef<() => Promise<void>>(async () => {});
+  const [endingTurn, setEndingTurn] = useState<number | null>(null); // the turn "End turn" was pressed in
   const dealt = useRef(false);
   const background = useBattlefieldBackground(); // the picture behind the battlefield
   const look = useAppearance(); // each player's card sleeves and playmat
@@ -198,7 +206,15 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   useEffect(() => {
     gameRef.current = game;
     commitRef.current = commit;
+    endTurnRef.current = endTurn;
   });
+
+  // Hot-seat: "End turn" stopped for a choice along the way (a trigger's target) carries on once it's settled. Online the server does this.
+  useEffect(() => {
+    if (online || !game || endingTurn !== game.turn || game.winner || game.phase === "cleanup") return;
+    if (game.priority || game.pendingChoice || game.pendingPick) return;
+    void endTurnRef.current();
+  }, [online, game, endingTurn]);
 
   // Online: the opening hand is hidden before it is ever painted, then flies in from the library.
   useLayoutEffect(() => {
@@ -582,6 +598,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    */
   async function endTurn() {
     if (isCombatPlaying() || isPileBusy()) return;
+    setEndingTurn(state.turn);
     if (online) {
       if (mine) netSend("endTurn");
       return;
@@ -591,7 +608,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     for (let i = 0; i < 6 && s.turn === state.turn && !s.winner && s.phase !== "cleanup"; i++) {
       const r = applyAction(s, playerToAct(s), { type: "passPhase" });
       if (!r.ok) {
-        setError(r.error);
+        if (i === 0) setError(r.error); // later on, a trigger along the way needs a choice first: the turn carries on after it
         break;
       }
       s = r.state;
@@ -1291,9 +1308,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           />
         )}
 
-        {mine && <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} />}
         {online && !mine && <ResolvingNotice state={state} onZoom={setZoomed} />}
 
+        {mine && state.pendingChoice && endingTurn === state.turn && (
+          <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            ⏭ Ending your turn: {state.pendingChoice.item.sourceName} still triggers along the way, even without an attack (that&apos;s the rule). Choose its target and your turn then ends by itself.
+          </p>
+        )}
         {mine && (state.pendingChoice || targeting) && (
           <TargetPanel
             state={state}
@@ -1450,6 +1471,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         </div>
       )}
 
+      {mine && <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} onPreview={showPreview} onUnpreview={() => setHandHover(null)} />}
       {viewingYard && <GraveyardDialog state={state} owner={viewingYard.owner} zone={viewingYard.zone} onClose={() => (setHandHover(null), setViewingYard(null))} onZoom={setZoomed} onPreview={showPreview} onUnpreview={() => setHandHover(null)} />}
 
       {handHover && !zoomed && !state.winner && (
@@ -1472,6 +1494,11 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       )}
 
       {turnSplash > 0 && !state.winner && <TurnSplash key={turnSplash} />}
+      {online && net.reconnecting && (
+        <div role="status" className="pointer-events-none fixed inset-x-0 top-3 z-30 flex justify-center px-4">
+          <div className="rounded-full border border-amber-300/60 bg-slate-950/85 px-4 py-2 text-sm font-semibold text-amber-100 shadow-xl shadow-black/40">⟳ Reconnecting to the game server…</div>
+        </div>
+      )}
       {online && showEndTurn && !state.winner && !targeting && !plan && attacking.length === 0 && (
         <PassReminder state={state} after={state.phase === "main2" && onlyLandsLeft ? REMIND_DONE_MS : REMIND_IDLE_MS} opponent={playerName(other)} onEndTurn={endTurn} />
       )}
