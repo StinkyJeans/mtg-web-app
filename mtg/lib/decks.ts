@@ -71,8 +71,18 @@ export const DECK_PAGE_SIZE = 13;
 /** The sections of the official decks, in order. A deck of any other type gets a section of its own after these. */
 export const OFFICIAL_SECTIONS: { deckType: string; title: string; blurb: string }[] = [
   { deckType: "Theme Deck", title: "Theme decks", blurb: "Ready-to-play decks built around one idea." },
-  { deckType: "Foundations", title: "Foundations pairs", blurb: "Two Foundations Jumpstart packs shuffled together: 40 cards." },
+  { deckType: "Foundations", title: "Foundations pairs", blurb: "Two Foundations Beginner Box packs shuffled together: 40 cards." },
 ];
+
+/** The single 20-card Beginner Box packs. They aren't decks of their own: players mix two of them. */
+export const PACK_TYPE = "Foundations pack";
+
+/** Several decks shuffled into one: the copies of each card added up. */
+export function mixEntries(...parts: DeckEntries[]): DeckEntries {
+  const out: DeckEntries = {};
+  for (const part of parts) for (const [id, qty] of Object.entries(part)) out[id] = (out[id] ?? 0) + qty;
+  return out;
+}
 
 const SET_NAMES: Record<string, string> = { SOS: "Secrets of Strixhaven", ECL: "Lorwyn Eclipse", FDN: "Foundations" };
 export const setName = (code: string | null) => (code ? (SET_NAMES[code] ?? code) : null);
@@ -120,7 +130,7 @@ export async function listPlayableDecks(): Promise<{ choices: DeckChoice[]; hidd
   const ready = (d: Deck) => deckStatus(defs, d.entries).ready;
   const choice = (d: Deck, isOfficial: boolean): DeckChoice => ({ id: d.id, name: d.name, ids: expandDeck(d.entries), official: isOfficial });
   return {
-    choices: [...mine.filter(ready).map((d) => choice(d, false)), ...official.filter(ready).map((d) => choice(d, true))],
+    choices: [...mine.filter(ready).map((d) => choice(d, false)), ...official.filter((d) => d.deckType !== PACK_TYPE && ready(d)).map((d) => choice(d, true))],
     hidden: mine.filter((d) => !ready(d)).length,
   };
 }

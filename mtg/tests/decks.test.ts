@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deckColors, deckStatus, expandDeck, setName } from "@/lib/decks";
+import { deckColors, deckStatus, expandDeck, mixEntries, setName } from "@/lib/decks";
 import { DEFS } from "./fixtures";
 
 test("a deck becomes one card id per copy", () => {
@@ -51,4 +51,9 @@ test("set codes read as set names", () => {
   assert.equal(setName("SOS"), "Secrets of Strixhaven");
   assert.equal(setName("XYZ"), "XYZ");
   assert.equal(setName(null), null);
+});
+
+test("mixing two packs adds up the copies of each card", () => {
+  assert.deepEqual(mixEntries({ bears: 2, mountain: 8 }, { mountain: 9, shock: 1 }), { bears: 2, mountain: 17, shock: 1 });
+  assert.deepEqual(mixEntries(), {});
 });

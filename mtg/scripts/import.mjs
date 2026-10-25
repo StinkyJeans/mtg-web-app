@@ -297,6 +297,8 @@ const FOUNDATIONS_PAIRS = [
   ["Vampires", "Undead"],
 ];
 const isFoundationsPack = (meta) => meta.code === "FDN" && meta.type === "Jumpstart";
+// The single packs are kept too, so players can mix any two of them (lib/decks.ts PACK_TYPE).
+const PACK_TYPE = "Foundations pack";
 
 /** The Foundations pairs, each as one deck: the cards of both packs added up. */
 function foundationsPairs(packs) {
@@ -351,7 +353,12 @@ async function importDecks() {
     if (++done % 100 === 0) console.log(`downloaded ${done}/${list.length}`);
   });
 
-  const decks = [...downloaded.filter((d) => !isFoundationsPack(d.meta)), ...foundationsPairs(downloaded.filter((d) => isFoundationsPack(d.meta)))];
+  const packs = downloaded.filter((d) => isFoundationsPack(d.meta));
+  const decks = [
+    ...downloaded.filter((d) => !isFoundationsPack(d.meta)),
+    ...packs.map((p) => ({ ...p, meta: { ...p.meta, type: PACK_TYPE } })),
+    ...foundationsPairs(packs),
+  ];
   const total = decks.reduce((n, d) => n + d.counts.size, 0);
   console.log(`${decks.length} decks, ${total} deck-card rows, ${missing} cards skipped (tokens etc.).`);
   console.log("decks:", decks.map((d) => d.meta.name).join(", "));

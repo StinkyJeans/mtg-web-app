@@ -4,28 +4,17 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CardDef } from "@mtg/engine";
-import { copyOfficialDeck, DECK_PAGE_SIZE, deckColors, deckStatus, deleteDeck, listMyDecks, listOfficialDecks, loadDefsFor, OFFICIAL_SECTIONS, setName } from "@/lib/decks";
+import { copyOfficialDeck, DECK_PAGE_SIZE, deckColors, deckStatus, deleteDeck, listMyDecks, listOfficialDecks, loadDefsFor, OFFICIAL_SECTIONS, PACK_TYPE, setName } from "@/lib/decks";
 import type { Deck, DeckEntries, OfficialDeck } from "@/lib/decks";
 import { cardImageUrl } from "@/lib/cards";
 import LiveWallpaper from "../LiveWallpaper";
-import { ManaSymbol } from "../play/ManaSymbols";
 import { RowSkeletons, Skeleton } from "../Skeleton";
+import DeckColors from "./DeckColors";
 import DeckPreview from "./DeckPreview";
+import MixPacks from "./MixPacks";
 
 const pill = (on: boolean) =>
   `rounded px-3 py-1 text-sm ${on ? "bg-amber-500 font-semibold text-black" : "bg-white/15 text-slate-200 hover:bg-white/25"}`;
-
-/** The deck's colors as mana symbols. */
-function Colors({ colors }: { colors: string[] }) {
-  if (colors.length === 0) return null;
-  return (
-    <span className="flex gap-0.5" aria-label={`Colors: ${colors.join(", ")}`}>
-      {colors.map((c) => (
-        <ManaSymbol key={c} symbol={c} />
-      ))}
-    </span>
-  );
-}
 
 const cardTotal = (entries: DeckEntries) => Object.values(entries).reduce((n, q) => n + q, 0);
 
@@ -139,7 +128,7 @@ function MyDecks() {
             <Link href={`/decks/${deck.id}`} className="font-semibold hover:text-[#fcd34d]">
               {deck.name}
             </Link>
-            <Colors colors={deckColors(data.defs, deck.entries)} />
+            <DeckColors colors={deckColors(data.defs, deck.entries)} />
             <span className="text-sm text-slate-100">{status.count} cards</span>
             {status.ready ? (
               <span className="rounded bg-emerald-400/20 px-2 py-0.5 text-xs text-[#a7f3d0]">Ready to play</span>
@@ -213,7 +202,8 @@ function OfficialDecks() {
   if (data.error) return <p className="text-sm text-[#fca5a5]">Could not load decks: {data.error}</p>;
   if (data.decks.length === 0) return <p className="text-slate-100">No ready-made decks yet.</p>;
 
-  const known = new Set(OFFICIAL_SECTIONS.map((s) => s.deckType));
+  const packs = data.decks.filter((d) => d.deckType === PACK_TYPE).sort((a, b) => a.name.localeCompare(b.name));
+  const known = new Set([...OFFICIAL_SECTIONS.map((s) => s.deckType), PACK_TYPE]);
   const others = [...new Set(data.decks.map((d) => d.deckType ?? "Other"))].filter((t) => !known.has(t));
   const sections = [...OFFICIAL_SECTIONS, ...others.map((t) => ({ deckType: t, title: t, blurb: "" }))]
     .map((s) => ({ ...s, decks: data.decks.filter((d) => (d.deckType ?? "Other") === s.deckType) }))
@@ -244,6 +234,7 @@ function OfficialDecks() {
               />
             ))}
           </ul>
+          {section.deckType === "Foundations" && packs.length >= 2 && <MixPacks packs={packs} defs={data.defs} />}
         </section>
       ))}
 
@@ -280,7 +271,7 @@ function OfficialDeckTile({
         <div className="flex items-center gap-2">
           <span className="font-semibold">{deck.name}</span>
           <span className="ml-auto">
-            <Colors colors={deckColors(defs, deck.entries)} />
+            <DeckColors colors={deckColors(defs, deck.entries)} />
           </span>
         </div>
         <span className="text-xs text-slate-200">

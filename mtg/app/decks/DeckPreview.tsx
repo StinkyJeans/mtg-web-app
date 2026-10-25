@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import type { CardDef } from "@mtg/engine";
 import { fetchCardsByIds } from "@/lib/cards";
-import { getDeckContents, setName } from "@/lib/decks";
+import { getDeckContents, mixEntries, setName } from "@/lib/decks";
 import type { DeckBoard, DeckContents, OfficialDeck } from "@/lib/decks";
 import { Lightbox } from "../play/CardDetail";
 import CardView from "../play/CardView";
@@ -26,6 +26,7 @@ type Loaded = { contents: DeckContents; defs: Record<string, CardDef> };
  */
 export default function DeckPreview({
   deck,
+  parts,
   busy = false,
   onCopy,
   editHref,
@@ -33,6 +34,8 @@ export default function DeckPreview({
   onClose,
 }: {
   deck: Pick<OfficialDeck, "id" | "name"> & Partial<Pick<OfficialDeck, "code" | "releaseDate">>;
+  /** Decks shown together as one (two packs mixed), instead of `deck.id`. */
+  parts?: string[];
   busy?: boolean;
   onCopy?: () => void;
   /** A link to edit the deck, for your own decks. */
@@ -46,10 +49,13 @@ export default function DeckPreview({
   const [error, setError] = useState<string | null>(null);
   const [zoomedIdx, setZoomedIdx] = useState<number | null>(null); // position in the deck, while a card is open large
 
+  const sources = (parts ?? [deck.id]).join(",");
   useEffect(() => {
     let cancelled = false;
-    getDeckContents(deck.id)
-      .then(async (contents) => {
+    Promise.all(sources.split(",").map((id) => getDeckContents(id)))
+      .then(async (all) => {
+        const contents: DeckContents = { id: sources, name: all[0].name, boards: { commander: {}, main: {}, side: {} } };
+        for (const b of BOARDS) contents.boards[b.id] = mixEntries(...all.map((c) => c.boards[b.id]));
         const ids = BOARDS.flatMap((b) => Object.keys(contents.boards[b.id]));
         return { contents, defs: await fetchCardsByIds(ids) };
       })
@@ -58,7 +64,7 @@ export default function DeckPreview({
     return () => {
       cancelled = true;
     };
-  }, [deck.id]);
+  }, [sources]);
 
   // Freeze the moving wallpaper behind the blurred glass while this is open.
   useEffect(() => holdWallpaper(), []);
