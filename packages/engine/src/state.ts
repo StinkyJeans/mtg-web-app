@@ -27,12 +27,14 @@ export function shuffle<T>(items: readonly T[], rng: number): [T[], number] {
 }
 
 function makePlayer(id: PlayerId, deck: string[], rng: number, defs: Record<string, CardDef>): [PlayerState, number] {
-  const cards: CardInstance[] = deck.map((defId, i) => {
+  for (const defId of deck) {
     if (!defs[defId]) throw new Error(`Unknown card: ${defId}`);
     if (defs[defId].playable === false || !isSupportedCard(defs[defId])) throw new Error(`${defs[defId].name} can't be played yet.`);
-    return { iid: `${id}-${i}`, defId, owner: id };
-  });
-  const [library, nextRng] = shuffle(cards, rng);
+  }
+  // Shuffled before the ids are given out: `viewFor` hides a card but keeps its id, and an id that followed
+  // the deck list (cards grouped, the starter deck's order public) would tell the opponent which card it is.
+  const [order, nextRng] = shuffle(deck, rng);
+  const library: CardInstance[] = order.map((defId, i) => ({ iid: `${id}-${i}`, defId, owner: id }));
   const player: PlayerState = {
     id,
     life: STARTING_LIFE,

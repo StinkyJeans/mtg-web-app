@@ -1396,6 +1396,7 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
           bottomIids: top.map((c) => c.iid),
           randomBottom: effect.random,
           restToGraveyard: effect.restTo === "graveyard",
+          reveal: effect.reveal,
         });
         break;
       }
@@ -1418,6 +1419,7 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
           prompt: toHand ? `Search your library: choose a ${any ? "card" : "basic land"} to put into your hand` : `Search your library: choose a basic land to put onto the battlefield${effect.tapped === false ? "" : " tapped"}`,
           kind: toHand ? "searchAny" : "searchLand",
           entersTapped: effect.tapped !== false,
+          reveal: effect.reveal,
           options,
           optional: true,
           owner: searcher,

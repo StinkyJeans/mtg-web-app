@@ -65,3 +65,10 @@ test("the engine still works on a view: the viewer's legal actions are the same"
   const v = viewFor(g, "p1");
   assert.deepEqual(getLegalActions(v, "p1"), getLegalActions(g, "p1"));
 });
+
+test("a hidden card's id doesn't follow the deck list, so it can't tell the opponent which card it is", () => {
+  const g = game(); // p1's list is 20 Mountains, then 20 Forests
+  const all = [...g.players.p1.hand, ...g.players.p1.library];
+  const firstHalf = all.filter((c) => Number(c.iid.split("-")[1]) < 20).map((c) => c.defId);
+  assert.ok(firstHalf.includes("mountain") && firstHalf.includes("forest"));
+});

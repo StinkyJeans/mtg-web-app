@@ -17,11 +17,13 @@ export interface OnlineState {
   snapshot: RoomSnapshot | null;
   /** Set once the match has started. */
   game: StartPayload | null;
+  /** The last match room joined. Kept after leaving it, so the play screen is rebuilt only when a new match begins. */
+  matchId: string | null;
   chat: ChatLine[];
   error: string | null;
 }
 
-const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, chat: [], error: null };
+const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null };
 let state: OnlineState = empty;
 const listeners = new Set<() => void>();
 const set = (patch: Partial<OnlineState>) => {
@@ -124,7 +126,7 @@ function attach(room: Room) {
   matchRoom = room;
   keep(room.reconnectionToken); // a refreshed page can use this to come back to the same seat
   queued.length = 0;
-  set({ snapshot: null, game: null, chat: [], error: null });
+  set({ snapshot: null, game: null, matchId: room.roomId, chat: [], error: null });
   room.onMessage("room", (s: RoomSnapshot) => set({ snapshot: s }));
   room.onMessage("start", (g: StartPayload) => {
     setPlayerNames(g.names); // the account names are used from the very first frame

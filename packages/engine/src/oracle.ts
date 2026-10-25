@@ -800,11 +800,12 @@ function parseChoiceText(text: string, ctx: Ctx): Effect[] | null {
   if (m) return [{ type: "revealPut", n: toNumber(m[1]) ?? 0, filter: { subtypes: [singularType(m[2])] }, maxMV: Number(m[3]) }];
   m = /^search your library for a basic land card, put (?:that card|it) onto the battlefield( tapped)?, then shuffle$/.exec(t);
   if (m) return [{ type: "search", tapped: m[1] !== undefined }];
-  if (/^search your library for a basic land card, (?:reveal (?:it|that card), )?put (?:that card|it) into your hand, then shuffle$/.test(t)) return [{ type: "search", for: "basicLand", to: "hand" }];
+  m = /^search your library for a basic land card, (reveal (?:it|that card), )?put (?:that card|it) into your hand, then shuffle$/.exec(t);
+  if (m) return [{ type: "search", for: "basicLand", to: "hand", reveal: m[1] !== undefined }];
   if (t === "search your library for a card, put that card into your hand, then shuffle") return [{ type: "search", for: "any", to: "hand" }];
   const reveal = new RegExp(`^look at the top (${NUMBER_WORDS}|\\d+) cards of your library\\. you may reveal (?:a|an) (.+?) card from among them and put (?:it|that card) into your hand\\. put the rest on the bottom of your library in (a random|any) order$`).exec(t);
   const filter = reveal ? parseCardFilter(reveal[2]) : null;
-  if (reveal && filter) return [{ type: "revealToHand", n: toNumber(reveal[1]) ?? 0, filter, random: reveal[3] === "a random" }];
+  if (reveal && filter) return [{ type: "revealToHand", n: toNumber(reveal[1]) ?? 0, filter, random: reveal[3] === "a random", reveal: true }];
   return null;
 }
 

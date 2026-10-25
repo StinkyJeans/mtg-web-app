@@ -108,6 +108,15 @@ const RANDOM_ID = "random"; // a deck built at random when the game starts
 const HAND_ZOOM_W = 320;
 
 /**
+ * The online play screen, one per match. Next.js keeps a page alive after leaving it (cacheComponents),
+ * so without the key a new match would open on the last match's board and end popup.
+ */
+export function OnlineGame() {
+  const { matchId } = useOnline();
+  return <Game key={matchId ?? "none"} online />;
+}
+
+/**
  * The play screen. On its own (hot-seat) it runs the game itself, with both players on one screen.
  * With `online` the game runs on the game server: this screen shows the game as the server describes it to this player,
  * sends this player's actions, and does nothing while it is the other player's turn.
@@ -118,7 +127,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   /** The game on screen: hot-seat, the one this screen has been updating, or (right after joining) the server's first view. */
   const game = localGame ?? (online ? (net.game?.view ?? null) : null);
   const router = useRouter();
-  const seat = online ? (net.game?.you ?? null) : null; // which player this browser is
+  // Which player this browser is. Remembered, because leaving the room at the end clears `net.game`:
+  // falling back to the player to act would flip the screen (and the end popup) to the opponent's side.
+  const [seat, setSeat] = useState<PlayerId | null>(null);
+  if (online && net.game && net.game.you !== seat) setSeat(net.game.you);
   const gameRef = useRef<GameState | null>(null);
   const commitRef = useRef<(r: { state: GameState; events: GameEvent[] }) => Promise<void>>(async () => {});
   const dealt = useRef(false);
@@ -959,7 +971,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const combatZone = (id: PlayerId) => {
     const perms = state.players[id].battlefield.filter((p) => inCombat(id, p));
     const attackingSide = id === state.active;
-    const setup = (state.phase === "attackers" && id === actor) || (state.phase === "blockers" && id === actor);
+    const setup = mine && (state.phase === "attackers" || state.phase === "blockers") && id === actor;
     if (perms.length === 0 && !setup) return null;
     return (
       <div className={`flex flex-col gap-1 rounded-lg border-2 border-dashed px-2 py-1 ${attackingSide ? "border-red-400 bg-[#450a0a]/45" : "border-sky-400 bg-[#082f49]/45"}`}>
@@ -1090,7 +1102,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
               </button>
             </Tip>
           )}
-          {state.phase === "mulligan" && (
+          {mine && state.phase === "mulligan" && (
             <Tip text={mulliganTip}>
               <button
                 onClick={() => act({ type: "mulligan" })}
@@ -1154,7 +1166,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
         {/* Panels that appear while something needs an answer. They share a box that scrolls on its own, so the board never moves. */}
         <div className="action-box flex max-h-[34dvh] shrink-0 flex-col gap-1.5 overflow-y-auto empty:hidden">
-        {state.phase === "blockers" && !state.priority && !state.pendingChoice && !state.pendingPick && <BlockPanel state={state} actor={actor} blocks={blocks} onChange={(b) => { setBlocks(b); setPicked(null); }} />}
+        {mine && state.phase === "blockers" && !state.priority && !state.pendingChoice && !state.pendingPick && <BlockPanel state={state} actor={actor} blocks={blocks} onChange={(b) => { setBlocks(b); setPicked(null); }} />}
 
         {state.phase === "attackers" && attacking.length > 0 && state.players[other].battlefield.some((p) => state.cards[p.card.defId].type === "planeswalker") && (
           <section className="flex flex-col gap-2 rounded-lg border border-red-400/60 bg-red-50 p-3">
@@ -1244,9 +1256,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           />
         )}
 
-        <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} />
+        {mine && <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} />}
 
-        {(state.pendingChoice || targeting) && (
+        {mine && (state.pendingChoice || targeting) && (
           <TargetPanel
             state={state}
             controller={actor}
@@ -1259,7 +1271,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           />
         )}
 
-        {damageNeeded.length > 0 && (
+        {mine && damageNeeded.length > 0 && (
           <DamagePanel
             state={state}
             needed={damageNeeded}
@@ -1304,7 +1316,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           {/* While choosing cards (mulligan, discard) the hand stays together; otherwise playable cards come first, apart from the rest. */}
           {(() => {
             // While deciding whether to keep or mulligan the cards can only be looked at, until a mulligan means choosing cards to bottom.
-            const lookOnly = state.phase === "mulligan" && mulligansTaken === 0;
+            // Online, the player waiting for the other to keep or discard can only look too.
+            const lookOnly = (state.phase === "mulligan" && mulligansTaken === 0) || (!mine && (state.phase === "mulligan" || state.phase === "cleanup"));
             const choosing = state.phase === "mulligan" || state.phase === "cleanup" || state.pendingPick !== null || state.winner !== null;
             const card = (c: (typeof showHand)[number]) => {
               const notes = handNotes(c.defId, playable.has(c.iid));
