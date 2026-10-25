@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { joinRoom } from "@/lib/online/session";
 import type { LobbyRoomInfo, Stage } from "@/lib/online/protocol";
 import type { OnlineState } from "@/lib/online/session";
@@ -52,29 +53,81 @@ export default function LiveMatches({ online, inRoom }: { online: OnlineState; i
 function RoomRow({ room, canJoin }: { room: LobbyRoomInfo; canJoin: boolean }) {
   const status = STATUS[room.status] ?? STATUS.waiting;
   const open = room.status === "waiting" && room.clients < room.maxClients && !room.bot;
+  const [asking, setAsking] = useState(false); // a locked room: the password box is open
+  const [password, setPassword] = useState("");
+
+  async function join() {
+    if (room.locked && !asking) {
+      setAsking(true);
+      return;
+    }
+    if (!(await joinRoom(room.roomId, room.locked ? password : undefined))) return; // the reason shows under the list
+    setAsking(false);
+    setPassword("");
+  }
+
   return (
-    <li className="flex items-center gap-3 rounded-xl border border-white/15 bg-white/10 px-3 py-2">
-      <div className="min-w-0 flex-1">
-        <div className="truncate text-[15px] font-semibold">{room.name}</div>
-        <div className="truncate text-sm text-slate-300">
-          {room.players.length > 0 ? room.players.join(" vs ") : `Host: ${room.host}`}
-          {room.bot ? " · 🤖" : ""}
-          {room.status === "playing" && room.turn > 0 ? ` · turn ${room.turn}` : ""}
+    <li className="flex flex-col gap-2 rounded-xl border border-white/15 bg-white/10 px-3 py-2">
+      <div className="flex items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[15px] font-semibold">
+            {room.locked && <span title="Needs a password" aria-label="Needs a password">🔒 </span>}
+            {room.name}
+          </div>
+          <div className="truncate text-sm text-slate-300">
+            {room.players.length > 0 ? room.players.join(" vs ") : `Host: ${room.host}`}
+            {room.bot ? " · 🤖" : ""}
+            {room.status === "playing" && room.turn > 0 ? ` · turn ${room.turn}` : ""}
+          </div>
         </div>
+        <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${status.chip}`}>
+          {room.status === "playing" && <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-red-400 align-middle" aria-hidden="true" />}
+          {status.label}
+        </span>
+        {open && !asking && (
+          <button
+            onClick={() => void join()}
+            disabled={!canJoin}
+            title={canJoin ? "Join this room" : "You are already in a room"}
+            className="shrink-0 rounded-lg bg-amber-400 px-3 py-1 text-sm font-bold text-black transition hover:bg-amber-300 disabled:opacity-40"
+          >
+            Join
+          </button>
+        )}
       </div>
-      <span className={`shrink-0 rounded-full px-2 py-0.5 text-xs font-bold ring-1 ${status.chip}`}>
-        {room.status === "playing" && <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-red-400 align-middle" aria-hidden="true" />}
-        {status.label}
-      </span>
-      {open && (
-        <button
-          onClick={() => void joinRoom(room.roomId)}
-          disabled={!canJoin}
-          title={canJoin ? "Join this room" : "You are already in a room"}
-          className="shrink-0 rounded-lg bg-amber-400 px-3 py-1 text-sm font-bold text-black transition hover:bg-amber-300 disabled:opacity-40"
+      {open && asking && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            void join();
+          }}
+          className="flex items-center gap-2"
         >
-          Join
-        </button>
+          <input
+            autoFocus
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            maxLength={40}
+            autoComplete="off"
+            placeholder="Password"
+            aria-label={`Password for ${room.name}`}
+            className="min-w-0 flex-1 rounded-lg border border-white/25 bg-slate-950/55 px-3 py-1.5 text-[15px] text-white placeholder:text-slate-300 focus:border-amber-300 focus:outline-none"
+          />
+          <button type="submit" disabled={!canJoin || !password} className="shrink-0 rounded-lg bg-amber-400 px-3 py-1.5 text-sm font-bold text-black transition hover:bg-amber-300 disabled:opacity-40">
+            Join
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setAsking(false);
+              setPassword("");
+            }}
+            aria-label="Cancel"
+            className="shrink-0 rounded-lg border border-white/30 bg-white/10 px-2.5 py-1 text-base leading-none hover:bg-white/20"
+          >
+            ×
+          </button>
+        </form>
       )}
     </li>
   );

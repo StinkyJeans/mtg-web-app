@@ -4,6 +4,8 @@ import type { GameEvent, GameState, PlayerId } from "@mtg/engine";
 
 export type Stage = "waiting" | "vote" | "decks" | "coin" | "playing" | "over";
 export const DECK_SIZES = [20, 40, 60] as const;
+/** Close code for a guest the host removed: the browser says so, and doesn't try to reconnect. */
+export const KICKED = 4100;
 
 /** What a room looks like to the lobby list. */
 export interface LobbyRoomInfo {
@@ -13,10 +15,12 @@ export interface LobbyRoomInfo {
   players: string[];
   status: Stage;
   turn: number;
-  /** A room with a computer opponent: nobody else can join it. */
-  bot: boolean;
   clients: number;
   maxClients: number;
+  /** A password is needed to join. */
+  locked: boolean;
+  /** A room with a computer opponent: nobody else can join it. */
+  bot: boolean;
 }
 
 /** Where a room stands, as sent to each player in it. */
@@ -25,10 +29,12 @@ export interface RoomSnapshot {
   name: string;
   you: PlayerId;
   host: PlayerId;
+  locked: boolean;
   size: number | null;
   mismatch: boolean;
   players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; bot?: boolean }[];
-  coin: { call: "heads" | "tails"; result: "heads" | "tails"; winner: PlayerId; chose: "first" | "second" | null } | null;
+  /** `call`, `result` and `winner` stay null until the caller has called heads or tails. */
+  coin: { caller: PlayerId; call: "heads" | "tails" | null; result: "heads" | "tails" | null; winner: PlayerId | null; chose: "first" | "second" | null } | null;
   winner: PlayerId | "draw" | null;
   endReason: string | null;
 }

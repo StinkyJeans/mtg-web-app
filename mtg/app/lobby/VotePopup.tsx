@@ -9,6 +9,7 @@ import { buildRandomDeck } from "@/lib/randomDeck";
 import { leaveRoom, send } from "@/lib/online/session";
 import { DECK_SIZES } from "@/lib/online/protocol";
 import type { RoomSnapshot } from "@/lib/online/protocol";
+import { KickButton } from "./RoomPopup";
 
 interface DeckOption {
   id: string;
@@ -30,6 +31,7 @@ export default function VotePopup({ room }: { room: RoomSnapshot }) {
   useEffect(() => holdWallpaper(), []);
   const at = STEPS.findIndex((s) => s.stage === room.stage);
   const me = room.players.find((p) => p.seat === room.you);
+  const guest = room.you === room.host ? room.players.find((p) => p.seat !== room.host) : undefined; // the host may still remove the guest
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Vote" className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
@@ -42,6 +44,7 @@ export default function VotePopup({ room }: { room: RoomSnapshot }) {
               </li>
             ))}
           </ol>
+          {guest && <KickButton name={guest.name} />}
           <button onClick={() => leaveRoom()} aria-label="Leave the room" title="Leave the room" className="rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-lg leading-none hover:bg-white/20">
             ×
           </button>
@@ -174,24 +177,26 @@ function CoinStep({ room }: { room: RoomSnapshot }) {
   const [landed, setLanded] = useState(false);
   const onLanded = useCallback(() => setLanded(true), []);
   const name = (seat: "p1" | "p2") => room.players.find((p) => p.seat === seat)?.name ?? "";
-  const iWon = coin.winner === room.you;
+  const { call, result, winner } = coin;
+  if (!call || !result || !winner) return <CallStep room={room} />;
+  const iWon = winner === room.you;
 
   return (
     <section className="flex flex-col items-center gap-3 text-center">
       <h2 className="text-2xl font-extrabold">Coin toss</h2>
-      <CoinDisplay result={coin.result} onLanded={onLanded} className="h-64 w-[min(22rem,80vw)]" />
+      <CoinDisplay result={result} onLanded={onLanded} className="h-64 w-[min(22rem,80vw)]" />
       {!landed ? (
         <p className="text-[15px] text-slate-200">
-          {name("p1")} called <span className="font-bold capitalize text-[#fde68a]">{coin.call}</span>…
+          {name(coin.caller)} called <span className="font-bold capitalize text-[#fde68a]">{call}</span>…
         </p>
       ) : (
         <>
           <p className="text-lg">
-            It&apos;s <span className="font-extrabold capitalize">{coin.result}</span>! <span className="font-bold text-[#fde68a]">{name(coin.winner)}</span> wins the flip.
+            It&apos;s <span className="font-extrabold capitalize">{result}</span>! <span className="font-bold text-[#fde68a]">{name(winner)}</span> wins the flip.
           </p>
           {coin.chose ? (
             <p className="rounded-xl bg-emerald-400/20 px-4 py-2 text-[15px] font-semibold text-[#a7f3d0]">
-              {name(coin.winner)} chose to go {coin.chose}. Starting the match…
+              {name(winner)} chose to go {coin.chose}. Starting the match…
             </p>
           ) : iWon ? (
             <>
@@ -206,9 +211,38 @@ function CoinStep({ room }: { room: RoomSnapshot }) {
               </div>
             </>
           ) : (
-            <p className="rounded-xl bg-white/10 px-4 py-2 text-[15px]">Waiting for {name(coin.winner)} to choose who goes first…</p>
+            <p className="rounded-xl bg-white/10 px-4 py-2 text-[15px]">Waiting for {name(winner)} to choose who goes first…</p>
           )}
         </>
+      )}
+    </section>
+  );
+}
+
+/** Before the flip: the caller picks heads or tails, the other player waits. */
+function CallStep({ room }: { room: RoomSnapshot }) {
+  const caller = room.coin!.caller;
+  const callerName = room.players.find((p) => p.seat === caller)?.name ?? "";
+  return (
+    <section className="flex flex-col items-center gap-4 text-center">
+      <div>
+        <h2 className="text-2xl font-extrabold">Coin toss</h2>
+        <p className="mt-1 text-[15px] text-slate-200">Whoever wins the toss chooses who goes first.</p>
+      </div>
+      {caller === room.you ? (
+        <>
+          <p className="text-lg font-semibold">Call it!</p>
+          <div className="flex gap-3">
+            <button onClick={() => send("call", { side: "heads" })} className="rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-6 py-3 text-base font-extrabold text-black hover:-translate-y-0.5">
+              Heads
+            </button>
+            <button onClick={() => send("call", { side: "tails" })} className="rounded-xl border border-white/30 bg-white/10 px-6 py-3 text-base font-bold hover:bg-white/20">
+              Tails
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="rounded-xl bg-white/10 px-4 py-2 text-[15px]">Waiting for {callerName} to call heads or tails…</p>
       )}
     </section>
   );

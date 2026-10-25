@@ -106,6 +106,27 @@ test("search for any card puts it into your hand and shuffles", () => {
   assert.equal(g.players.p1.library.length, 2);
 });
 
+/** What the game says about a pick: these lines go to both players, so they must not name a card the opponent can't see. */
+const pickText = (g: GameState, iid: string) => {
+  const r = applyAction(g, "p1", { type: "pick", iid });
+  assert.ok(r.ok, r.ok ? "" : r.error);
+  return r.events.flatMap((e) => (e.type === "effect" ? [e.text] : [])).join(" ");
+};
+
+test("a tutor that doesn't reveal keeps the card's name from the opponent", () => {
+  let g = setup(["tutor"]);
+  lib(g, ["bear", "elf", "mountain"]);
+  g = settle(act(g, "p1", { type: "castSpell", iid: "h0", targets: [] }));
+  assert.doesNotMatch(pickText(g, "c1"), /\belf\b/);
+});
+
+test("a card that is revealed is named for the opponent", () => {
+  let g = setup(["digger"]);
+  lib(g, ["mountain", "bear", "mountain", "elf"]);
+  g = settle(act(g, "p1", { type: "castSpell", iid: "h0", targets: [] }));
+  assert.match(pickText(g, "c3"), /reveals elf/);
+});
+
 test("a land that sacrifices itself to fetch a basic land tapped", () => {
   let g = setup([]);
   g.players.p1.battlefield.push(perm("w", "wilds"));

@@ -590,7 +590,7 @@ export function cycleCard(state: GameState, player: PlayerId, iid: string, event
     controller: player,
     source: iid,
     sourceName: def.name,
-    effects: landcycle ? [{ type: "search", for: "basicLand", to: "hand" }] : [{ type: "draw", amount: 1, who: { t: "you" } }],
+    effects: landcycle ? [{ type: "search", for: "basicLand", to: "hand", reveal: true }] : [{ type: "draw", amount: 1, who: { t: "you" } }],
     targets: [],
     specs: [],
     text: landcycle ? "Basic landcycling: search for a basic land card" : "Cycling: draw a card",
@@ -939,7 +939,9 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     if (iid !== undefined) {
       if (!pick.options.includes(iid)) return "That isn't one of the choices.";
       owner.hand.push(take(owner.library, iid));
-      events.push({ type: "effect", text: `${playerLabelOf(pick.owner)} reveals ${getCard(state, owner.hand[owner.hand.length - 1].defId).name} and puts it into their hand.` });
+      // The opponent learns the card only when the card text reveals it; otherwise it stays hidden in the hand.
+      const taken = getCard(state, owner.hand[owner.hand.length - 1].defId).name;
+      events.push({ type: "effect", text: pick.reveal ? `${playerLabelOf(pick.owner)} reveals ${taken} and puts it into their hand.` : `${playerLabelOf(pick.owner)} puts a card into their hand.` });
     }
     const cards = (pick.bottomIids ?? []).filter((id) => id !== iid).map((id) => take(owner.library, id));
     if (pick.restToGraveyard) {
@@ -1007,7 +1009,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     case "searchAny": {
       const found = take(owner.library, iid);
       owner.hand.push(found);
-      events.push({ type: "effect", text: `${playerLabelOf(pick.owner)} searches their library and puts ${getCard(state, found.defId).name} into their hand.` });
+      events.push({ type: "effect", text: pick.reveal ? `${playerLabelOf(pick.owner)} searches their library, reveals ${getCard(state, found.defId).name} and puts it into their hand.` : `${playerLabelOf(pick.owner)} searches their library and puts a card into their hand.` });
       [owner.library, state.rng] = shuffle(owner.library, state.rng);
       break;
     }

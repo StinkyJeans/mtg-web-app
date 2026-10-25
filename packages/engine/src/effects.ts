@@ -43,9 +43,9 @@ export type Effect =
   | { type: "discard"; who: Ref; amount: number; chooser: "victim" | "you" | "random" } // "target player discards two cards" / "you choose a card from their hand"
   | { type: "lookPick"; mode: "toHand" | "toGraveyard" | "arrange"; n: number; who?: Ref } // look at the top cards of a library
   // "Look at the top five cards. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom."
-  | { type: "revealToHand"; n: number; filter: CardFilter; random: boolean; required?: boolean; restTo?: "bottom" | "graveyard" }
+  | { type: "revealToHand"; n: number; filter: CardFilter; random: boolean; required?: boolean; restTo?: "bottom" | "graveyard"; reveal?: boolean }
   // Search your library for a card (a basic land card, or any card): onto the battlefield (tapped) or into your hand, then shuffle.
-  | { type: "search"; tapped?: boolean; for?: "basicLand" | "any"; to?: "hand" | "battlefield"; who?: Ref }
+  | { type: "search"; tapped?: boolean; for?: "basicLand" | "any"; to?: "hand" | "battlefield"; who?: Ref; reveal?: boolean }
   | { type: "scry"; n: number } // look at the top n cards; any of them may go to the bottom (see PendingPick)
   | { type: "mill"; amount: Amount; who: Ref } // the top cards of the library go to the graveyard
   | { type: "regenerate"; what: Ref } // a regeneration shield until end of turn
@@ -503,6 +503,8 @@ export interface PendingPick {
   colorFor?: string;
   /** Search: the land enters tapped. */
   entersTapped?: boolean;
+  /** Search or look, to hand: the card text reveals the chosen card, so the opponent may learn its name. */
+  reveal?: boolean;
   /** Reveal-to-hand / tutor: where the card goes, and what happens to the rest of the looked-at cards. */
   bottomIids?: string[];
   randomBottom?: boolean;

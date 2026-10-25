@@ -16,6 +16,7 @@ export default function Lobby() {
   const router = useRouter();
   const online = useOnline();
   const [username, setUsername] = useState<string | null>(null);
+  const [password, setPassword] = useState(""); // for the next room created; empty means open to anyone
   const room = online.snapshot;
 
   // Who am I? Then listen to the lobby for as long as this page is open.
@@ -65,13 +66,32 @@ export default function Lobby() {
             ▶ Return to your match
           </button>
         ) : (
-          <button
-            onClick={() => void createRoom(`${username}'s room`)}
-            disabled={online.lobby !== "on" || room !== null}
-            className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-500 px-6 py-3 text-lg font-extrabold text-black shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-amber-400/40 disabled:translate-y-0 disabled:opacity-50"
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              void createRoom(`${username}'s room`, password);
+              setPassword("");
+            }}
+            className="flex flex-col gap-2"
           >
-            ＋ Create room
-          </button>
+            <input
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={online.lobby !== "on" || room !== null}
+              maxLength={40}
+              autoComplete="off"
+              placeholder="🔒 Password (optional)"
+              aria-label="Room password (optional)"
+              className="rounded-xl border border-white/25 bg-slate-950/55 px-4 py-2.5 text-[15px] text-white placeholder:text-slate-300 focus:border-amber-300 focus:outline-none disabled:opacity-50"
+            />
+            <button
+              type="submit"
+              disabled={online.lobby !== "on" || room !== null}
+              className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-500 px-6 py-3 text-lg font-extrabold text-black shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-amber-400/40 disabled:translate-y-0 disabled:opacity-50"
+            >
+              ＋ Create {password ? "locked room" : "room"}
+            </button>
+          </form>
         )}
 
         {online.error && (

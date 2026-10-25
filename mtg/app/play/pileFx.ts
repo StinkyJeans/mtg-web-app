@@ -175,6 +175,12 @@ async function flyDraw(d: Draw, delay: number) {
   const slot = cardEl(d.iid);
   if (!library) return;
   await wait(delay);
+  // The other player's draw (or a card with nowhere to land) is not shown at all: nothing flies across the board,
+  // their library just gives a little bump.
+  if (!d.faceUp || !slot) {
+    bump(library);
+    return;
+  }
   const from = centerOf(library.getBoundingClientRect());
   const middle = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
   const { outer, flipper } = ghostCard(d.def, d.owner);
@@ -190,12 +196,6 @@ async function flyDraw(d: Draw, delay: number) {
       ],
       { duration: 520, easing: "ease-out", fill: "forwards" },
     ).finished;
-
-    if (!d.faceUp || !slot) {
-      // The opponent's draw (or a card with nowhere to land) stays hidden: it just slips away.
-      await outer.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 250, fill: "forwards" }).finished;
-      return;
-    }
 
     // 2. it turns over and shows itself
     await flipper.animate([{ transform: "rotateY(0deg)" }, { transform: "rotateY(180deg)" }], { duration: 480, easing: "ease-in-out", fill: "forwards" }).finished;

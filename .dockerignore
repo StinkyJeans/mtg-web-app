@@ -1,0 +1,15 @@
+# Keep the build context small: an image needs only packages/engine plus game-server or mtg.
+.git
+**/node_modules
+**/.next
+**/.env
+**/.env.*
+!game-server/.env.development
+!game-server/.env.production
+mtg/.next-check
+mtg/.import-cache
+supabase
+**/dist
+**/build
+*.log
+*.txt

@@ -152,7 +152,10 @@ test("look at the top four, put one into your hand, the rest on the bottom", () 
   assert.equal(g.pendingPick?.kind, "revealToHand");
   assert.equal(g.pendingPick?.optional, false, "you must take one");
   assert.equal(g.pendingPick?.options.length, 4);
-  g = act(g, "p1", { type: "pick", iid: "c2" });
+  const r = applyAction(g, "p1", { type: "pick", iid: "c2" });
+  assert.ok(r.ok, r.ok ? "" : r.error);
+  assert.doesNotMatch(r.events.flatMap((e) => (e.type === "effect" ? [e.text] : [])).join(" "), /\bbear\b/, "only looked at, not revealed: the opponent doesn't learn it");
+  g = r.state;
   assert.deepEqual(g.players.p1.library.map((c) => c.iid), ["c4", "c0", "c1", "c3"]);
 });
 
