@@ -79,6 +79,7 @@ export async function connectLobby(): Promise<void> {
         players: meta.players ?? [],
         status: meta.status ?? "waiting",
         turn: meta.turn ?? 0,
+        bot: meta.bot === true,
         clients: Number(r.clients ?? 0),
         maxClients: Number(r.maxClients ?? 2),
       };

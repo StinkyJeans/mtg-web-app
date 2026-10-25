@@ -1,6 +1,6 @@
 import assert from "assert";
 import { ColyseusTestServer, boot } from "@colyseus/testing";
-import { getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
+import { botAction, getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
 import type { Action, GameState, PlayerId } from "@mtg/engine";
 import appConfig from "../src/app.config.js";
 import type { RoomSnapshot } from "../src/rooms/MatchRoom.js";
@@ -144,6 +144,57 @@ describe("a live match", function () {
     assert.ok(end.winner, "the game ended with a result");
     await until("over", () => snap.alice.stage === "over");
     console.log(`   game over after ${end.turn} turns, ${steps} actions; winner: ${end.winner}`);
+  });
+
+  it("lets the host play against a computer opponent, which plays a whole game by itself", async () => {
+    const room = await colyseus.createRoom("match", { name: "Versus the bot" });
+    const alice = await colyseus.connectTo(room, { token: "dev:erin" });
+    let snap: RoomSnapshot | null = null;
+    let view: GameState | null = null;
+    let moves = 0;
+    let botMoves = 0;
+    let finished: (s: GameState) => void = () => {};
+    const done = new Promise<GameState>((resolve) => (finished = resolve));
+    const act = () => {
+      if (!view) return;
+      if (view.winner) return finished(view);
+      const a = playerToAct(view) === "p1" ? botAction(view, "p1") : null; // the person at the keyboard (played by the same engine bot)
+      if (a && ++moves < 4000) alice.send("action", { action: a });
+    };
+    alice.onMessage("room", (s: RoomSnapshot) => (snap = s));
+    alice.onMessage("start", (m: { view: GameState }) => { view = m.view; act(); });
+    alice.onMessage("update", (m: { view: GameState }) => {
+      if (view && playerToAct(view) === "p2") botMoves++; // the room moved for the bot
+      view = m.view;
+      act();
+    });
+    alice.onMessage("error", () => {});
+    const until = async (what: string, test: () => boolean, ms = 12000) => {
+      for (let i = 0; i < ms / 25; i++) { if (test()) return; await new Promise((r) => setTimeout(r, 25)); }
+      throw new Error(`timed out waiting for: ${what}`);
+    };
+    await until("in the room", () => snap?.players.length === 1);
+
+    // nobody else can join a room that has a bot
+    alice.send("addBot");
+    await until("bot added", () => snap?.players.length === 2);
+    assert.equal(snap!.players[1].bot, true);
+    assert.equal(snap!.players[1].name, "Bot");
+    await assert.rejects(colyseus.connectTo(room, { token: "dev:frank" }), "a third person can't join");
+
+    alice.send("startVote");
+    await until("vote stage", () => snap?.stage === "vote");
+    alice.send("vote", { size: 20 });
+    await until("decks stage (the bot voted with the host)", () => snap?.stage === "decks");
+    alice.send("deck", { name: "Reds", ids: deckOf(20, "mountain", "agent-of-atlas"), botDeck: { name: "Bot deck", ids: deckOf(20, "forest", "advance-scout") } });
+    await until("coin stage", () => snap?.stage === "coin");
+    if (snap!.coin!.winner === "p1") alice.send("order", { first: true });
+    await until("playing (if the bot won the toss it chooses itself)", () => snap?.stage === "playing", 12000);
+
+    const end = await done;
+    assert.ok(end.winner, "the game ended");
+    assert.ok(botMoves > 10, `the bot played its own turns (${botMoves} updates after its moves)`);
+    console.log(`   vs bot: over after ${end.turn} turns; winner ${end.winner}; bot moves seen ${botMoves}`);
   });
 
   it("refuses actions from the wrong player and from outsiders of the turn", async () => {

@@ -28,6 +28,13 @@ uses `ws://192.168.1.20:2567`). To use another address, set `NEXT_PUBLIC_GAME_SE
 4. The server tosses the coin (the host calls heads). The winner chooses to go first or second.
 5. The match starts on the play screen. Refreshing the page mid-match rejoins the same seat (the seat is held for 60 seconds).
 
+## Playing against the bot
+
+In a new room, while the second slot is empty, the host can press **Play against a bot**. The bot votes with the host, brings a random deck of the chosen size,
+and plays its own turns. It is the engine's `botAction` (`packages/engine/src/bot.ts`): it is only ever given `viewFor(state, botSeat)`, so it knows its own hand and
+the cards on the table, but never a library or your hand. Rooms with a bot are closed to other players and are not saved as matches.
+`npx tsx scripts/botGames.ts` (in `packages/engine`) measures it against a random player.
+
 ## How it fits together
 
 - `src/rooms/MatchRoom.ts`: one room per match (waiting → vote → decks → coin → playing → over), the messages, the rules.

@@ -4,7 +4,7 @@ Two pieces, two services:
 
 | Piece | Where | What it is |
 |---|---|---|
-| The website (`mtg/`) | **Vercel** | the pages, login, decks, and the play screen |
+| The website (`mtg/`) | **Vercel** (or Railway, see 2B) | the pages, login, decks, and the play screen |
 | The live game server (`game-server/`) | **Railway** | runs the matches (it must stay on all the time) |
 
 Both build from the same GitHub repository. Both also need the rules engine in `packages/engine`; the build files already take care of that.
@@ -29,7 +29,12 @@ Check on github.com that the `mtg` folder shows files you can open, not a grey a
 5. Check it: open `<that address>/health`. You should see `{"ok":true}`.
 6. Optional: **Settings → Usage limit** to cap the monthly cost.
 
-## 2. The website on Vercel
+## 2. The website
+
+Pick ONE of these two. Both work; the first is free, the second keeps everything in one place.
+
+### 2A. The website on Vercel (free)
+
 
 1. vercel.com: sign in with GitHub, **Add New → Project**, import the repository.
 2. **Root Directory**: `mtg`. Keep **Include source files outside of the Root Directory** switched on (it is by default).
@@ -41,6 +46,20 @@ Check on github.com that the `mtg` folder shows files you can open, not a grey a
 4. **Deploy**. You get an address like `https://mtg-duel.vercel.app`. Send that to your brother.
 
 If you change `NEXT_PUBLIC_GAME_SERVER_URL` later, redeploy the website: these values are baked in at build time.
+
+### 2B. The website on Railway too (everything in one place)
+
+Same Railway project as the game server, a second service.
+
+1. In the Railway project: **New → GitHub Repo →** the same repository. This creates a second service.
+2. Open it → **Settings → Config-as-code file path**: `mtg/railway.json`. Leave **Root Directory** empty.
+3. **Variables** (set them BEFORE the first build finishes, or redeploy afterwards: these are baked into the pages while they build):
+   - `NEXT_PUBLIC_SUPABASE_URL` = same as in `mtg/.env.local`
+   - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = same
+   - `NEXT_PUBLIC_GAME_SERVER_URL` = the game server's Railway address from step 1.4 (`https://...up.railway.app`)
+   Do **not** put `SUPABASE_SECRET_KEY` on this service.
+4. **Settings → Networking → Generate Domain**. That address is the one you send to your brother.
+5. If you change a `NEXT_PUBLIC_...` variable later, trigger a **Redeploy** of this service.
 
 ## 3. First game
 
@@ -57,5 +76,5 @@ If you change `NEXT_PUBLIC_GAME_SERVER_URL` later, redeploy the website: these v
 
 ## Costs
 
-Vercel's free plan is enough for this. Railway has no free plan; a small server like this is usually a few dollars a month.
+Vercel's free plan is enough for the website. Railway has no free plan; one small server is usually a few dollars a month, and a second service (the website) adds a little more. Set a usage limit in Railway so there are no surprises.
 A match that is in progress is lost if Railway restarts the server (a new deploy does that), so avoid deploying while you are playing.

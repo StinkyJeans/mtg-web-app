@@ -51,13 +51,14 @@ export default function LiveMatches({ online, inRoom }: { online: OnlineState; i
 
 function RoomRow({ room, canJoin }: { room: LobbyRoomInfo; canJoin: boolean }) {
   const status = STATUS[room.status] ?? STATUS.waiting;
-  const open = room.status === "waiting" && room.clients < room.maxClients;
+  const open = room.status === "waiting" && room.clients < room.maxClients && !room.bot;
   return (
     <li className="flex items-center gap-3 rounded-xl border border-white/15 bg-white/10 px-3 py-2">
       <div className="min-w-0 flex-1">
         <div className="truncate text-[15px] font-semibold">{room.name}</div>
         <div className="truncate text-sm text-slate-300">
           {room.players.length > 0 ? room.players.join(" vs ") : `Host: ${room.host}`}
+          {room.bot ? " · 🤖" : ""}
           {room.status === "playing" && room.turn > 0 ? ` · turn ${room.turn}` : ""}
         </div>
       </div>

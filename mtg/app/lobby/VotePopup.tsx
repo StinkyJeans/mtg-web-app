@@ -125,11 +125,11 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
     setBusy(true);
     try {
       const picked = options?.find((o) => o.id === choice);
-      if (picked) send("deck", { name: picked.name, ids: picked.ids });
-      else {
-        const random = await buildRandomDeck(size);
-        send("deck", { name: random.name, ids: random.ids });
-      }
+      const mine = picked ?? (await buildRandomDeck(size));
+      // against the bot, the host also brings the bot's deck: a random one
+      const vsBot = room.players.some((p) => p.bot);
+      const botDeck = vsBot ? await buildRandomDeck(size) : undefined;
+      send("deck", { name: picked ? picked.name : (mine as { name: string }).name, ids: picked ? picked.ids : (mine as { ids: string[] }).ids, ...(botDeck ? { botDeck: { name: botDeck.name, ids: botDeck.ids } } : {}) });
     } finally {
       setBusy(false);
     }
@@ -139,7 +139,9 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
     <section className="flex flex-col gap-4 text-center">
       <div>
         <h2 className="text-2xl font-extrabold">Choose your deck</h2>
-        <p className="mt-1 text-[15px] text-slate-200">{size} cards. Your opponent does not see which one you pick.</p>
+        <p className="mt-1 text-[15px] text-slate-200">
+          {size} cards. {room.players.some((p) => p.bot) ? "The bot plays a random deck." : "Your opponent does not see which one you pick."}
+        </p>
       </div>
       <select
         value={choice}
@@ -162,7 +164,7 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
       >
         {ready ? "Ready ✓" : busy ? "Preparing…" : "Ready"}
       </button>
-      <PlayerChips room={room} show={(p) => (p.deckReady ? <span className="font-bold text-[#a7f3d0]">ready ✓</span> : <span className="text-slate-300">choosing…</span>)} />
+      <PlayerChips room={room} show={(p) => (p.deckReady ? <span className="font-bold text-[#a7f3d0]">ready ✓</span> : p.bot ? <span className="text-slate-300">waiting for you</span> : <span className="text-slate-300">choosing…</span>)} />
     </section>
   );
 }

@@ -398,6 +398,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const actor = seat ?? playerToAct(state);
   /** Hot-seat: always true. Online: only while the game is waiting for this player. */
   const mine = !online || playerToAct(state) === actor;
+  /** The panels that ask for an answer (a target, a card, blocks, damage) are only for the player who has to answer. */
+  const answering = !online || mine;
   const other = OPPONENT[actor];
   const legal = getLegalActions(state, actor);
   const playable = new Set(legal.flatMap((a) => (a.type === "playLand" || a.type === "castCreature" || a.type === "castSpell" ? [a.iid] : [])));
@@ -1154,7 +1156,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
         {/* Panels that appear while something needs an answer. They share a box that scrolls on its own, so the board never moves. */}
         <div className="action-box flex max-h-[34dvh] shrink-0 flex-col gap-1.5 overflow-y-auto empty:hidden">
-        {state.phase === "blockers" && !state.priority && !state.pendingChoice && !state.pendingPick && <BlockPanel state={state} actor={actor} blocks={blocks} onChange={(b) => { setBlocks(b); setPicked(null); }} />}
+        {answering && state.phase === "blockers" && !state.priority && !state.pendingChoice && !state.pendingPick && <BlockPanel state={state} actor={actor} blocks={blocks} onChange={(b) => { setBlocks(b); setPicked(null); }} />}
 
         {state.phase === "attackers" && attacking.length > 0 && state.players[other].battlefield.some((p) => state.cards[p.card.defId].type === "planeswalker") && (
           <section className="flex flex-col gap-2 rounded-lg border border-red-400/60 bg-red-50 p-3">
@@ -1184,7 +1186,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           </section>
         )}
 
-        <StackPanel state={state} actor={actor} onPass={() => act({ type: "passPriority" })} waiting={online && !mine} />
+        <StackPanel state={state} actor={actor} onPass={() => act({ type: "passPriority" })} waiting={online && !mine ? `Waiting for ${playerName(playerToAct(state))} to ${state.pendingPick || state.pendingChoice ? "choose" : "respond"}…` : undefined} />
 
         {lifeConfirm && (
           <ChoicePanel
@@ -1244,9 +1246,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           />
         )}
 
-        <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} />
+        {answering && <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} />}
 
-        {(state.pendingChoice || targeting) && (
+        {answering && (state.pendingChoice || targeting) && (
           <TargetPanel
             state={state}
             controller={actor}
@@ -1259,7 +1261,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           />
         )}
 
-        {damageNeeded.length > 0 && (
+        {answering && damageNeeded.length > 0 && (
           <DamagePanel
             state={state}
             needed={damageNeeded}

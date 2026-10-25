@@ -43,7 +43,7 @@ export function PlayedThisTurn({ items, state, onZoom }: { items: Announcement[]
   return (
     <section className="flex shrink-0 flex-col gap-1 rounded-xl border border-amber-300 bg-amber-50/80 p-2 shadow-sm">
       <h2 className="text-sm font-bold uppercase font-display tracking-wide text-amber-800">Played this turn ({items.length})</h2>
-      <ol className="flex max-h-72 flex-col gap-1.5 overflow-y-auto">
+      <ol className="flex max-h-52 flex-col gap-1.5 overflow-y-auto">
         {[...items].reverse().map((a) => {
           const def = a.defId ? state.cards[a.defId] : undefined;
           return (

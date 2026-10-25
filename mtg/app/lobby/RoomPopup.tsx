@@ -45,13 +45,28 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
             return (
               <div key={seat} className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${p ? "border-white/25 bg-white/10" : "border-dashed border-white/25 bg-white/5"}`}>
                 <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-xl font-extrabold text-white shadow-lg ${p ? `bg-gradient-to-br ${SEAT_COLOR[seat]}` : "bg-white/10"}`}>
-                  {p ? p.name.charAt(0).toUpperCase() : "?"}
+                  {p ? (p.bot ? "🤖" : p.name.charAt(0).toUpperCase()) : "?"}
                 </div>
                 <div className="min-w-0">
                   {p ? (
                     <>
                       <div className="truncate text-lg font-bold">{p.name}</div>
-                      <div className="text-sm text-slate-300">{seat === room.host ? "Host" : "Guest"}{p.seat === room.you ? " · you" : ""}</div>
+                      <div className="text-sm text-slate-300">
+                        {p.bot ? "Computer player" : seat === room.host ? "Host" : "Guest"}
+                        {p.seat === room.you ? " · you" : ""}
+                        {p.bot && iAmHost && (
+                          <button onClick={() => send("removeBot")} className="ml-2 underline hover:text-white">
+                            remove
+                          </button>
+                        )}
+                      </div>
+                    </>
+                  ) : iAmHost ? (
+                    <>
+                      <div className="text-lg font-semibold text-slate-200">Waiting…</div>
+                      <button onClick={() => send("addBot")} className="mt-1 rounded-lg border border-white/30 bg-white/10 px-3 py-1 text-sm font-bold text-[#fde68a] hover:bg-white/20">
+                        🤖 Play against a bot
+                      </button>
                     </>
                   ) : (
                     <>
@@ -76,7 +91,7 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
               >
                 Vote
               </button>
-              <p className="text-sm text-slate-300">{full ? "Start the vote for the deck size." : "The Vote button turns on when a second player has joined."}</p>
+              <p className="text-sm text-slate-300">{full ? "Start the vote for the deck size." : "The Vote button turns on when a second player has joined, or add a bot."}</p>
             </>
           ) : (
             <p className="rounded-xl bg-white/10 px-4 py-2 text-[15px] text-slate-100">Waiting for {host?.name ?? "the host"} to start the vote…</p>

@@ -1,0 +1,13 @@
+# The website needs only the rules engine and itself.
+**/node_modules
+**/.next
+**/.next-*
+**/.env
+**/.env.*
+**/dist
+**/build
+.import-cache
+**/.import-cache
+game-server
+supabase
+*.log

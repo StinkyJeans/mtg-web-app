@@ -127,7 +127,7 @@ export function ChatPanel({ messages, as, onSend }: { messages: ChatMessage[]; a
   }, [messages.length]);
 
   return (
-    <section className={`${panel} h-48 lg:h-auto lg:flex-1`}>
+    <section className={`${panel} h-48 lg:h-auto lg:min-h-[8.5rem] lg:flex-1`}>
       <h2 className={title}>Chat</h2>
       <div className="min-h-0 flex-1 overflow-y-auto text-[15px] leading-relaxed">
         {messages.length === 0 && <p className="text-[15px] text-zinc-600">No messages yet.</p>}
@@ -167,7 +167,7 @@ export function ChatPanel({ messages, as, onSend }: { messages: ChatMessage[]; a
 /** Game log, newest first. */
 export function LogPanel({ lines }: { lines: string[] }) {
   return (
-    <section className={`${panel} h-48 lg:h-auto lg:flex-1`}>
+    <section className={`${panel} h-48 lg:h-auto lg:min-h-[8.5rem] lg:flex-1`}>
       <h2 className={title}>Log</h2>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1 text-[15px] leading-relaxed text-zinc-800">
         {lines.map((line, i) => (

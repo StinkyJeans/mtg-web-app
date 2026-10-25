@@ -1,5 +1,5 @@
 import { Room, Client, CloseCode } from "colyseus";
-import { applyAction, createGame, HIDDEN_CARD_ID, playerToAct, viewFor } from "@mtg/engine";
+import { applyAction, botAction, createGame, HIDDEN_CARD_ID, playerToAct, viewFor } from "@mtg/engine";
 import type { Action, CardDef, GameEvent, GameState, PlayerId } from "@mtg/engine";
 import { accountFromToken, loadCards, saveMatch } from "../supabase.js";
 import type { Account } from "../supabase.js";
@@ -26,6 +26,8 @@ interface Member {
   connected: boolean;
   vote: number | null;
   deck: { name: string; ids: string[] } | null;
+  /** The computer player: it has no browser, and the room plays its moves. */
+  isBot?: boolean;
 }
 
 export interface RoomMeta {
@@ -34,6 +36,8 @@ export interface RoomMeta {
   players: string[];
   status: Stage;
   turn: number;
+  /** A room with a computer opponent: nobody else can join it. */
+  bot: boolean;
 }
 
 /** What the lobby shows for a room, and what each player's room pop-up is drawn from. */
@@ -45,7 +49,7 @@ export interface RoomSnapshot {
   size: number | null;
   /** "The votes differ" so the pop-up can say so. */
   mismatch: boolean;
-  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean }[];
+  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; bot?: boolean }[];
   coin: { call: "heads" | "tails"; result: "heads" | "tails"; winner: PlayerId; chose: "first" | "second" | null } | null;
   winner: PlayerId | "draw" | null;
   endReason: string | null;
@@ -68,6 +72,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   private deckNames: Record<PlayerId, string> = { p1: "", p2: "" };
   private defs: Record<string, CardDef> = {};
   private busy = false; // actions are handled one at a time
+  private botTimer?: ReturnType<typeof setTimeout>;
 
   messages = {
     startVote: (client: Client) => {
@@ -79,10 +84,28 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       this.publish();
     },
 
+    /** The host plays against the computer instead of waiting for a second player. */
+    addBot: (client: Client) => {
+      const m = this.member(client);
+      if (!m || m.seat !== "p1" || this.stage !== "waiting" || this.members.length !== 1) return;
+      this.members.push({ sessionId: "bot", account: { id: "bot", username: "Bot" }, seat: "p2", connected: true, vote: null, deck: null, isBot: true });
+      void this.lock(); // nobody else can join a room that has a bot
+      this.publish();
+    },
+
+    removeBot: (client: Client) => {
+      const m = this.member(client);
+      if (!m || m.seat !== "p1" || this.stage !== "waiting" || !this.bot) return;
+      this.members = this.members.filter((x) => !x.isBot);
+      void this.unlock();
+      this.publish();
+    },
+
     vote: (client: Client, message: { size?: number }) => {
       const m = this.member(client);
       if (!m || this.stage !== "vote" || !(DECK_SIZES as readonly number[]).includes(message?.size as number)) return;
       m.vote = message.size as number;
+      if (this.bot) this.bot.vote = m.vote; // the bot always agrees with the host
       this.mismatch = false;
       const [a, b] = this.members;
       if (this.members.length === 2 && a.vote !== null && b.vote !== null) {
@@ -98,16 +121,26 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       this.publish();
     },
 
-    deck: async (client: Client, message: { name?: string; ids?: unknown }) => {
+    deck: async (client: Client, message: { name?: string; ids?: unknown; botDeck?: { name?: string; ids?: unknown } }) => {
       const m = this.member(client);
       if (!m || this.stage !== "decks" || this.size === null) return;
-      const ids = Array.isArray(message?.ids) ? (message.ids as unknown[]).filter((x): x is string => typeof x === "string") : [];
-      try {
+      const idsOf = (x: unknown) => (Array.isArray(x) ? (x as unknown[]).filter((y): y is string => typeof y === "string") : []);
+      const check = async (ids: string[]) => {
         if (ids.length !== this.size) throw new Error(`The deck needs exactly ${this.size} cards.`);
         const cards = await loadCards(ids);
         const bad = ids.find((id) => !cards[id] || cards[id].playable === false);
         if (bad) throw new Error(`"${bad}" can't be played in this game.`);
         Object.assign(this.defs, cards);
+      };
+      try {
+        const ids = idsOf(message?.ids);
+        await check(ids);
+        // against the bot, the host brings the bot's deck too (a random one)
+        if (this.bot && m.seat === "p1") {
+          const botIds = idsOf(message?.botDeck?.ids);
+          await check(botIds);
+          this.bot.deck = { name: String(message?.botDeck?.name ?? "Bot deck").slice(0, 40), ids: botIds };
+        }
         m.deck = { name: String(message?.name ?? "Deck").slice(0, 40), ids };
       } catch (e) {
         client.send("error", { message: e instanceof Error ? e.message : "That deck can't be used." });
@@ -244,7 +277,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       host: "p1",
       size: this.size,
       mismatch: this.mismatch,
-      players: this.members.map((x) => ({ seat: x.seat, name: x.account.username, connected: x.connected, voted: x.vote, deckReady: x.deck !== null })),
+      players: this.members.map((x) => ({ seat: x.seat, name: x.account.username, connected: x.connected, voted: x.vote, deckReady: x.deck !== null, ...(x.isBot ? { bot: true } : {}) })),
       coin: this.coin,
       winner: this.winner,
       endReason: this.endReason,
@@ -255,7 +288,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   private publish() {
     for (const m of this.members) this.clientOf(m)?.send("room", this.snapshot(m));
     const host = this.members.find((x) => x.seat === "p1");
-    void this.setMetadata({ name: this.title, host: host?.account.username ?? "", players: this.members.map((x) => x.account.username), status: this.stage, turn: this.game?.turn ?? 0 });
+    void this.setMetadata({ name: this.title, host: host?.account.username ?? "", players: this.members.map((x) => x.account.username), status: this.stage, turn: this.game?.turn ?? 0, bot: this.bot !== undefined });
   }
 
   private flipCoin() {
@@ -263,6 +296,15 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     const call = "heads"; // the host calls heads, as in the hot-seat game
     this.coin = { call, result, winner: result === call ? "p1" : "p2", chose: null };
     this.stage = "coin";
+    // If the bot wins the toss it chooses (to go first) once the coin has had time to land on the players' screens.
+    if (this.bot && this.coin.winner === this.bot.seat) {
+      this.botTimer = setTimeout(() => {
+        if (this.stage !== "coin" || !this.coin || this.coin.chose || !this.bot) return;
+        this.coin.chose = "first";
+        void this.startGame(this.bot.seat);
+        this.publish();
+      }, 5500);
+    }
   }
 
   private async startGame(first: PlayerId) {
@@ -273,6 +315,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.stage = "playing";
     this.publish();
     for (const m of this.members) this.sendGame(m, true);
+    this.scheduleBot();
   }
 
   /** The whole game as one player sees it: sent when the match starts and to a player who reconnects. */
@@ -312,6 +355,30 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     } finally {
       this.busy = false;
     }
+    this.scheduleBot();
+  }
+
+  /** The bot's turn to act: it thinks (it is quick), waits a moment so the screen can follow, then plays. */
+  private scheduleBot() {
+    const bot = this.bot;
+    if (!bot || this.stage !== "playing" || !this.game || this.game.winner || playerToAct(this.game) !== bot.seat) return;
+    clearTimeout(this.botTimer);
+    this.botTimer = setTimeout(() => {
+      const game = this.game;
+      if (!game || this.stage !== "playing" || playerToAct(game) !== bot.seat) return;
+      // the bot is given only what a player could see
+      const action = botAction(viewFor(game, bot.seat), bot.seat);
+      if (!action) {
+        this.finish(bot.seat === "p1" ? "p2" : "p1", "The bot could not find a move.");
+        return;
+      }
+      const quick = ["passPriority", "passPhase", "keepHand", "mulligan", "discard", "assignDamage", "pick", "chooseTargets", "declareBlockers"].includes(action.type);
+      this.botTimer = setTimeout(() => this.play(bot, () => this.applyFor(bot.seat, action)), quick ? 250 : 900 + Math.random() * 600);
+    }, 60);
+  }
+
+  private get bot(): Member | undefined {
+    return this.members.find((x) => x.isBot);
   }
 
   private applyFor(seat: PlayerId, action: Action, spare?: string[]) {
@@ -353,8 +420,12 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.stage = "over";
     const a = this.members.find((x) => x.seat === "p1");
     const b = this.members.find((x) => x.seat === "p2");
-    if (a && b) void saveMatch({ p1: a.account.id, p2: b.account.id, winner: winner === "draw" ? null : (winner === "p1" ? a : b).account.id, turns: this.game?.turn ?? 0 });
+    if (a && b && !this.bot) void saveMatch({ p1: a.account.id, p2: b.account.id, winner: winner === "draw" ? null : (winner === "p1" ? a : b).account.id, turns: this.game?.turn ?? 0 });
     this.publish();
+  }
+
+  onDispose() {
+    clearTimeout(this.botTimer);
   }
 
   /** Test helper: the real state, never sent to anyone. */

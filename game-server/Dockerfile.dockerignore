@@ -1,0 +1,10 @@
+# The game server needs only the rules engine and itself.
+**/node_modules
+**/.next
+**/.env
+**/.env.*
+**/dist
+**/build
+mtg
+supabase
+*.log

@@ -1,0 +1,563 @@
+import { applyAction, getDamageAssignments, getForcedBlocks, getPossibleAttackers, getPossibleBlockers, MAX_HAND_SIZE, suggestDamageAssignment } from "./actions.js";
+import type { Action, Block } from "./actions.js";
+import { getActivatable, getCastable, getLoyaltyAbilities } from "./stack.js";
+import { legalTargets, playerToAct, powerOf, staticEffectsOn, toughnessOf } from "./core.js";
+import { hasKeyword } from "./keywords.js";
+import type { Keyword } from "./keywords.js";
+import { parseCard } from "./oracle.js";
+import type { TargetChoice, TargetSpec } from "./effects.js";
+import type { GameState, Permanent, PlayerId } from "./types.js";
+
+/**
+ * A computer opponent.
+ *
+ * It plays by the same rules and sees only what a player could see: give it the view from `viewFor(state, seat)`
+ * and it never learns the other hand. It thinks in three layers:
+ *   1. Rules of thumb for the decisions that are about judgement: which opening hands to keep, who attacks, who blocks,
+ *      what to discard, which target a spell should take.
+ *   2. A score for a game position (life, creatures with their abilities, lands, cards in hand, and how exposed it
+ *      would be to a counter-attack).
+ *   3. Lookahead: for every spell or ability it could use now, it tries it on a copy of the game, lets the stack
+ *      resolve, and keeps the move that scores best. Attacks are tried the same way, against the blocks it would
+ *      itself choose as the defender. Combat tricks and responses are tried by playing the rest of the combat out.
+ */
+
+const OPP: Record<PlayerId, PlayerId> = { p1: "p2", p2: "p1" };
+
+/** Thinking is capped: whatever the best move is when the time is up gets played. */
+const THINK_MS = 700;
+let deadline = 0;
+const timeUp = () => Date.now() > deadline;
+type Rng = () => number;
+
+// ───────── looking at cards ─────────
+const defOf = (s: GameState, p: Permanent) => s.cards[p.card.defId];
+const isCreature = (s: GameState, p: Permanent) => defOf(s, p)?.type === "creature" || p.crewed === true;
+
+function has(s: GameState, p: Permanent, keyword: string): boolean {
+  const d = defOf(s, p);
+  if (d && hasKeyword(d, keyword as Keyword)) return true;
+  if ((p.tempKeywords as string[] | undefined)?.includes(keyword)) return true;
+  return staticEffectsOn(s, p).some((st) => (st.keywords as string[]).includes(keyword));
+}
+
+const power = (s: GameState, p: Permanent) => Math.max(0, powerOf(s, p));
+const toughness = (s: GameState, p: Permanent) => toughnessOf(s, p);
+
+/** How much a creature is worth to its owner: size, evasion, abilities. */
+function creatureValue(s: GameState, p: Permanent): number {
+  const d = defOf(s, p);
+  const pw = power(s, p);
+  const th = Math.max(0, toughness(s, p));
+  let v = pw * 1.6 + th * 1.0 + (d?.cost ?? 0) * 0.4 + 1;
+  if (has(s, p, "flying")) v += pw * 0.9 + 1;
+  if (has(s, p, "first strike")) v += pw * 0.5 + 0.5;
+  if (has(s, p, "double strike")) v += pw * 1.5;
+  if (has(s, p, "deathtouch")) v += 2.5;
+  if (has(s, p, "lifelink")) v += pw * 0.6;
+  if (has(s, p, "trample")) v += pw * 0.3;
+  if (has(s, p, "menace")) v += 0.6;
+  if (has(s, p, "vigilance")) v += 0.4;
+  if (has(s, p, "haste")) v += 0.3;
+  if (has(s, p, "reach")) v += 0.3;
+  if (has(s, p, "hexproof")) v += 1;
+  if (has(s, p, "indestructible")) v += th * 0.8 + 2;
+  if (has(s, p, "defender")) v -= pw * 1.2;
+  if (d?.text && /\{t\}|whenever|when |at the beginning|:/i.test(d.text)) v += 1.2;
+  return v;
+}
+
+function permValue(s: GameState, p: Permanent): number {
+  const d = defOf(s, p);
+  if (!d) return 1;
+  if (isCreature(s, p)) return creatureValue(s, p);
+  if (d.type === "land") return 1.2;
+  if (d.type === "planeswalker") return 3 + (p.loyalty ?? 0) * 0.8;
+  return 1 + (d.cost ?? 0) * 0.6;
+}
+
+const lifeScore = (life: number) => (life <= 0 ? -500 : life - Math.max(0, 8 - life) * 0.9);
+
+function handValue(s: GameState, id: PlayerId): number {
+  const pl = s.players[id];
+  const lands = pl.battlefield.filter((p) => defOf(s, p)?.type === "land").length;
+  let handLands = 0;
+  let v = 0;
+  for (const c of pl.hand) {
+    const d = s.cards[c.defId];
+    if (d?.type === "land") {
+      handLands++;
+      v += lands + handLands <= 6 ? 0.55 : 0.1; // a land is worth less once there are plenty
+    } else v += 0.9 + Math.min(d?.cost ?? 0, 6) * 0.05;
+  }
+  return v;
+}
+
+/** How good the position is for `me`. Higher is better; a won game is huge. */
+export function evaluate(s: GameState, me: PlayerId): number {
+  if (s.winner) return s.winner === me ? 1e6 : s.winner === "draw" ? 0 : -1e6;
+  const opp = OPP[me];
+  let v = lifeScore(s.players[me].life) - lifeScore(s.players[opp].life);
+  for (const p of s.players[me].battlefield) v += permValue(s, p);
+  for (const p of s.players[opp].battlefield) v -= permValue(s, p) * 1.05;
+  v += handValue(s, me) - s.players[opp].hand.length * 0.8;
+  if (s.players[me].library.length <= 2) v -= 6; // about to run out of cards
+  return v;
+}
+
+/** Danger of the counter-attack: creatures that attacked stay tapped, so they can't block on the other player's turn. */
+function exposure(s: GameState, me: PlayerId): number {
+  const life = s.players[me].life;
+  const theirs = s.players[OPP[me]].battlefield
+    .filter((p) => isCreature(s, p) && !has(s, p, "defender"))
+    .map((p) => power(s, p))
+    .sort((a, b) => b - a);
+  const blockers = s.players[me].battlefield.filter((p) => isCreature(s, p) && !p.tapped).length;
+  const damage = theirs.slice(blockers).reduce((a, b) => a + b, 0);
+  if (damage >= life) return 400;
+  return Math.max(0, damage - life * 0.35) * 0.9;
+}
+
+// ───────── fights ─────────
+const lethal = (s: GameState, att: Permanent, def: Permanent): boolean => {
+  if (has(s, def, "indestructible")) return false;
+  const dmg = power(s, att) * (has(s, att, "double strike") ? 2 : 1);
+  if (dmg <= 0) return false;
+  return has(s, att, "deathtouch") || dmg >= toughness(s, def) - def.damage;
+};
+
+/** One attacker against one blocker: who dies. */
+function duel(s: GameState, a: Permanent, b: Permanent): { aDies: boolean; bDies: boolean } {
+  const fa = has(s, a, "first strike") || has(s, a, "double strike");
+  const fb = has(s, b, "first strike") || has(s, b, "double strike");
+  if (fa && !fb && lethal(s, a, b)) return { aDies: false, bDies: true };
+  if (fb && !fa && lethal(s, b, a)) return { aDies: true, bDies: false };
+  return { aDies: lethal(s, b, a), bDies: lethal(s, a, b) };
+}
+
+/** Can this creature block that attacker at all (the engine has the final say)? */
+function canBlock(s: GameState, b: Permanent, a: Permanent): boolean {
+  if (has(s, a, "flying") && !has(s, b, "flying") && !has(s, b, "reach")) return false;
+  if (has(s, a, "menace")) return false; // needs two blockers: handled as a pair
+  return true;
+}
+
+const find = (s: GameState, iid: string): Permanent | undefined => [...s.players.p1.battlefield, ...s.players.p2.battlefield].find((p) => p.card.iid === iid);
+
+/** Which of the attackers each creature should block. */
+function chooseBlocks(s: GameState, who: PlayerId): Block[] {
+  if (!s.combat) return [];
+  const forced = getForcedBlocks(s);
+  const used = new Set(forced.map((f) => f.blocker));
+  const blocks: Block[] = [...forced];
+  const attackers = s.combat.attackers.map((a) => find(s, a.attacker)).filter((p): p is Permanent => !!p);
+  const mine = getPossibleBlockers(s).map((iid) => find(s, iid)).filter((p): p is Permanent => !!p);
+  const blockedAlready = new Set(forced.map((f) => f.attacker));
+  const incoming = attackers.filter((a) => !blockedAlready.has(a.card.iid)).reduce((n, a) => n + power(s, a), 0);
+  let lifeLeft = s.players[who].life - incoming; // life if nothing else is blocked
+  const lethalThreat = lifeLeft <= 0;
+
+  for (const a of [...attackers].sort((x, y) => power(s, y) - power(s, x))) {
+    if (blockedAlready.has(a.card.iid)) continue;
+    const ap = power(s, a);
+    const options = mine.filter((b) => !used.has(b.card.iid) && canBlock(s, b, a)).map((b) => ({ b, v: creatureValue(s, b), r: duel(s, a, b) }));
+    const cheapest = (list: typeof options) => [...list].sort((x, y) => x.v - y.v)[0];
+    const good = cheapest(options.filter((o) => o.r.aDies && !o.r.bDies)); // kills it and lives
+    const wall = ap >= 1 ? cheapest(options.filter((o) => !o.r.bDies)) : undefined; // stops it and lives
+    const trade = cheapest(options.filter((o) => o.r.aDies && o.r.bDies));
+    let pick = good ?? wall;
+    if (!pick && trade && (creatureValue(s, a) >= trade.v * 0.8 || lifeLeft <= 6 || lethalThreat)) pick = trade;
+    if (!pick && options.length > 0 && (lethalThreat || lifeLeft <= 2) && ap > 0) pick = cheapest(options); // chump block to stay alive
+    if (pick) {
+      blocks.push({ blocker: pick.b.card.iid, attacker: a.card.iid });
+      used.add(pick.b.card.iid);
+      lifeLeft += ap;
+      continue;
+    }
+    // two creatures together kill it, and it can kill only one of them
+    const free = options.slice().sort((x, y) => x.v - y.v);
+    for (let i = 0; i < free.length && !pick; i++) {
+      for (let j = i + 1; j < free.length; j++) {
+        const [x, y] = [free[i], free[j]];
+        const together = power(s, x.b) + power(s, y.b);
+        const kills = together >= toughness(s, a) - a.damage || has(s, x.b, "deathtouch") || has(s, y.b, "deathtouch");
+        const losesOne = ap < toughness(s, x.b) + toughness(s, y.b);
+        if (kills && losesOne && creatureValue(s, a) >= Math.min(x.v, y.v) * 0.9) {
+          blocks.push({ blocker: x.b.card.iid, attacker: a.card.iid }, { blocker: y.b.card.iid, attacker: a.card.iid });
+          used.add(x.b.card.iid);
+          used.add(y.b.card.iid);
+          lifeLeft += ap;
+          pick = x;
+          break;
+        }
+      }
+    }
+  }
+  return blocks;
+}
+
+// ───────── playing a position out (the lookahead) ─────────
+const quiet = (s: GameState) => !s.priority && s.stack.length === 0 && !s.pendingChoice && !s.pendingPick && s.triggerQueue.length === 0;
+
+/** Rank the targets a spell or ability could take: harmful effects go at the enemy, helpful ones at us. */
+function isHarmful(text: string): boolean {
+  const t = text.toLowerCase();
+  const bad = /deals? (\d+|x) damage|destroy|exile|gets? -\d|-\d+\/-\d+|loses? |tap target|can't block|sacrifice|return target [^.]* to its owner's hand|counter target|fights?|mill/.test(t);
+  const good = /gets? \+\d|\+\d+\/\+\d+|gains? |regenerate|indestructible|hexproof|untap|protection|you gain|draw/.test(t);
+  return bad && !(good && !/destroy|exile|deals?/.test(t));
+}
+
+function targetScore(s: GameState, t: TargetChoice, me: PlayerId, harmful: boolean): number {
+  if (t.kind === "none") return -1;
+  if (t.kind === "player") return harmful ? (t.id === me ? -50 : 20 + (s.players[t.id].life <= 6 ? 30 : 0)) : t.id === me ? 5 : -50;
+  if (t.kind === "stack") {
+    const item = s.stack.find((i) => i.id === t.id);
+    return item && item.controller !== me ? 10 : -10;
+  }
+  if (t.kind === "card") return 0;
+  const p = find(s, t.iid);
+  if (!p) return 0;
+  const mine = s.players[me].battlefield.includes(p);
+  const v = permValue(s, p);
+  return harmful ? (mine ? -50 : v) : mine ? v : -50;
+}
+
+function targetCombos(s: GameState, specs: TargetSpec[], me: PlayerId, text: string): TargetChoice[][] {
+  const harmful = isHarmful(text);
+  const lists = specs.map((spec) => {
+    const opts = legalTargets(s, spec, me);
+    // the best few for the intended use, and the best few for the opposite use (the lookahead decides between them)
+    const byUse = [...opts].sort((a, b) => targetScore(s, b, me, harmful) - targetScore(s, a, me, harmful)).slice(0, 3);
+    const other = [...opts].sort((a, b) => targetScore(s, b, me, !harmful) - targetScore(s, a, me, !harmful))[0];
+    return [...new Set(other ? [...byUse, other] : byUse)];
+  });
+  if (lists.some((l) => l.length === 0)) return [];
+  let combos: TargetChoice[][] = [[]];
+  for (const list of lists) combos = combos.flatMap((c) => list.map((t) => [...c, t])).slice(0, 10);
+  return combos;
+}
+
+/** The action the game takes for whoever has to act when nobody is thinking: answer choices simply, pass, block sensibly. */
+function plainAction(s: GameState): Action | null {
+  const who = playerToAct(s);
+  if (s.pendingPick) {
+    const p = s.pendingPick;
+    return p.optional || p.options.length === 0 ? { type: "pick" } : { type: "pick", iid: p.options[0] };
+  }
+  if (s.pendingChoice) {
+    const targets = s.pendingChoice.specs.flatMap((spec) => legalTargets(s, spec, s.pendingChoice!.item.controller).slice(0, 1));
+    return { type: "chooseTargets", targets };
+  }
+  if (s.priority) return { type: "passPriority" };
+  switch (s.phase) {
+    case "mulligan":
+      return { type: "keepHand", bottom: [] };
+    case "cleanup": {
+      const hand = s.players[who].hand;
+      return { type: "discard", iids: hand.slice(0, Math.max(0, hand.length - MAX_HAND_SIZE)).map((c) => c.iid) };
+    }
+    case "damage":
+      return { type: "assignDamage", assignments: getDamageAssignments(s).flatMap((d) => Object.entries(suggestDamageAssignment(s, d.attacker)).map(([blocker, amount]) => ({ attacker: d.attacker, blocker, amount }))) };
+    case "blockers":
+      return { type: "declareBlockers", blocks: chooseBlocks(s, who) };
+    default:
+      return { type: "passPhase" };
+  }
+}
+
+/** Plays the game on with `plainAction` until `stop` says so. Returns null if the engine refuses something. */
+function rollout(start: GameState, stop: (s: GameState) => boolean, maxSteps = 60): GameState {
+  let s = start;
+  for (let i = 0; i < maxSteps && !s.winner && !stop(s); i++) {
+    const who = playerToAct(s);
+    let action = plainAction(s);
+    let r = action ? applyAction(s, who, action) : null;
+    if (!r?.ok && s.phase === "blockers") r = applyAction(s, who, { type: "declareBlockers", blocks: getForcedBlocks(s) });
+    if (!r?.ok) r = applyAction(s, who, s.priority ? { type: "passPriority" } : { type: "passPhase" });
+    if (!r?.ok) break;
+    s = r.state;
+  }
+  return s;
+}
+
+/** The position after doing `action` and letting everything on the stack resolve; null if the move is not allowed. */
+function after(s: GameState, me: PlayerId, action: Action): GameState | null {
+  const r = applyAction(s, me, action);
+  return r.ok ? rollout(r.state, quiet) : null;
+}
+
+// ───────── deciding ─────────
+const landCount = (s: GameState, id: PlayerId) => s.players[id].battlefield.filter((p) => defOf(s, p)?.type === "land").length;
+
+function keepValue(s: GameState, id: PlayerId, defId: string): number {
+  const d = s.cards[defId];
+  if (!d) return 1;
+  if (d.type === "land") return landCount(s, id) < 6 ? 3 : 0.5;
+  return 2 + (d.type === "creature" ? 1 : 0) - Math.max(0, (d.cost ?? 0) - 5) * 0.8;
+}
+
+function chooseMulligan(s: GameState, me: PlayerId): Action {
+  const hand = s.players[me].hand;
+  const taken = s.opening?.taken[me] ?? 0;
+  const lands = hand.filter((c) => s.cards[c.defId]?.type === "land").length;
+  const fine = lands >= 2 && lands <= Math.max(4, Math.ceil(hand.length * 0.7));
+  if (!fine && taken < 2) return { type: "mulligan" };
+  const bottom = [...hand].sort((a, b) => keepValue(s, me, a.defId) - keepValue(s, me, b.defId)).slice(0, taken).map((c) => c.iid);
+  return { type: "keepHand", bottom };
+}
+
+function chooseDiscard(s: GameState, me: PlayerId): Action {
+  const hand = s.players[me].hand;
+  const excess = Math.max(0, hand.length - MAX_HAND_SIZE);
+  const worst = [...hand].sort((a, b) => keepValue(s, me, a.defId) - keepValue(s, me, b.defId)).slice(0, excess);
+  return { type: "discard", iids: worst.map((c) => c.iid) };
+}
+
+function choosePick(s: GameState, me: PlayerId): Action {
+  const p = s.pendingPick!;
+  // scry / surveil: the pick is the card to send away (the bottom of the library, the graveyard)
+  if (p.kind === "scry" || p.kind === "surveil") {
+    const lands = landCount(s, me) + s.players[me].hand.filter((c) => s.cards[c.defId]?.type === "land").length;
+    for (const iid of p.options) {
+      const card = s.players[me].library.find((c) => c.iid === iid);
+      const d = card && s.cards[card.defId];
+      if (!d) continue;
+      if (d.type === "land" && lands >= 5) return { type: "pick", iid };
+      if (d.type !== "land" && lands < 3 && (d.cost ?? 0) >= 4) return { type: "pick", iid };
+    }
+    return { type: "pick" };
+  }
+  const options: (string | undefined)[] = [...p.options, ...(p.optional ? [undefined] : [])];
+  let best: { iid?: string; v: number } | null = null;
+  for (const iid of options) {
+    if (best && timeUp()) break;
+    const end = after(s, me, { type: "pick", ...(iid ? { iid } : {}) });
+    if (!end) continue;
+    const v = evaluate(end, me) + (iid === undefined ? 0.01 : 0); // on a tie, do nothing
+    if (!best || v > best.v) best = { iid, v };
+  }
+  return { type: "pick", ...(best?.iid ? { iid: best.iid } : {}) };
+}
+
+function chooseTrigger(s: GameState, me: PlayerId): Action {
+  const choice = s.pendingChoice!;
+  const text = choice.item.text;
+  const combos = targetCombos(s, choice.specs, choice.item.controller, text);
+  let best: { targets: TargetChoice[]; v: number } | null = null;
+  for (const targets of combos.length ? combos : [[]]) {
+    const end = after(s, me, { type: "chooseTargets", targets });
+    if (!end) continue;
+    const v = evaluate(end, me);
+    if (!best || v > best.v) best = { targets, v };
+  }
+  return { type: "chooseTargets", targets: best?.targets ?? [] };
+}
+
+/** Every spell and ability that could be used now, with sensible choices filled in. */
+function candidates(s: GameState, me: PlayerId): Action[] {
+  const out: Action[] = [];
+  const pl = s.players[me];
+  const cardText = (iid: string) => {
+    const c = [...pl.hand, ...pl.graveyard, ...pl.exile].find((x) => x.iid === iid);
+    return c ? (s.cards[c.defId]?.text ?? "") : "";
+  };
+  const cheapestCreature = (iids: string[]) =>
+    [...iids].sort((a, b) => {
+      const pa = find(s, a);
+      const pb = find(s, b);
+      return (pa ? permValue(s, pa) : 0) - (pb ? permValue(s, pb) : 0);
+    })[0];
+
+  for (const c of getCastable(s, me)) {
+    const modes = c.modal ? c.modal.modes.flatMap((m, i) => (m.available ? [{ i, specs: m.specs }] : [])) : [{ i: -1, specs: c.specs }];
+    const xs = c.maxX === undefined ? [undefined] : [...new Set([c.maxX, Math.max(1, Math.floor(c.maxX / 2))])];
+    const kicks = c.kicker !== undefined ? [false, true] : [undefined];
+    for (const m of modes) {
+      for (const targets of targetCombos(s, m.specs, me, cardText(c.iid)).length || m.specs.length === 0 ? (m.specs.length === 0 ? [[]] : targetCombos(s, m.specs, me, cardText(c.iid))) : []) {
+        for (const x of xs) {
+          for (const kicked of kicks) {
+            out.push({
+              type: "castSpell",
+              iid: c.iid,
+              targets,
+              ...(x !== undefined ? { x } : {}),
+              ...(kicked ? { kicked: true } : {}),
+              ...(c.zone ? { from: c.zone } : {}),
+              ...(c.sacrifice ? { sacrifice: cheapestCreature(c.sacrifice) } : {}),
+              ...(m.i >= 0 ? { modes: [m.i] } : {}),
+            });
+          }
+        }
+      }
+    }
+  }
+  for (const a of getActivatable(s, me)) {
+    const text = (() => {
+      const p = find(s, a.iid);
+      return p ? (defOf(s, p)?.text ?? "") : cardText(a.iid);
+    })();
+    const combos = a.specs.length === 0 ? [[]] : targetCombos(s, a.specs, me, text);
+    for (const targets of combos) out.push({ type: "activateAbility", iid: a.iid, index: a.index, targets, ...(a.costChoices ? { payWith: cheapestCreature(a.costChoices) ?? a.costChoices[0] } : {}) });
+  }
+  for (const a of getLoyaltyAbilities(s, me)) {
+    const combos = a.specs.length === 0 ? [[]] : targetCombos(s, a.specs, me, a.text);
+    for (const targets of combos) out.push({ type: "loyalty", iid: a.iid, index: a.index, targets });
+  }
+  return out;
+}
+
+/** The best land to play: the one that gives a color the hand needs and the table does not yet make. */
+function chooseLand(s: GameState, me: PlayerId): Action | null {
+  const pl = s.players[me];
+  if (pl.landsPlayedThisTurn >= 1) return null;
+  const lands = pl.hand.filter((c) => s.cards[c.defId]?.type === "land");
+  if (lands.length === 0) return null;
+  const need: Record<string, number> = {};
+  for (const c of pl.hand) {
+    const d = s.cards[c.defId];
+    for (const sym of (d?.manaCost ?? "").matchAll(/\{([WUBRG])\}/g)) need[sym[1]] = (need[sym[1]] ?? 0) + 1;
+  }
+  const have: Record<string, number> = {};
+  for (const p of pl.battlefield) {
+    const d = defOf(s, p);
+    for (const sym of (d?.typeLine ?? "").matchAll(/Plains|Island|Swamp|Mountain|Forest/g)) {
+      const color = { Plains: "W", Island: "U", Swamp: "B", Mountain: "R", Forest: "G" }[sym[0]]!;
+      have[color] = (have[color] ?? 0) + 1;
+    }
+  }
+  const score = (iid: string) => {
+    const d = s.cards[pl.hand.find((c) => c.iid === iid)!.defId];
+    const colors = [...(d?.typeLine ?? "").matchAll(/Plains|Island|Swamp|Mountain|Forest/g)].map((m) => ({ Plains: "W", Island: "U", Swamp: "B", Mountain: "R", Forest: "G" })[m[0]]!);
+    return colors.reduce((n, c) => n + (need[c] ?? 0) * 2 - (have[c] ?? 0) * 0.5, 0) + (d?.text?.includes("enters tapped") || d?.text?.includes("enters the battlefield tapped") ? -1 : 0);
+  };
+  const pick = [...lands].sort((a, b) => score(b.iid) - score(a.iid))[0];
+  return { type: "playLand", iid: pick.iid };
+}
+
+/** Use the move that makes the position best, if any is worth it. */
+function chooseMain(s: GameState, me: PlayerId): Action {
+  const land = chooseLand(s, me);
+  if (land) return land;
+  const base = evaluate(rollout(s, quiet), me);
+  let best: { action: Action; gain: number } | null = null;
+  for (const action of candidates(s, me)) {
+    if (best && timeUp()) break;
+    const end = after(s, me, action);
+    if (!end) continue;
+    const gain = evaluate(end, me) - base - (action.type === "loyalty" ? -0.5 : 0);
+    if (!best || gain > best.gain) best = { action, gain };
+  }
+  return best && best.gain > 0.35 ? best.action : { type: "passPhase" };
+}
+
+/** Which creatures attack: every plan is played out against the blocks the other player would choose. */
+function chooseAttack(s: GameState, me: PlayerId): Action {
+  const possible = getPossibleAttackers(s);
+  if (possible.length === 0) return { type: "passPhase" };
+  const perms = possible.map((iid) => find(s, iid)!).filter(Boolean);
+  const forced = perms.filter((p) => { const d = defOf(s, p); return d ? !!parseCard(d).mustAttack : false; }).map((p) => p.card.iid);
+  const opp = s.players[OPP[me]];
+  const blockers = opp.battlefield.filter((p) => isCreature(s, p) && !p.tapped);
+  const safe = (a: Permanent) => !blockers.some((b) => canBlock(s, b, a) && duel(s, a, b).aDies);
+  const evasive = (a: Permanent) => blockers.every((b) => !canBlock(s, b, a));
+
+  const sorted = [...perms].sort((a, b) => creatureValue(s, b) - creatureValue(s, a));
+  const sets = new Map<string, string[]>();
+  const add = (list: Permanent[]) => {
+    const ids = [...new Set([...forced, ...list.map((p) => p.card.iid)])];
+    sets.set([...ids].sort().join("|"), ids);
+  };
+  add([]);
+  add(sorted);
+  add(sorted.filter(safe));
+  add(sorted.filter(evasive));
+  for (let k = 1; k <= Math.min(sorted.length, 5); k++) add(sorted.slice(0, k));
+  if (sorted.length <= 4) {
+    for (let mask = 1; mask < 1 << sorted.length; mask++) add(sorted.filter((_, i) => mask & (1 << i)));
+  } else for (const p of sorted) add([p]);
+
+  const t0 = s.turn;
+  const endOfCombat = (st: GameState) => st.turn !== t0 || (!st.combat && !["attackers", "blockers", "damage"].includes(st.phase) && quiet(st));
+  let best: { ids: string[]; v: number } | null = null;
+  for (const ids of sets.values()) {
+    if (best && timeUp()) break;
+    let v: number;
+    if (ids.length === 0) v = evaluate(s, me) - exposure(s, me);
+    else {
+      const r = applyAction(s, me, { type: "declareAttackers", attackers: ids });
+      if (!r.ok) continue;
+      const end = rollout(r.state, endOfCombat);
+      v = evaluate(end, me) - exposure(end, me) + ids.length * 0.05; // a little push to be the aggressor
+    }
+    if (!best || v > best.v) best = { ids, v };
+  }
+  if (!best || best.ids.length === 0) return { type: "passPhase" };
+  return { type: "declareAttackers", attackers: best.ids };
+}
+
+/** The other player has cast something, or combat is about to be decided: answer with an instant if that plays out better. */
+function chooseResponse(s: GameState, me: PlayerId): Action {
+  const pass: Action = { type: "passPriority" };
+  const cands = getCastable(s, me).length || getActivatable(s, me).length ? candidates(s, me) : [];
+  if (cands.length === 0) return pass;
+  const t0 = s.turn;
+  // play the rest of this combat (or just the stack) out
+  const stop = (st: GameState) => st.turn !== t0 || (quiet(st) && !st.combat) || (quiet(st) && !["blockers", "damage"].includes(st.phase) && st.phase !== "attackers");
+  const baseAfter = applyAction(s, me, pass);
+  const base = baseAfter.ok ? evaluate(rollout(baseAfter.state, stop), me) : evaluate(s, me);
+  let best: { action: Action; gain: number } | null = null;
+  for (const action of cands) {
+    if (best && timeUp()) break;
+    const r = applyAction(s, me, action);
+    if (!r.ok) continue;
+    const gain = evaluate(rollout(r.state, stop), me) - base;
+    if (!best || gain > best.gain) best = { action, gain };
+  }
+  return best && best.gain > 0.8 ? best.action : pass;
+}
+
+function decide(s: GameState, me: PlayerId): Action {
+  if (s.pendingPick) return choosePick(s, me);
+  if (s.pendingChoice) return chooseTrigger(s, me);
+  if (s.priority) return chooseResponse(s, me);
+  switch (s.phase) {
+    case "mulligan":
+      return chooseMulligan(s, me);
+    case "cleanup":
+      return chooseDiscard(s, me);
+    case "damage":
+    case "blockers":
+      return plainAction(s) ?? { type: "passPhase" };
+    case "attackers":
+      return chooseAttack(s, me);
+    case "main1":
+    case "main2":
+      return chooseMain(s, me);
+    default:
+      return { type: "passPhase" };
+  }
+}
+
+/**
+ * The bot's next move, or null when it is not its turn to act (or the game is over).
+ * Pass the bot's own view of the game (`viewFor(state, seat)`) so it plays with no more information than a person has.
+ */
+export function botAction(state: GameState, seat: PlayerId): Action | null {
+  if (state.winner || playerToAct(state) !== seat) return null;
+  deadline = Date.now() + THINK_MS;
+  const tries: (Action | null)[] = [];
+  try {
+    tries.push(decide(state, seat));
+  } catch {
+    // a bug in the thinking must never freeze a game: fall through to the plain moves
+  }
+  tries.push(plainAction(state));
+  for (const action of tries) {
+    if (action && applyAction(state, seat, action).ok) return action;
+  }
+  // the last resorts
+  for (const action of [state.priority ? ({ type: "passPriority" } as Action) : ({ type: "passPhase" } as Action), { type: "declareBlockers", blocks: [] } as Action]) {
+    if (applyAction(state, seat, action).ok) return action;
+  }
+  return null;
+}

@@ -50,7 +50,7 @@ export function readable(text: string, cardName: string): string {
 }
 
 /** What is waiting to resolve, newest on top. The player to act can respond or pass. */
-export function StackPanel({ state, actor, onPass, waiting }: { state: GameState; actor: PlayerId; onPass: () => void; /** Online, and it is the other player's turn to respond. */ waiting?: boolean }) {
+export function StackPanel({ state, actor, onPass, waiting }: { state: GameState; actor: PlayerId; onPass: () => void; /** Online, and the other player has to act: what to say while waiting. */ waiting?: string }) {
   // With nothing on the stack there can still be a window to respond (before combat damage): it needs its pass button too.
   if (state.stack.length === 0 && !state.priority) return null;
   return (
@@ -69,7 +69,7 @@ export function StackPanel({ state, actor, onPass, waiting }: { state: GameState
           </li>
         ))}
       </ol>
-      {state.priority && waiting && <p className="text-base font-medium text-violet-800">Waiting for {playerName(state.priority.holder)} to respond…</p>}
+      {state.priority && waiting && <p className="text-base font-medium text-violet-800">{waiting}</p>}
       {state.priority && !waiting && (
         <div className="flex items-center gap-3">
           <button onClick={onPass} className="rounded-lg bg-violet-600 px-4 py-2 text-base font-semibold text-white hover:bg-violet-500">

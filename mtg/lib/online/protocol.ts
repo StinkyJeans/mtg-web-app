@@ -13,6 +13,8 @@ export interface LobbyRoomInfo {
   players: string[];
   status: Stage;
   turn: number;
+  /** A room with a computer opponent: nobody else can join it. */
+  bot: boolean;
   clients: number;
   maxClients: number;
 }
@@ -25,7 +27,7 @@ export interface RoomSnapshot {
   host: PlayerId;
   size: number | null;
   mismatch: boolean;
-  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean }[];
+  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; bot?: boolean }[];
   coin: { call: "heads" | "tails"; result: "heads" | "tails"; winner: PlayerId; chose: "first" | "second" | null } | null;
   winner: PlayerId | "draw" | null;
   endReason: string | null;
