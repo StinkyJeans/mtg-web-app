@@ -9,11 +9,11 @@
     "node": ">= 22.0.0"
   },
   "scripts": {
-    "start": "tsx watch src/index.ts",
+    "start": "tsx watch --env-file=../mtg/.env.local src/index.ts",
     "loadtest": "tsx loadtest/example.ts --room my_room --numClients 2",
     "build": "npm run clean && tsc -p tsconfig.build.json",
     "clean": "rimraf build",
-    "test": "mocha -r tsx test/**.test.ts --exit --timeout 15000"
+    "test": "node --env-file=../mtg/.env.local --env-file=test/.env.test node_modules/mocha/bin/mocha -r tsx test/**.test.ts --exit --timeout 60000"
   },
   "author": "",
   "license": "UNLICENSED",

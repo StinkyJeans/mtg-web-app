@@ -1,67 +1,27 @@
-import {
-  defineServer,
-  defineRoom,
-  monitor,
-  playground,
-  createRouter,
-  createEndpoint,
-} from "colyseus";
+import { defineServer, defineRoom, LobbyRoom, monitor, playground } from "colyseus";
+import { MatchRoom } from "./rooms/MatchRoom.js";
 
 /**
- * Import your Room files
+ * The live game server.
+ *   "lobby"  every signed-in browser joins it to see the list of rooms, updated as rooms open, fill up and close
+ *   "match"  one room per match: voting, coin toss and the game itself (see rooms/MatchRoom.ts)
  */
-import { MyRoom } from "./rooms/MyRoom.js";
-
 const server = defineServer({
-
-  /**
-   * Define your room handlers:
-   */
   rooms: {
-    my_room: defineRoom(MyRoom),
+    lobby: defineRoom(LobbyRoom),
+    match: defineRoom(MatchRoom).enableRealtimeListing(),
   },
 
-  /**
-   * Experimental: Define API routes. Built-in integration with the "playground" and SDK.
-   *
-   * Usage from SDK:
-   *   client.http.get("/api/hello").then((response) => {})
-   *
-   */
-  routes: createRouter({
-    api_hello: createEndpoint("/api/hello", { method: "GET" }, async (ctx) => {
-      return { message: "Hello World" };
-    }),
-  }),
-
-  /**
-   * Bind your custom express routes here:
-   * Read more: https://expressjs.com/en/starter/basic-routing.html
-   */
   express: (app) => {
-
-    app.get("/hi", (req, res) => {
-      res.send("It's time to kick ass and chew bubblegum!");
+    app.get("/health", (_req, res) => {
+      res.json({ ok: true });
     });
-
-    /**
-     * Use @colyseus/monitor
-     * If you expose it in production, make sure to protect it with a password:
-     * https://docs.colyseus.io/tools/monitoring#password-protection
-     */
+    // handy while developing; never expose these on the internet
     if (process.env.NODE_ENV !== "production") {
       app.use("/monitor", monitor());
-    }
-
-    /**
-     * Use @colyseus/playground
-     * (It is not recommended to expose this route in a production environment)
-     */
-    if (process.env.NODE_ENV !== "production") {
       app.use("/", playground());
     }
-  }
+  },
 });
 
 export default server;
-

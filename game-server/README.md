@@ -1,53 +1,43 @@
-# Welcome to Colyseus!
+# MTG Duel live game server
 
-This project was created with [⚔️ `create-colyseus-app`](https://github.com/colyseus/create-colyseus-app/).
+A [Colyseus](https://colyseus.io) server (0.18) that runs online matches between two players.
+The rules live in `packages/engine`; this server holds the real game state and applies every action with that engine,
+so neither browser can cheat. Each player is only ever sent what they may see (`viewFor` in the engine): their own hand,
+but not the opponent's hand or either library.
 
-[Documentation](https://docs.colyseus.io/)
-
-## :crossed_swords: Usage
+## Run it
 
 ```
-npm start
+cd game-server
+npm install        # first time only
+npm start          # listens on http://localhost:2567
 ```
 
-Then open http://localhost:2567 for the playground, or /monitor for the monitor.
+It reads the Supabase settings from `../mtg/.env.local` (the same file the website uses; it needs
+`NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` and `SUPABASE_SECRET_KEY`).
+Then start the website as usual (`cd mtg && npm run dev`) and sign in on the home page.
 
-## Structure
+The website finds the server at the same address as the page itself, port 2567 (so `http://192.168.1.20:3000`
+uses `ws://192.168.1.20:2567`). To use another address, set `NEXT_PUBLIC_GAME_SERVER_URL` in `mtg/.env.local`.
 
-- `src/index.ts`: entry point — leave it alone if you plan to deploy to Colyseus Cloud
-- `src/app.config.ts`: server configuration — rooms, HTTP routes, express middleware
-- `src/rooms/MyRoom.ts`: your room handler
-- `src/rooms/schema/MyRoomState.ts`: the state synchronized to every client in the room
-- `test/MyRoom.test.ts`: boots the real server and connects a real client
-- `loadtest/example.ts`: scriptable client for `npm run loadtest`
-- `ecosystem.config.cjs`: pm2 configuration, used when deploying to Colyseus Cloud
+## Playing
 
-## Scripts
+1. Home page: **Create room** (or **Join** a room in the Live matches list).
+2. The host presses **Vote** once a second player has joined. Both vote for a deck size (20, 40 or 60) and must agree.
+3. Both choose a deck (saved decks of that size, the starter deck, or a random one) and press **Ready**.
+4. The server tosses the coin (the host calls heads). The winner chooses to go first or second.
+5. The match starts on the play screen. Refreshing the page mid-match rejoins the same seat (the seat is held for 60 seconds).
 
-- `npm start`: run the server in watch mode (`tsx watch src/index.ts`)
-- `npm test`: run the mocha test suite
-- `npm run build`: compile to `build/`
-- `npm run loadtest`: connect N simulated clients with [`@colyseus/loadtest`](https://github.com/colyseus/colyseus-loadtest/)
+## How it fits together
 
-## What's included
+- `src/rooms/MatchRoom.ts`: one room per match (waiting → vote → decks → coin → playing → over), the messages, the rules.
+- `src/supabase.ts`: checks who a player is (their Supabase login), loads card definitions, saves the finished match.
+- `src/app.config.ts`: the `lobby` room (live list of rooms) and the `match` room.
+- `test/match.test.ts`: plays whole matches through the real server (`npm test`; uses `DEV_AUTH=1` so tests can use fake accounts like `dev:alice`;
+  that switch is never on in normal use).
+- Website side: `mtg/lib/online/` (connection), `mtg/app/lobby/` (dashboard, room and vote pop-ups), `mtg/app/play/online/` (the match).
 
-### Turn-based
+## Not online yet
 
-`MyRoom` owns the turn order: `state.currentTurn` names whose turn it is, and a
-`play` message from anyone else is ignored. The room locks once it is full, and
-each turn carries a deadline — a `clock.setTimeout` skips a player who runs out
-the clock, so one idle client cannot stall the match.
-
-`state.turnDeadline` is stamped from `this.clock.currentTime`, the room's own
-clock, so a reconnecting client can render the remaining time without the server
-sending a countdown.
-
-- https://docs.colyseus.io/room/timing-events
-
-### Reconnection
-
-`MyRoom.onDrop()` holds a dropped client's seat for 30 seconds via
-`allowReconnection()`. The SDK retries automatically with exponential backoff;
-`onReconnect()` fires if it gets back in time, `onLeave()` if it does not.
-
-- https://docs.colyseus.io/room/reconnection
+- Only on your own network (or a tunnel) for now. Playing over the internet needs the server hosted somewhere reachable (Fly.io, Railway, a small VPS).
+- Spectating a live match, and showing the opponent's sleeves and playmat.

@@ -12,3 +12,4 @@ export type { Castable, Activatable, Cyclable, Crewable, LoyaltyOption } from ".
 export { legalTargets } from "./core.js";
 export { powerOf, toughnessOf } from "./core.js";
 export { staticEffectsOn } from "./core.js";
+export { viewFor, HIDDEN_CARD_ID } from "./view.js";
