@@ -1,11 +1,7 @@
 import assert from "assert";
 import { ColyseusTestServer, boot } from "@colyseus/testing";
-<<<<<<< HEAD
-import { botAction, createGame, viewFor, getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
-=======
 import type { Room as SDKRoom } from "@colyseus/sdk";
-import { botAction, getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
->>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
+import { botAction, createGame, viewFor, getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
 import type { Action, GameState, PlayerId } from "@mtg/engine";
 import appConfig from "../src/app.config.js";
 import { BotPool } from "../src/botPool.js";
@@ -297,7 +293,6 @@ describe("a live match", function () {
     assert.doesNotMatch(JSON.stringify(snapshot), /s3cret/);
   });
 
-<<<<<<< HEAD
   // ───────── what keeps the server healthy when many people use it ─────────
 
   it("lets one account hold only one room at a time, and frees it when they leave", async () => {
@@ -423,7 +418,8 @@ describe("a live match", function () {
       await pool.close();
     }
     assert.ok(await pool.think(view, "p1"), "a closed pool still answers (it thinks on the spot)");
-=======
+  });
+
   it("brings a match back after the server restarts, as it was, with nobody losing for it", async () => {
     const room = await colyseus.createRoom<MatchRoom>("match", { name: "Restart" });
     const ivy = await colyseus.connectTo(room, { token: "dev:ivy" });
@@ -607,6 +603,5 @@ describe("a live match", function () {
       await until("the target is taken", () => room.debugGame() !== d);
     }
     await until("the turn ends without pressing End turn again", () => room.debugGame()!.turn > turn);
->>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
   });
 });

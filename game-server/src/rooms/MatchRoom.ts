@@ -1,11 +1,6 @@
-<<<<<<< HEAD
-import { Room, Client, CloseCode, matchMaker } from "colyseus";
-import { applyAction, createGame, HIDDEN_CARD_ID, playerToAct, viewFor } from "@mtg/engine";
-=======
-import { Room, Client, CloseCode, ServerError } from "colyseus";
+import { Room, Client, CloseCode, ServerError, matchMaker } from "colyseus";
 import type { Delayed } from "colyseus";
-import { applyAction, botAction, createGame, HIDDEN_CARD_ID, playerToAct, viewFor } from "@mtg/engine";
->>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
+import { applyAction, createGame, HIDDEN_CARD_ID, playerToAct, viewFor } from "@mtg/engine";
 import type { Action, CardDef, GameEvent, GameState, PlayerId } from "@mtg/engine";
 import { accountFromToken, dropLive, loadCards, loadLive, saveLive, saveMatch } from "../supabase.js";
 import type { Account } from "../supabase.js";
@@ -91,7 +86,6 @@ interface SavedMatch {
 }
 
 const RECONNECT_SECONDS = 60;
-<<<<<<< HEAD
 const CLAIM_SETUP_SECONDS = 90; // a seat being set up that never connects frees its claim after this long
 
 const acctKey = (accountId: string) => `acct-room:${accountId}`;
@@ -103,9 +97,7 @@ async function roomIsOpen(roomId: string) {
     return false;
   }
 }
-=======
 const SAVE_DELAY_MS = 300; // changes in quick succession are saved once
->>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
 
 export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   maxClients = 2;
@@ -130,19 +122,16 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   private defs: Record<string, CardDef> = {};
   private busy = false; // actions are handled one at a time
   private botTimer?: ReturnType<typeof setTimeout>;
-<<<<<<< HEAD
   private botRun = 0; // bumped whenever a bot move in the works must be thrown away
   private idleTimer?: ReturnType<typeof setTimeout>;
   private claimed = new Set<string>(); // accounts that currently hold a seat here (one room per account)
   private lastChat = 0;
-=======
   private saveTimer: Delayed | undefined;
   private saving: Promise<void> = Promise.resolve(); // saves (and the final delete) go out one after another, in order
   private ended = false; // over, or closed: nothing to bring back
   private shuttingDown = false;
   private restored = false; // brought back after a restart, and the player hasn't returned yet
   private endingTurn: { seat: PlayerId; turn: number } | null = null; // "End turn" was pressed: it carries on after a choice along the way
->>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
 
   messages = {
     startVote: (client: Client) => {
@@ -298,8 +287,9 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     if (this.members.some((m) => m.account.id === account.id && m.connected)) throw new Error("You are already in this room.");
     // a player coming back to their own seat doesn't need the password again
     const member = this.members.some((m) => m.account.id === account.id);
-<<<<<<< HEAD
-    if (this.password && !member) {
+    // a room holding a seat for someone who dropped is unlocked so they can come back; nobody else gets in
+    if (!member && this.members.length >= 2) throw new Error("This room is full.");
+if (this.password && !member) {
       const wait = passwordGuesses.waitSeconds(account.id);
       if (wait > 0) throw new Error(`Too many wrong passwords. Try again in ${wait} seconds.`);
       if (options?.password !== this.password) {
@@ -330,17 +320,8 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     void Promise.resolve(this.presence.get(key)).then((v) => v === this.roomId && this.presence.del(key));
   }
 
-  onCreate(options: { name?: string; password?: string }) {
-=======
-    // a room holding a seat for someone who dropped is unlocked so they can come back; nobody else gets in
-    if (!member && this.members.length >= 2) throw new Error("This room is full.");
-    if (this.password && !member && options?.password !== this.password) throw new Error(options?.password ? "Wrong password." : "This room needs a password.");
-    return account;
-  }
-
   async onCreate(options: { name?: string; password?: string; restore?: string }) {
     if (options?.restore) return this.restore(String(options.restore));
->>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
     this.title = String(options?.name ?? "").trim().slice(0, 40) || "Room";
     this.password = String(options?.password ?? "").slice(0, 40);
   }
@@ -720,12 +701,9 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.winner = winner;
     this.endReason = reason;
     this.stage = "over";
-<<<<<<< HEAD
     MatchRoom.botRooms.delete(this.roomId);
     for (const m of this.members) this.release(m.account.id); // a finished game no longer holds the players to this room
-=======
     this.forget(); // the result is recorded below; there is nothing left to bring back
->>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
     const a = this.members.find((x) => x.seat === "p1");
     const b = this.members.find((x) => x.seat === "p2");
     if (a && b && !this.bot) void saveMatch({ p1: a.account.id, p2: b.account.id, winner: winner === "draw" ? null : (winner === "p1" ? a : b).account.id, turns: this.game?.turn ?? 0 });

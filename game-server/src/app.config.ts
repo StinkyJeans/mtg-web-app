@@ -1,12 +1,9 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { defineServer, defineRoom, LobbyRoom, matchMaker, monitor, playground, RedisDriver, RedisPresence, WebSocketTransport } from "colyseus";
 import { MatchRoom } from "./rooms/MatchRoom.js";
-<<<<<<< HEAD
 import { botPool } from "./botPool.js";
 import { LIMITS } from "./limits.js";
-=======
 import { pruneLive } from "./supabase.js";
->>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
 
 /**
  * The live game server.
@@ -35,9 +32,6 @@ const server = defineServer({
     match: defineRoom(MatchRoom).enableRealtimeListing(),
   },
 
-  // matches saved before a restart wait for their players to come back; ones nobody came back to are cleared out
-  beforeListen: () => pruneLive(),
-
   express: (app) => {
     // Railway (and any load balancer) asks this; it also reports how busy the server is, for watching it.
     app.get("/health", (_req, res) => {
@@ -64,6 +58,8 @@ const server = defineServer({
 
   beforeListen: () => {
     if (redis) console.log("Using Redis: this process can run next to others.");
+    // matches saved before a restart wait for their players to come back; ones nobody came back to are cleared out
+    return pruneLive();
   },
 });
 
