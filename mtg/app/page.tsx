@@ -1,11 +1,13 @@
 import Link from "next/link";
 import LiveWallpaper from "./LiveWallpaper";
 import Lobby from "./lobby/Lobby";
+import ProfileButton from "./profile/ProfileButton";
 
 export default function Home() {
   return (
     <main className="relative flex flex-1 flex-col items-center justify-center gap-7 p-8 text-white">
       <LiveWallpaper />
+      <ProfileButton />
       <Lobby />
       <div className="flex flex-col items-center gap-3 text-center">
         <h1 className="bg-gradient-to-r from-amber-200 via-sky-200 to-rose-200 bg-clip-text text-6xl font-extrabold tracking-tight text-transparent drop-shadow-[0_2px_24px_rgba(167,139,250,0.55)] sm:text-7xl">

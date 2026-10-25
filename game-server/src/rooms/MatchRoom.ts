@@ -1,9 +1,11 @@
-import { Room, Client, CloseCode, ServerError } from "colyseus";
+import { Room, Client, CloseCode, ServerError, matchMaker } from "colyseus";
 import type { Delayed } from "colyseus";
-import { applyAction, botAction, createGame, HIDDEN_CARD_ID, playerToAct, viewFor } from "@mtg/engine";
+import { applyAction, createGame, HIDDEN_CARD_ID, playerToAct, viewFor } from "@mtg/engine";
 import type { Action, CardDef, GameEvent, GameState, PlayerId } from "@mtg/engine";
 import { accountFromToken, dropLive, loadCards, loadLive, saveLive, saveMatch } from "../supabase.js";
 import type { Account } from "../supabase.js";
+import { botPool } from "../botPool.js";
+import { LIMITS, passwordGuesses } from "../limits.js";
 
 /**
  * One match, from the moment the host opens the room to the moment someone wins.
@@ -84,10 +86,26 @@ interface SavedMatch {
 }
 
 const RECONNECT_SECONDS = 60;
+const CLAIM_SETUP_SECONDS = 90; // a seat being set up that never connects frees its claim after this long
+
+const acctKey = (accountId: string) => `acct-room:${accountId}`;
+/** Is this room still open (on any server process)? */
+async function roomIsOpen(roomId: string) {
+  try {
+    return Boolean(await matchMaker.getRoomById(roomId));
+  } catch {
+    return false;
+  }
+}
 const SAVE_DELAY_MS = 300; // changes in quick succession are saved once
 
 export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   maxClients = 2;
+  /** A browser that sends more than this per second is cut off. */
+  maxMessagesPerSecond = LIMITS.messagesPerSecond();
+
+  /** Rooms on this process with a computer opponent and a game not yet over: the bot is the expensive part, so these are capped. */
+  private static botRooms = new Set<string>();
 
   private members: Member[] = [];
   private stage: Stage = "waiting";
@@ -104,6 +122,10 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   private defs: Record<string, CardDef> = {};
   private busy = false; // actions are handled one at a time
   private botTimer?: ReturnType<typeof setTimeout>;
+  private botRun = 0; // bumped whenever a bot move in the works must be thrown away
+  private idleTimer?: ReturnType<typeof setTimeout>;
+  private claimed = new Set<string>(); // accounts that currently hold a seat here (one room per account)
+  private lastChat = 0;
   private saveTimer: Delayed | undefined;
   private saving: Promise<void> = Promise.resolve(); // saves (and the final delete) go out one after another, in order
   private ended = false; // over, or closed: nothing to bring back
@@ -125,6 +147,11 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     addBot: (client: Client) => {
       const m = this.member(client);
       if (!m || m.seat !== "p1" || this.stage !== "waiting" || this.members.length !== 1) return;
+      if (MatchRoom.botRooms.size >= LIMITS.maxBotGames() && !MatchRoom.botRooms.has(this.roomId)) {
+        client.send("error", { message: "The computer opponents are all busy right now. Try again in a moment." });
+        return;
+      }
+      MatchRoom.botRooms.add(this.roomId);
       this.members.push({ sessionId: "bot", account: { id: "bot", username: "Bot" }, seat: "p2", connected: true, vote: null, deck: null, isBot: true });
       void this.lock(); // nobody else can join a room that has a bot
       this.publish();
@@ -134,6 +161,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       const m = this.member(client);
       if (!m || m.seat !== "p1" || this.stage !== "waiting" || !this.bot) return;
       this.members = this.members.filter((x) => !x.isBot);
+      MatchRoom.botRooms.delete(this.roomId);
       void this.unlock();
       this.publish();
     },
@@ -161,7 +189,8 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     deck: async (client: Client, message: { name?: string; ids?: unknown; botDeck?: { name?: string; ids?: unknown } }) => {
       const m = this.member(client);
       if (!m || this.stage !== "decks" || this.size === null) return;
-      const idsOf = (x: unknown) => (Array.isArray(x) ? (x as unknown[]).filter((y): y is string => typeof y === "string") : []);
+      // at most 200 entries are even looked at (the biggest deck is 60), each a short text
+      const idsOf = (x: unknown) => (Array.isArray(x) ? (x as unknown[]).slice(0, 200).filter((y): y is string => typeof y === "string" && y.length <= 80) : []);
       const check = async (ids: string[]) => {
         if (ids.length !== this.size) throw new Error(`The deck needs exactly ${this.size} cards.`);
         const cards = await loadCards(ids);
@@ -203,8 +232,9 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
     action: (client: Client, message: { action?: Action; spare?: string[] }) => {
       const m = this.member(client);
-      if (!m || !message?.action) return;
-      this.play(m, () => this.applyFor(m.seat, message.action as Action, message.spare));
+      if (!m || !message?.action || typeof message.action !== "object") return;
+      const spare = Array.isArray(message.spare) ? message.spare.slice(0, 40).filter((x): x is string => typeof x === "string") : undefined;
+      this.play(m, () => this.applyFor(m.seat, message.action as Action, spare));
     },
 
     endTurn: (client: Client) => {
@@ -231,6 +261,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       if (guest.isBot) {
         // "removing" the bot just takes it out of the room
         this.members = this.members.filter((x) => !x.isBot);
+        MatchRoom.botRooms.delete(this.roomId);
         void this.unlock();
         this.publish();
         return;
@@ -242,7 +273,8 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     chat: (client: Client, message: { text?: string }) => {
       const m = this.member(client);
       const text = String(message?.text ?? "").trim().slice(0, 200);
-      if (!m || !text) return;
+      if (!m || !text || Date.now() - this.lastChat < 500) return; // no flooding the other player
+      this.lastChat = Date.now();
       this.broadcast("chat", { from: m.seat, name: m.account.username, text });
     },
   };
@@ -257,8 +289,35 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     const member = this.members.some((m) => m.account.id === account.id);
     // a room holding a seat for someone who dropped is unlocked so they can come back; nobody else gets in
     if (!member && this.members.length >= 2) throw new Error("This room is full.");
-    if (this.password && !member && options?.password !== this.password) throw new Error(options?.password ? "Wrong password." : "This room needs a password.");
+if (this.password && !member) {
+      const wait = passwordGuesses.waitSeconds(account.id);
+      if (wait > 0) throw new Error(`Too many wrong passwords. Try again in ${wait} seconds.`);
+      if (options?.password !== this.password) {
+        if (options?.password) passwordGuesses.fail(account.id);
+        throw new Error(options?.password ? "Wrong password." : "This room needs a password.");
+      }
+      passwordGuesses.succeed(account.id);
+    }
+    // the server has room for only so many rooms; the one being opened right now is already counted
+    if (this.members.length === 0 && matchMaker.stats.local.roomCount > LIMITS.maxRooms()) throw new Error("The server is full right now. Try again in a few minutes.");
+    // one room at a time per account (and so one account can't flood the lobby with rooms)
+    if (!member) await this.claim(account.id);
     return account;
+  }
+
+  /** Reserves the account for this room, or refuses if it holds a seat in another room that is still open. */
+  private async claim(accountId: string) {
+    const key = acctKey(accountId);
+    const other = (await this.presence.get(key)) as string | null;
+    if (other && other !== this.roomId && (await roomIsOpen(other))) throw new Error("You already have a room open. Leave it before opening or joining another one.");
+    await this.presence.setex(key, this.roomId, CLAIM_SETUP_SECONDS); // made permanent in onJoin; expires if the connection never completes
+  }
+
+  /** The account no longer holds a seat here. */
+  private release(accountId: string) {
+    if (!this.claimed.delete(accountId)) return;
+    const key = acctKey(accountId);
+    void Promise.resolve(this.presence.get(key)).then((v) => v === this.roomId && this.presence.del(key));
   }
 
   async onCreate(options: { name?: string; password?: string; restore?: string }) {
@@ -298,6 +357,8 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
   onJoin(client: Client, _options: unknown, account?: Account) {
     const acc = (account ?? (client.auth as Account | undefined))!;
+    this.claimed.add(acc.id);
+    void this.presence.set(acctKey(acc.id), this.roomId); // holds the seat for good (until released)
     const back = this.members.find((x) => x.account.id === acc.id);
     if (back) {
       // a player coming back after a lost connection, or after a restart
@@ -365,6 +426,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     }
     if (this.stage === "over") {
       this.members = this.members.filter((x) => x !== m);
+      this.release(m.account.id);
       this.publish();
       return;
     }
@@ -373,10 +435,11 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       this.broadcast("closed", { message: `${m.account.username} (the host) closed the room.` });
       this.forget();
       this.members = [];
-      void this.disconnect();
+      void this.disconnect(); // onDispose frees everyone's claim
       return;
     }
     this.members = this.members.filter((x) => x !== m);
+    this.release(m.account.id);
     this.members.forEach((x) => ((x.vote = null), (x.deck = null)));
     this.stage = "waiting";
     this.size = null;
@@ -413,6 +476,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
   /** Tells every player where things stand, and updates the room's line in the lobby. */
   private publish() {
+    this.touch();
     for (const m of this.members) this.clientOf(m)?.send("room", this.snapshot(m));
     const host = this.members.find((x) => x.seat === "p1");
     void this.setMetadata({ name: this.title, host: host?.account.username ?? "", players: this.members.map((x) => x.account.username), status: this.stage, turn: this.game?.turn ?? 0, locked: this.password !== "", bot: this.bot !== undefined });
@@ -516,6 +580,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
   private sendUpdate(events: GameEvent[]) {
     if (!this.game) return;
+    this.touch(); // a move was made: the room is in use
     for (const m of this.members) this.clientOf(m)?.send("update", { view: viewFor(this.game, m.seat), events });
   }
 
@@ -545,11 +610,14 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     const bot = this.bot;
     if (!bot || this.stage !== "playing" || !this.game || this.game.winner || playerToAct(this.game) !== bot.seat) return;
     clearTimeout(this.botTimer);
-    this.botTimer = setTimeout(() => {
+    const run = ++this.botRun;
+    this.botTimer = setTimeout(async () => {
       const game = this.game;
       if (!game || this.stage !== "playing" || playerToAct(game) !== bot.seat) return;
-      // the bot is given only what a player could see
-      const action = botAction(viewFor(game, bot.seat), bot.seat);
+      // the bot thinks in a worker thread, and is given only what a player could see
+      const action = await botPool.think(viewFor(game, bot.seat), bot.seat);
+      if (run !== this.botRun || this.stage !== "playing") return; // the room moved on or closed while it thought
+      if (this.game !== game) return void this.scheduleBot(); // the game changed meanwhile: think again about the new position
       if (!action) {
         this.finish(bot.seat === "p1" ? "p2" : "p1", "The bot could not find a move.");
         return;
@@ -633,6 +701,8 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.winner = winner;
     this.endReason = reason;
     this.stage = "over";
+    MatchRoom.botRooms.delete(this.roomId);
+    for (const m of this.members) this.release(m.account.id); // a finished game no longer holds the players to this room
     this.forget(); // the result is recorded below; there is nothing left to bring back
     const a = this.members.find((x) => x.seat === "p1");
     const b = this.members.find((x) => x.seat === "p2");
@@ -640,8 +710,23 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.publish();
   }
 
+  /** Closes a room that nobody is using, so abandoned rooms don't pile up. Every update starts the clock again. */
+  private touch() {
+    clearTimeout(this.idleTimer);
+    const minutes = this.stage === "playing" ? LIMITS.stuckGameMinutes() : this.stage === "over" ? 10 : LIMITS.idleMinutes();
+    this.idleTimer = setTimeout(() => {
+      this.broadcast("closed", { message: "The room was closed because nobody had done anything for a while." });
+      void this.disconnect();
+    }, minutes * 60_000);
+    this.idleTimer.unref?.();
+  }
+
   onDispose() {
     clearTimeout(this.botTimer);
+    clearTimeout(this.idleTimer);
+    this.botRun++;
+    MatchRoom.botRooms.delete(this.roomId);
+    for (const id of [...this.claimed]) this.release(id);
   }
 
   /** Test helper: the real state, never sent to anyone. */

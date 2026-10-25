@@ -9,6 +9,7 @@ import type { Deck, DeckEntries, OfficialDeck } from "@/lib/decks";
 import { cardImageUrl } from "@/lib/cards";
 import LiveWallpaper from "../LiveWallpaper";
 import { ManaSymbol } from "../play/ManaSymbols";
+import { RowSkeletons, Skeleton } from "../Skeleton";
 import DeckPreview from "./DeckPreview";
 
 const pill = (on: boolean) =>
@@ -116,7 +117,7 @@ function MyDecks() {
     };
   }, [version]);
 
-  if (!data || data.version !== version) return <p className="text-slate-100">Loading decks…</p>;
+  if (!data || data.version !== version) return <RowSkeletons count={5} className="h-[72px]" label="Loading decks" />;
   if (data.error) return <p className="text-sm text-[#fca5a5]">Could not load decks: {data.error}</p>;
   if (data.decks.length === 0)
     return (
@@ -201,7 +202,14 @@ function OfficialDecks() {
     }
   }
 
-  if (!data) return <p className="text-slate-100">Loading decks…</p>;
+  if (!data)
+    return (
+      <div role="status" aria-label="Loading decks" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {Array.from({ length: 8 }, (_, i) => (
+          <Skeleton key={i} className="h-[212px] rounded-xl" />
+        ))}
+      </div>
+    );
   if (data.error) return <p className="text-sm text-[#fca5a5]">Could not load decks: {data.error}</p>;
   if (data.decks.length === 0) return <p className="text-slate-100">No ready-made decks yet.</p>;
 

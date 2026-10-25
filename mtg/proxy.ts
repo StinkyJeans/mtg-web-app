@@ -6,6 +6,6 @@ export function proxy(request: NextRequest) {
 }
 
 export const config = {
-  // Skip static assets and image files.
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
+  // Skip static assets, image files, the service worker and the wallpapers (public files that need no login check).
+  matcher: ["/((?!_next/static|_next/image|favicon.ico|sw\\.js$|backgrounds/|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)"],
 };

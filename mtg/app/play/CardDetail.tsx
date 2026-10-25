@@ -6,7 +6,8 @@ import { KEYWORD_RULES } from "@mtg/engine";
 import { helpFor, helpForWord } from "./glossary";
 import type { Keyword } from "@mtg/engine";
 import { cardDetailImageUrl, cardImageUrl } from "@/lib/cards";
-import { useTokenArt } from "@/lib/tokenArt";
+import { isTokenDef, useTokenArt } from "@/lib/tokenArt";
+import TokenFrame from "./TokenFrame";
 import CardView from "./CardView";
 import { ManaCostView } from "./ManaSymbols";
 import Tip from "./Tip";
@@ -231,7 +232,17 @@ export function CardImage({
   const sources = [cardDetailImageUrl(def, size), tokenArt?.large ?? null, def.image ? cardImageUrl(def.image) : null].filter((s): s is string => Boolean(s));
   const [step, setStep] = useState(0);
 
-  if (step >= sources.length) return <>{fallback}</>;
+  if (step >= sources.length) {
+    // a token with no picture anywhere: draw the token card (it keeps the card's shape at any size)
+    if (isTokenDef(def)) {
+      return (
+        <div className={`relative aspect-[146/204] overflow-hidden ${className}`}>
+          <TokenFrame def={def} art={tokenArt?.crop} />
+        </div>
+      );
+    }
+    return <>{fallback}</>;
+  }
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img src={sources[step]} alt={def.name} onError={() => setStep(step + 1)} className={className} />

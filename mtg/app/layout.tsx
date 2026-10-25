@@ -3,6 +3,7 @@ import { Atkinson_Hyperlegible_Next, Inter, Geist_Mono, Rajdhani } from "next/fo
 import "mana-font/css/mana.css";
 import "./globals.css";
 import UserBar from "./UserBar";
+import RegisterSW from "./RegisterSW";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 
 // Inter: made for reading text on screens, clear at small sizes.
@@ -46,8 +47,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: THEME_BOOT_SCRIPT }} />
+        {/* Open the connections to the card picture hosts early, so the first picture does not wait for them. */}
+        <link rel="preconnect" href="https://cards.scryfall.io" crossOrigin="" />
+        {process.env.NEXT_PUBLIC_SUPABASE_URL && <link rel="preconnect" href={process.env.NEXT_PUBLIC_SUPABASE_URL} crossOrigin="" />}
       </head>
       <body className="min-h-full flex flex-col">
+        <RegisterSW />
         <UserBar />
         {children}
       </body>

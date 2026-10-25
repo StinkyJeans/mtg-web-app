@@ -46,9 +46,21 @@ export default function LoginForm() {
     const email = usernameToEmail(name);
 
     if (mode === "login") {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      // signing in goes through our own route, which counts wrong passwords (5 wrong tries lock the account for 10 minutes)
+      const res = await fetch("/api/login", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ username: name, password }),
+      }).catch(() => null);
+      const body = (await res?.json().catch(() => null)) as { access_token?: string; refresh_token?: string; error?: string } | null;
+      if (!res || !res.ok || !body?.access_token || !body.refresh_token) {
+        setError(body?.error ?? "Could not reach the server. Try again.");
+        setBusy(false);
+        return;
+      }
+      const { error } = await supabase.auth.setSession({ access_token: body.access_token, refresh_token: body.refresh_token });
       if (error) {
-        setError(error.message === "Invalid login credentials" ? "Wrong username or password." : error.message);
+        setError(error.message);
         setBusy(false);
         return;
       }

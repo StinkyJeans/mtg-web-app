@@ -5,6 +5,7 @@ import type { CardDef, CardType } from "@mtg/engine";
 import { CARDS_PAGE_SIZE } from "@/lib/cards";
 import type { DeckEntries } from "@/lib/decks";
 import CardView from "../play/CardView";
+import { CardSkeletons } from "../Skeleton";
 import { ManaSymbol } from "../play/ManaSymbols";
 import TypeButton from "../cards/TypeButton";
 import { useCardSearch } from "../cards/useCardSearch";
@@ -67,6 +68,7 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
         </span>
       </div>
       {result?.error && <p className="text-sm text-red-600">{result.error}</p>}
+      {!result && <CardSkeletons count={CARDS_PAGE_SIZE} size="md" className="flex flex-wrap gap-2" />}
       <div className={`flex flex-wrap gap-2 transition-opacity ${loading ? "opacity-50" : ""}`}>
         {result?.cards.map((def) => (
           <CardView key={def.id} def={def} note={entries[def.id] ? `×${entries[def.id]}` : undefined} onClick={() => onAdd(def)} onZoom={() => onZoom(def)} />

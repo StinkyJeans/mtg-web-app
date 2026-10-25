@@ -70,13 +70,16 @@ export function PlayersPanel({
         const acting = id === actor;
         return (
           <div key={id} className={`rounded-xl border border-l-4 bg-white p-3 shadow-sm ${style.border} ${style.borderL} ${acting ? `shadow-lg ${style.glow} ring-2 ring-amber-300` : ""}`}>
-            <div className="flex items-center justify-between gap-1">
-              <span className={`font-display whitespace-nowrap rounded-full px-2.5 py-0.5 text-base font-bold ${style.chip}`}>{playerName(id)}</span>
-              {acting && <span className="whitespace-nowrap rounded bg-amber-400 px-1.5 py-0.5 text-[10px] font-extrabold uppercase font-display tracking-wide text-black">to act</span>}
+            {/* a long account name shortens (…) and the badge and Resign button wrap below it instead of leaving the panel */}
+            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
+              <span title={playerName(id)} className={`font-display min-w-0 max-w-full truncate rounded-full px-2.5 py-0.5 text-base font-bold ${style.chip}`}>
+                {playerName(id)}
+              </span>
+              {acting && <span className="shrink-0 whitespace-nowrap rounded bg-amber-400 px-1.5 py-0.5 text-[10px] font-extrabold uppercase font-display tracking-wide text-black">to act</span>}
               {onResign && !state.winner && (
                 <button
                   onClick={() => onResign(id)}
-                  className="rounded border border-red-300 px-1.5 py-0.5 text-xs font-semibold text-red-700 hover:bg-red-50"
+                  className="ml-auto shrink-0 rounded border border-red-300 px-1.5 py-0.5 text-xs font-semibold text-red-700 hover:bg-red-50"
                 >
                   Resign
                 </button>

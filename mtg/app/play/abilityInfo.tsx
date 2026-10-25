@@ -1,4 +1,4 @@
-import { getActivatable, getCastable, getCrewable, getCyclable, getLegalActions, getLoyaltyAbilities, parseCard, parseManaCost, payMana } from "@mtg/engine";
+import { abilityLockReason, getActivatable, getCastable, getCrewable, getCyclable, getLegalActions, getLoyaltyAbilities, parseCard, parseManaCost, payMana } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { ManaText } from "./ManaSymbols";
 import { readable } from "./cardText";
@@ -44,20 +44,8 @@ export function lockedAbilities(state: GameState, actor: PlayerId) {
     const def = state.cards[perm.card.defId];
     parseCard(def).activated.forEach((ability, index) => {
       if (usable.some((u) => u.iid === perm.card.iid && u.index === index)) return;
-      const cost = ability.mana ? parseManaCost(ability.mana) : null;
-      const reason = !hasPriority
-        ? "wait for your turn to respond"
-        : ability.tap && perm.tapped
-          ? "it is tapped"
-          : ability.tap && perm.summoningSick && def.type === "creature"
-            ? "it just arrived (summoning sick)"
-            : ability.oncePerTurn && perm.usedAbilities?.includes(index)
-              ? "already used this turn"
-              : cost && !payMana(state, actor, cost).ok
-                ? "not enough mana"
-                : ability.sorceryOnly
-                  ? "only in your main phase with an empty stack"
-                  : "can't be used right now";
+      // the engine says exactly which condition is not met (tapped, mana, timing, life...)
+      const reason = !hasPriority ? "wait for your turn to respond" : (abilityLockReason(state, actor, perm, index) ?? "can't be used right now");
       out.push({ key: `${perm.card.iid}-${index}`, where: "battlefield", label: <span><span className="font-semibold">{def.name}</span>: {readable(ability.text, def.name)}</span>, reason, help: ability.text });
     });
   }

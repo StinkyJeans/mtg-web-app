@@ -11,6 +11,7 @@ import { Lightbox } from "../play/CardDetail";
 import CardPool from "./CardPool";
 import DeckCards from "./DeckCards";
 import DeckSidebar from "./DeckSidebar";
+import { CardSkeletons, Skeleton } from "../Skeleton";
 
 const tabClass = (on: boolean) =>
   `rounded-lg px-4 py-1.5 text-sm font-semibold ${on ? "bg-amber-500 text-black" : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300"}`;
@@ -109,7 +110,13 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
   }
 
   if (loadError) return <Shell>{<p className="text-red-600">Could not load the deck: {loadError}</p>}</Shell>;
-  if (!loaded) return <Shell>{<p className="text-zinc-600">Loading deck…</p>}</Shell>;
+  if (!loaded)
+    return (
+      <Shell>
+        <Skeleton className="h-10 w-72" />
+        <CardSkeletons count={18} size="md" className="flex flex-wrap gap-2" />
+      </Shell>
+    );
 
   return (
     <Shell>

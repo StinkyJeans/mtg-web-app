@@ -556,3 +556,20 @@ body.mtg-cursor .cursor-pointer {
 body.mtg-cursor :is(input:not([type="checkbox"]):not([type="range"]), textarea) {
   cursor: text;
 }
+
+/* Loading placeholders: a soft light slides across a grey shape. Only background-position moves. */
+.skeleton {
+  background-color: rgba(148, 163, 184, 0.22);
+  background-image: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, 0.28) 50%, transparent 70%);
+  background-size: 250% 100%;
+  background-repeat: no-repeat;
+  animation: skeleton-shimmer 1.4s ease-in-out infinite;
+}
+@keyframes skeleton-shimmer {
+  from {
+    background-position: 150% 0;
+  }
+  to {
+    background-position: -50% 0;
+  }
+}

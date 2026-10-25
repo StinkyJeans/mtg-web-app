@@ -3,7 +3,7 @@ import { bindSpecs, exilePlayable, forbidden, isCreature, isPermanentCard, kw, l
 import type { TargetSpec } from "../effects.js";
 import { addCosts, parseManaCost, payMana, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
-import type { CardDef, GameState, PlayerId } from "../types.js";
+import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
 import { canCastNow, holdsPriority, sorceryTiming } from "./shared.js";
 import { castCostOf, costChoices, crewers, tapPair } from "./cast.js";
 
@@ -223,6 +223,37 @@ export function getActivatable(state: GameState, player: PlayerId): Activatable[
     });
   }
   return out;
+}
+
+/**
+ * Why an ability of one of the player's permanents can't be used right now, in words for the player (null when it can).
+ * It follows the same checks as getActivatable, in the same order, so the list of usable abilities and the reasons for
+ * the locked ones never disagree.
+ */
+export function abilityLockReason(state: GameState, player: PlayerId, perm: Permanent, index: number): string | null {
+  const def = getCard(state, perm.card.defId);
+  const ability = parseCard(def).activated[index];
+  if (!ability || ability.zone) return null;
+  if (ability.tap && perm.tapped) return "it is tapped";
+  if (ability.tap && isCreature(state, perm) && perm.summoningSick && !kw(state, perm, "haste")) return "it just arrived (summoning sick)";
+  if (ability.mana) {
+    const cost = parseManaCost(ability.mana);
+    if (!cost || !payMana(state, player, cost).ok) return "not enough mana";
+  }
+  if (bindSpecs(ability.targets, perm.card.iid).some((spec) => legalTargets(state, spec, player).length === 0)) return "there is nothing it could target right now";
+  if (ability.sorceryOnly && !sorceryTiming(state, player)) return "only in your main phase with an empty stack";
+  if (ability.oncePerTurn && perm.usedAbilities?.includes(index)) return "already used this turn";
+  if (ability.onceOnly && perm.usedOnce?.includes(index)) return "it can only be used once";
+  if (ability.yourTurnOnly && state.active !== player) return "only during your turn";
+  if (ability.solvedOnly && !perm.solved) return "the Case isn't solved yet";
+  const life = state.players[player].life;
+  if (ability.minLife !== undefined && life < ability.minLife) return `you need at least ${ability.minLife} life (you have ${life})`;
+  const yard = state.players[player].graveyard.length;
+  if (ability.exileFromYard && yard < ability.exileFromYard) return `it needs ${ability.exileFromYard} cards in your graveyard (you have ${yard})`;
+  if (ability.tapTwoSharing && !tapPair(state, player)) return "it needs two untapped creatures that share a creature type";
+  if (forbidden(state, perm, "noActivated")) return "something stops its abilities from being used";
+  if (ability.costCard && costChoices(state, player, ability, perm.card.iid).length === 0) return `you have nothing to pay it with (${ability.costCard.label})`;
+  return null;
 }
 
 /** Does the player have anything to do with priority? If not they are passed automatically. */
