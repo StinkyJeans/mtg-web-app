@@ -9,7 +9,7 @@ test("the starter deck is legal", () => {
 test("too few cards and too many copies are reported", () => {
   const errors = validateDeck(CARDS, [...Array(5).fill("hill-giant"), "mountain"]);
   assert.equal(errors.length, 2);
-  assert.match(errors[0], /at least 40/);
+  assert.match(errors[0], /at least 20/);
   assert.match(errors[1], /Hill Giant: 5 copies/);
 });
 
@@ -25,4 +25,9 @@ test("unknown cards are reported and unplayable ones are listed", () => {
   assert.match(validateDeck(CARDS, [...STARTER_DECK, "ghost"]).join(), /Unknown card: ghost/);
   const bolt = { id: "bolt", name: "Lightning Bolt", type: "instant" as const, cost: 1, playable: false };
   assert.deepEqual(unplayableCards({ ...CARDS, bolt }, ["mountain", "bolt", "bolt"]).map((c) => c.id), ["bolt"]);
+});
+
+test("a game deck size must match exactly when one is given", () => {
+  assert.deepEqual(validateDeck(CARDS, STARTER_DECK, 40), []);
+  assert.match(validateDeck(CARDS, STARTER_DECK, 60)[0], /exactly 60/);
 });

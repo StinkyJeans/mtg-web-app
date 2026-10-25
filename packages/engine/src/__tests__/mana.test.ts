@@ -12,7 +12,7 @@ const DEFS: Record<string, CardDef> = {
   bears: creature("bears", "{1}{G}", 2),
   giant: creature("giant", "{3}{R}", 4),
   twins: creature("twins", "{G}{G}", 2),
-  hybrid: creature("hybrid", "{W/U}{W/U}", 2),
+  hybrid: creature("hybrid", "{W/U/P}{W/U/P}", 2),
 };
 
 /** p1 has the given lands in play and the given spell in hand, in main1. */
@@ -31,9 +31,11 @@ const tappedNames = (g: GameState) => g.players.p1.battlefield.filter((p) => p.t
 test("parses printed costs", () => {
   assert.deepEqual(parseManaCost("{2}{G}{G}"), { generic: 2, colored: { G: 2 } });
   assert.deepEqual(parseManaCost("{R}"), { generic: 0, colored: { R: 1 } });
-  assert.equal(parseManaCost("{W/U}"), null); // hybrid not supported yet
-  assert.equal(parseManaCost("{X}{R}"), null);
-  assert.equal(parseManaCost("{2/W}"), null);
+  assert.deepEqual(parseManaCost("{W/U}{1}"), { generic: 1, colored: {}, hybrid: [["W", "U"]] });
+  assert.deepEqual(parseManaCost("{G/P}"), { generic: 0, colored: {}, phyrexian: ["G"] });
+  assert.deepEqual(parseManaCost("{X}{R}"), { generic: 0, colored: { R: 1 }, x: 1 }); // X is chosen when casting
+  assert.deepEqual(parseManaCost("{2/W}"), { generic: 0, colored: {}, twoOrColor: ["W"] });
+  assert.equal(parseManaCost("{W/U/P}"), null); // three-way hybrid is still unsupported
   assert.deepEqual(manaCostOf({ id: "x", name: "X", type: "creature", cost: 3 }), { generic: 3, colored: {} }); // hand-made card
 });
 
@@ -89,4 +91,19 @@ test("cards with unsupported costs can't start a game and are reported as unplay
 test("lands the engine can't get mana from are unplayable", () => {
   const odd: Record<string, CardDef> = { ...DEFS, barry: { id: "barry", name: "Barry's Land", type: "land", cost: 0, typeLine: "Basic Land — Barry" } };
   assert.throws(() => createGame({ p1: ["barry"], p2: ["mountain"] }, 1, odd), /can't be played yet/);
+});
+
+test("a creature that makes mana is only used when the lands can't pay, and never when it is spared", () => {
+  const myr: CardDef = { id: "myr", name: "Copper Myr", type: "creature", cost: 2, power: 1, toughness: 1, manaCost: "{2}", text: "{T}: Add {G}." };
+  const g = setup(["forest", "forest", "myr"], "bears"); // bears: {1}{G}
+  g.cards.myr = myr;
+  assert.deepEqual(tappedNames(cast(g).ok ? (cast(g) as { state: GameState }).state : g), ["forest", "forest"]);
+  // Needs three mana: the Myr has to help, so the player is asked first.
+  g.cards.bears2 = creature("bears2", "{2}{G}", 3);
+  g.players.p1.hand = [{ iid: "t99", defId: "bears2", owner: "p1" }];
+  const r = cast(g);
+  assert.ok(r.ok && tappedNames(r.state).includes("myr"));
+  // Sparing it leaves the lands unable to pay.
+  g.players.p1.spareMana = ["t2"];
+  assert.equal(cast(g).ok, false);
 });

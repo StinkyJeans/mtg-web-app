@@ -1,5 +1,5 @@
 import { CARDS } from "./cards.js";
-import { isSupportedCard } from "./mana.js";
+import { isSupportedCard } from "./oracle.js";
 import type { CardDef, CardInstance, GameState, PlayerId, PlayerState } from "./types.js";
 
 export const STARTING_LIFE = 20;
@@ -40,6 +40,7 @@ function makePlayer(id: PlayerId, deck: string[], rng: number, defs: Record<stri
     hand: library.slice(0, STARTING_HAND),
     battlefield: [],
     graveyard: [],
+    exile: [],
     landsPlayedThisTurn: 0,
   };
   return [player, nextRng];
@@ -75,5 +76,11 @@ export function createGame(
     combat: null,
     rng: rng2,
     winner: null,
+    stack: [],
+    priority: null,
+    pendingChoice: null,
+    pendingPick: null,
+    triggerQueue: [],
+    nextId: 1,
   };
 }

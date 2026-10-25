@@ -15,7 +15,10 @@
     "build": "tsc -p tsconfig.build.json",
     "dev": "tsc -p tsconfig.build.json --watch --preserveWatchOutput",
     "test": "tsx --test \"src/**/*.test.ts\"",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "fuzz": "tsx scripts/fuzz.ts",
+    "verify": "tsx scripts/verify.ts",
+    "survey": "tsx scripts/survey.ts"
   },
   "devDependencies": {
     "@types/node": "^20",
