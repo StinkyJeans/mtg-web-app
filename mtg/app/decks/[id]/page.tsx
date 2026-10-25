@@ -1,13 +1,21 @@
 import { Suspense } from "react";
 import type { Metadata } from "next";
 import DeckEditor from "../DeckEditor";
+import { CardSkeletons, Skeleton } from "../../Skeleton";
 
 export const metadata: Metadata = { title: "Edit deck | MTG Duel" };
 
 // With Cache Components, route params are runtime data and must be read inside <Suspense>.
 export default function EditDeckPage({ params }: { params: Promise<{ id: string }> }) {
   return (
-    <Suspense fallback={<p className="p-6 text-zinc-600">Loading deck…</p>}>
+    <Suspense
+      fallback={
+        <div className="flex flex-col gap-4 p-6">
+          <Skeleton className="h-10 w-72" />
+          <CardSkeletons count={18} size="md" className="flex flex-wrap gap-2" />
+        </div>
+      }
+    >
       <Editor params={params} />
     </Suspense>
   );

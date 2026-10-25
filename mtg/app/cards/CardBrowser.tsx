@@ -6,6 +6,7 @@ import type { CardType } from "@mtg/engine";
 import { CARDS_PAGE_SIZE } from "@/lib/cards";
 import { Lightbox } from "../play/CardDetail";
 import CardView from "../play/CardView";
+import { CardSkeletons } from "../Skeleton";
 import TypeButton from "./TypeButton";
 import { useCardSearch } from "./useCardSearch";
 
@@ -76,6 +77,7 @@ export default function CardBrowser() {
         <p className="text-zinc-600">No cards found. If the database is empty, run the card import (see the project notes).</p>
       )}
 
+      {!result && <CardSkeletons count={CARDS_PAGE_SIZE} size="lg" />}
       <div className={`flex flex-wrap gap-3 transition-opacity ${loading ? "opacity-50" : ""}`}>
         {result?.cards.map((def, i) => (
           <div key={def.id} className="flex flex-col gap-1">

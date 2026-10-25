@@ -408,4 +408,11 @@ if (!phases[phase]) {
   process.exit(1);
 }
 await phases[phase]();
+
+// The Decks page reads a stored list of the official decks (supabase/04-scale.sql); bring it up to date with what was just imported.
+if (!dryRun && (phase === "cards" || phase === "decks")) {
+  const { error } = await db().rpc("refresh_official_decks");
+  if (error) console.warn(`Could not refresh the stored deck list (${error.message}). If you have not yet run supabase/04-scale.sql, that is fine; otherwise run: select public.refresh_official_decks();`);
+  else console.log("Refreshed the stored list of official decks.");
+}
 console.log("Done.");

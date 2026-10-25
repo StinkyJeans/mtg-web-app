@@ -1,13 +1,18 @@
 import assert from "assert";
 import { ColyseusTestServer, boot } from "@colyseus/testing";
-import { botAction, getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
+import { botAction, createGame, viewFor, getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
 import type { Action, GameState, PlayerId } from "@mtg/engine";
 import appConfig from "../src/app.config.js";
+import { BotPool } from "../src/botPool.js";
+import { GuessLimiter } from "../src/limits.js";
+import { loadCards } from "../src/supabase.js";
 import { KICKED } from "../src/rooms/MatchRoom.js";
 import type { RoomSnapshot } from "../src/rooms/MatchRoom.js";
 
 // These tests start the real server and play with real cards from the database (so they need the Supabase settings,
 // and DEV_AUTH=1 so that tokens like "dev:alice" count as accounts).  Run:  npm test
+
+const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const deckOf = (size: number, land: string, creature: string) => [...Array(Math.round(size * 0.4)).fill(land), ...Array(size - Math.round(size * 0.4)).fill(creature)];
 
@@ -207,6 +212,12 @@ describe("a live match", function () {
     assert.ok(end.winner, "the game ended");
     assert.ok(botMoves > 10, `the bot played its own turns (${botMoves} updates after its moves)`);
     console.log(`   vs bot: over after ${end.turn} turns; winner ${end.winner}; bot moves seen ${botMoves}`);
+
+    // a finished game no longer holds the player: they can open another room while still looking at the result
+    await until("the room reports the result", () => snap?.stage === "over");
+    const next = await colyseus.createRoom("match", { name: "Next game" });
+    const again = await colyseus.connectTo(next, { token: "dev:erin" });
+    again.onMessage("room", () => {});
   });
 
   it("refuses actions from the wrong player and from outsiders of the turn", async () => {
@@ -279,5 +290,132 @@ describe("a live match", function () {
     assert.equal(snapshot!.players.length, 2);
     assert.equal(snapshot!.locked, true);
     assert.doesNotMatch(JSON.stringify(snapshot), /s3cret/);
+  });
+
+  // ───────── what keeps the server healthy when many people use it ─────────
+
+  it("lets one account hold only one room at a time, and frees it when they leave", async () => {
+    const a = await colyseus.createRoom("match", { name: "First" });
+    const b = await colyseus.createRoom("match", { name: "Second" });
+    const judy = await colyseus.connectTo(a, { token: "dev:judy" });
+    judy.onMessage("room", () => {});
+    await assert.rejects(colyseus.connectTo(b, { token: "dev:judy" }), /already have a room open/);
+    await assert.rejects(colyseus.connectTo(a, { token: "dev:judy" }), /already in this room/); // the old rule still applies
+    await judy.leave(); // leaving the room frees the account (the empty room closes)
+    await wait(300);
+    const c = await colyseus.createRoom("match", { name: "Third" }); // (a room nobody joined closes by itself, so open a new one)
+    const again = await colyseus.connectTo(c, { token: "dev:judy" });
+    again.onMessage("room", () => {});
+    await wait(100);
+  });
+
+  it("frees both seats of a room as they leave, so they can open new rooms", async () => {
+    const a = await colyseus.createRoom("match", { name: "Done" });
+    const kim = await colyseus.connectTo(a, { token: "dev:kim" });
+    const leo = await colyseus.connectTo(a, { token: "dev:leo" });
+    for (const c of [kim, leo]) c.onMessage("room", () => {});
+    const other = await colyseus.createRoom("match", { name: "Another" });
+    await assert.rejects(colyseus.connectTo(other, { token: "dev:kim" }), /already have a room open/);
+    await kim.leave();
+    await leo.leave();
+    await wait(300);
+    const fresh = await colyseus.createRoom("match", { name: "Fresh" });
+    const free = await colyseus.connectTo(fresh, { token: "dev:kim" });
+    free.onMessage("room", () => {});
+  });
+
+  it("stops opening rooms when the server is full", async () => {
+    const before = process.env.MAX_ROOMS;
+    process.env.MAX_ROOMS = "1";
+    try {
+      const first = await colyseus.createRoom("match", { name: "One" });
+      const mia = await colyseus.connectTo(first, { token: "dev:mia" });
+      mia.onMessage("room", () => {});
+      const second = await colyseus.createRoom("match", { name: "Two" });
+      await assert.rejects(colyseus.connectTo(second, { token: "dev:ned" }), /server is full/);
+      // somebody joining a room that is already open is still welcome
+      const joined = await colyseus.connectTo(first, { token: "dev:ola" });
+      joined.onMessage("room", () => {});
+    } finally {
+      if (before === undefined) delete process.env.MAX_ROOMS;
+      else process.env.MAX_ROOMS = before;
+    }
+  });
+
+  it("makes an account wait after too many wrong room passwords, in any room", async () => {
+    const room = await colyseus.createRoom("match", { name: "Locked", password: "s3cret" });
+    const host = await colyseus.connectTo(room, { token: "dev:pat", password: "s3cret" });
+    host.onMessage("room", () => {});
+    for (let i = 0; i < 5; i++) await assert.rejects(colyseus.connectTo(room, { token: "dev:quinn", password: `guess${i}` }), /Wrong password/);
+    await assert.rejects(colyseus.connectTo(room, { token: "dev:quinn", password: "s3cret" }), /Too many wrong passwords/); // even the right one, for now
+    const guest = await colyseus.connectTo(room, { token: "dev:rae", password: "s3cret" }); // other accounts are not affected
+    guest.onMessage("room", () => {});
+  });
+
+  it("counts guesses, locks, and forgets them (unit)", () => {
+    const g = new GuessLimiter();
+    const t0 = 1_000_000;
+    for (let i = 0; i < 4; i++) g.fail("x", t0);
+    assert.equal(g.waitSeconds("x", t0), 0);
+    g.fail("x", t0);
+    assert.ok(g.waitSeconds("x", t0 + 1000) > 50);
+    assert.equal(g.waitSeconds("x", t0 + 61_000), 0);
+    g.fail("y", t0);
+    g.succeed("y");
+    for (let i = 0; i < 4; i++) g.fail("y", t0);
+    assert.equal(g.waitSeconds("y", t0), 0); // a good password in between started the count over
+  });
+
+  it("cuts off a browser that sends an oversized message", async () => {
+    const room = await colyseus.createRoom("match", { name: "Big" });
+    const sam = await colyseus.connectTo(room, { token: "dev:sam" });
+    sam.onMessage("room", () => {});
+    let closed = false;
+    sam.onLeave(() => (closed = true));
+    sam.send("chat", { text: "x".repeat(200_000) });
+    await wait(500);
+    assert.ok(closed, "the connection was closed");
+  });
+
+  it("copes with a deck message full of junk without crashing the room", async () => {
+    const room = await colyseus.createRoom("match", { name: "Junk" });
+    const tia = await colyseus.connectTo(room, { token: "dev:tia" });
+    const uri = await colyseus.connectTo(room, { token: "dev:uri" });
+    const errors: string[] = [];
+    for (const c of [tia, uri]) (c.onMessage("room", () => {}), c.onMessage("error", (m: { message: string }) => errors.push(m.message)));
+    tia.send("startVote");
+    await wait(100);
+    tia.send("vote", { size: 20 });
+    uri.send("vote", { size: 20 });
+    await wait(150);
+    tia.send("deck", { name: "x", ids: Array(5000).fill("mountain") });
+    tia.send("deck", { name: "x", ids: [1, null, { a: 1 }, "x".repeat(500)] });
+    tia.send("deck", { ids: "not a list" });
+    (tia as unknown as { send(type: string, message: unknown): void }).send("action", { action: "nonsense", spare: [1, 2, 3] });
+    await wait(400);
+    assert.ok(errors.length >= 3, `the bad decks were refused (${errors.length})`);
+    tia.send("chat", { text: "still alive" });
+    await wait(100);
+  });
+
+  it("thinks the bot's moves in a worker thread, and still answers when the worker is gone", async () => {
+    const defs = await loadCards(["mountain", "agent-of-atlas"]);
+    const deck = [...Array(8).fill("mountain"), ...Array(12).fill("agent-of-atlas")];
+    const game = createGame({ p1: deck, p2: deck }, 7, defs, { startingPlayer: "p1", mulligan: true });
+    const view = viewFor(game, "p1");
+    const pool = new BotPool(1);
+    try {
+      const inline = botAction(view, "p1");
+      const fromWorker = await pool.think(view, "p1");
+      assert.ok(fromWorker, "the worker found a move");
+      assert.equal(fromWorker!.type, inline!.type, "the same kind of move as thinking here");
+      assert.equal(pool.stats().workers, 1, "one worker thread is running");
+      // several at once queue up behind the single worker, and all are answered
+      const many = await Promise.all([1, 2, 3, 4].map(() => pool.think(view, "p1")));
+      assert.ok(many.every(Boolean));
+    } finally {
+      await pool.close();
+    }
+    assert.ok(await pool.think(view, "p1"), "a closed pool still answers (it thinks on the spot)");
   });
 });

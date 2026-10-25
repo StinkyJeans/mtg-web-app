@@ -10,6 +10,7 @@ import { deckStatus, getDeck, saveDeck } from "@/lib/decks";
 import type { DeckEntries } from "@/lib/decks";
 import { Lightbox } from "../play/CardDetail";
 import CardView from "../play/CardView";
+import { CardSkeletons, Skeleton } from "../Skeleton";
 import { ManaSymbol } from "../play/ManaSymbols";
 import TypeButton from "../cards/TypeButton";
 import { useCardSearch } from "../cards/useCardSearch";
@@ -93,7 +94,13 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
   }
 
   if (loadError) return <Shell>{<p className="text-red-600">Could not load the deck: {loadError}</p>}</Shell>;
-  if (!loaded) return <Shell>{<p className="text-zinc-600">Loading deck…</p>}</Shell>;
+  if (!loaded)
+    return (
+      <Shell>
+        <Skeleton className="h-10 w-72" />
+        <CardSkeletons count={18} size="md" className="flex flex-wrap gap-2" />
+      </Shell>
+    );
 
   const total = result?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / CARDS_PAGE_SIZE));
@@ -154,6 +161,7 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
             <span className="text-xs text-zinc-500">{loading ? "Loading…" : `${total.toLocaleString()} cards`}</span>
           </div>
           {result?.error && <p className="text-sm text-red-600">{result.error}</p>}
+          {!result && <CardSkeletons count={CARDS_PAGE_SIZE} size="md" className="flex flex-wrap gap-2" />}
           <div className={`flex flex-wrap gap-2 transition-opacity ${loading ? "opacity-50" : ""}`}>
             {result?.cards.map((def) => (
               <CardView

@@ -8,6 +8,9 @@ import { getDeckContents } from "@/lib/decks";
 import type { DeckBoard, DeckContents, OfficialDeck } from "@/lib/decks";
 import { Lightbox } from "../play/CardDetail";
 import CardView from "../play/CardView";
+import { CardSkeletons } from "../Skeleton";
+import Link from "next/link";
+import { useHoverZoom } from "../play/HoverZoom";
 import { holdWallpaper } from "../LiveWallpaper";
 
 const BOARDS: { id: DeckBoard; label: string }[] = [
@@ -18,23 +21,34 @@ const BOARDS: { id: DeckBoard; label: string }[] = [
 
 type Loaded = { contents: DeckContents; defs: Record<string, CardDef> };
 
-/** Look inside an official deck before copying it. Click a card to read it large. */
+/**
+ * Look inside a deck. Hover a card to see it big, click it to read it large.
+ * For an official deck, pass the copy / combine controls; for one of your own, pass `editHref` instead.
+ */
 export default function DeckPreview({
   deck,
-  busy,
+  busy = false,
   onCopy,
-  picked,
+  picked = false,
   onTogglePick,
+  editHref,
+  layer = "z-20",
   onClose,
 }: {
-  deck: OfficialDeck;
-  busy: boolean;
-  onCopy: () => void;
+  deck: Pick<OfficialDeck, "id" | "name"> & Partial<Pick<OfficialDeck, "deckType" | "code" | "releaseDate" | "unplayable">>;
+  busy?: boolean;
+  onCopy?: () => void;
   /** Whether the deck is ticked for combining, and a way to tick / untick it from here. */
-  picked: boolean;
-  onTogglePick: () => void;
+  picked?: boolean;
+  onTogglePick?: () => void;
+  /** A link to edit the deck, for your own decks. */
+  editHref?: string;
+  /** Stacking class, for when this opens on top of another pop-up. */
+  layer?: string;
   onClose: () => void;
 }) {
+  const zoom = useHoverZoom();
+  const unplayable = deck.unplayable ?? 0;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [zoomedIdx, setZoomedIdx] = useState<number | null>(null); // position in the deck, while a card is open large
@@ -90,7 +104,7 @@ export default function DeckPreview({
       aria-modal="true"
       aria-label={deck.name}
       onClick={onClose}
-      className="fixed inset-0 z-20 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm"
+      className={`fixed inset-0 ${layer} flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm`}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -104,29 +118,38 @@ export default function DeckPreview({
               {loaded && ` · ${allIds.length} cards · ${playableCopies} playable by the game today`}
             </p>
           </div>
-          <button
-            onClick={onTogglePick}
-            disabled={deck.unplayable > 0}
-            title={deck.unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
-            className={`ml-auto rounded-lg border px-4 py-2 font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${picked ? "border-amber-400 bg-amber-400/25" : "border-white/30 bg-white/10 hover:bg-white/20"}`}
-          >
-            {picked ? "Selected to combine ✓" : "Add to combine"}
-          </button>
-          <button
-            onClick={onCopy}
-            disabled={busy || deck.unplayable > 0}
-            title={deck.unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
-            className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
-          >
-            {busy ? "Copying…" : "Copy to my decks"}
-          </button>
+          {onTogglePick && (
+            <button
+              onClick={onTogglePick}
+              disabled={unplayable > 0}
+              title={unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
+              className={`ml-auto rounded-lg border px-4 py-2 font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${picked ? "border-amber-400 bg-amber-400/25" : "border-white/30 bg-white/10 hover:bg-white/20"}`}
+            >
+              {picked ? "Selected to combine ✓" : "Add to combine"}
+            </button>
+          )}
+          {onCopy && (
+            <button
+              onClick={onCopy}
+              disabled={busy || unplayable > 0}
+              title={unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
+              className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
+            >
+              {busy ? "Copying…" : "Copy to my decks"}
+            </button>
+          )}
+          {editHref && (
+            <Link href={editHref} className="ml-auto rounded-lg bg-amber-500 px-4 py-2 font-semibold text-black hover:bg-amber-400">
+              Edit deck
+            </Link>
+          )}
           <button onClick={onClose} aria-label="Close" className="rounded-lg border border-white/30 bg-white/10 px-3 py-2 hover:bg-white/20">
             ×
           </button>
         </div>
 
         {error && <p className="text-sm text-[#fca5a5]">Could not load the deck: {error}</p>}
-        {!loaded && !error && <p className="text-slate-200">Loading cards…</p>}
+        {!loaded && !error && <CardSkeletons count={20} size="md" className="flex flex-wrap gap-2" />}
 
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
           {sections.map((s, si) => (
@@ -136,14 +159,15 @@ export default function DeckPreview({
               </h3>
               <div className="flex flex-wrap gap-2">
                 {s.entries.map(({ def, qty }, ei) => (
-                  <CardView
-                    key={def.id}
-                    def={def}
-                    size="md"
-                    note={qty > 1 ? `×${qty}` : undefined}
-                    ring={blocked.has(def.id) ? "ring-1 ring-red-500/60" : ""}
-                    onClick={() => setZoomedIdx(sectionStart[si] + ei)}
-                  />
+                  <div key={def.id} onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
+                    <CardView
+                      def={def}
+                      size="md"
+                      note={qty > 1 ? `×${qty}` : undefined}
+                      ring={blocked.has(def.id) ? "ring-1 ring-red-500/60" : ""}
+                      onClick={() => (zoom.hide(), setZoomedIdx(sectionStart[si] + ei))}
+                    />
+                  </div>
                 ))}
               </div>
             </section>
@@ -156,6 +180,8 @@ export default function DeckPreview({
           )}
         </div>
       </div>
+
+      {zoomedIdx === null && zoom.node}
 
       {current && (
         <Lightbox

@@ -17,6 +17,7 @@ import {
 } from "@/lib/decks";
 import type { Deck, OfficialDeck } from "@/lib/decks";
 import LiveWallpaper from "../LiveWallpaper";
+import { RowSkeletons } from "../Skeleton";
 import DeckPreview from "./DeckPreview";
 
 const pill = (on: boolean) =>
@@ -102,7 +103,7 @@ function MyDecks() {
     };
   }, [version]);
 
-  if (!data || data.version !== version) return <p className="text-slate-100">Loading decks…</p>;
+  if (!data || data.version !== version) return <RowSkeletons count={5} className="h-[72px]" label="Loading decks" />;
   if (data.error) return <p className="text-sm text-[#fca5a5]">Could not load decks: {data.error}</p>;
   if (data.decks.length === 0)
     return <p className="text-slate-100">No decks yet. Create one with &quot;New deck&quot;, or copy one from the Official decks tab.</p>;
@@ -281,6 +282,7 @@ function OfficialDecks() {
         </p>
       )}
 
+      {!result && <RowSkeletons count={OFFICIAL_PAGE_SIZE} className="h-[58px]" label="Loading decks" />}
       <ul className={`flex flex-col gap-2 transition-opacity ${loading ? "opacity-50" : ""}`}>
         {result?.decks.map((deck) => (
           <li

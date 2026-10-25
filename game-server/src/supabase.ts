@@ -12,22 +12,44 @@ export interface Account {
   username: string;
 }
 
+// A token that was just checked is trusted for a minute: joining the lobby and then a room asks twice, and a busy
+// server would otherwise ask Supabase (which limits how often it can be asked) for every single join.
+const TOKEN_TRUST_MS = 60_000;
+const MAX_TRUSTED = 5000;
+const trusted = new Map<string, { account: Account; until: number }>();
+const asking = new Map<string, Promise<Account | null>>(); // the same token asked twice at once is asked once
+
 /**
  * Who is this token? Asks Supabase, so an expired or made-up token is refused.
  * For local tests only (DEV_AUTH=1) a token like "dev:alice" is accepted as the account "alice".
  */
 export async function accountFromToken(token: unknown): Promise<Account | null> {
-  if (typeof token !== "string" || token.length === 0) return null;
+  if (typeof token !== "string" || token.length === 0 || token.length > 4096) return null;
   if (process.env.DEV_AUTH === "1" && token.startsWith("dev:")) {
     const name = token.slice(4).slice(0, 24);
     return name ? { id: `dev-${name}`, username: name } : null;
   }
+  const hit = trusted.get(token);
+  if (hit && hit.until > Date.now()) return hit.account;
+  let pending = asking.get(token);
+  if (!pending) {
+    pending = askSupabase(token).finally(() => asking.delete(token));
+    asking.set(token, pending);
+  }
+  return pending;
+}
+
+async function askSupabase(token: string): Promise<Account | null> {
   if (!URL || !PUBLISHABLE) throw new Error("The server has no Supabase settings (NEXT_PUBLIC_SUPABASE_URL / _PUBLISHABLE_KEY).");
   const res = await fetch(`${URL}/auth/v1/user`, { headers: { apikey: PUBLISHABLE, authorization: `Bearer ${token}` } });
   if (!res.ok) return null;
   const user = (await res.json()) as { id?: string; user_metadata?: { username?: string }; email?: string };
   if (!user.id) return null;
-  return { id: user.id, username: user.user_metadata?.username ?? user.email?.split("@")[0] ?? "player" };
+  const account = { id: user.id, username: user.user_metadata?.username ?? user.email?.split("@")[0] ?? "player" };
+  if (trusted.size >= MAX_TRUSTED) for (const [k, v] of trusted) if (v.until < Date.now()) trusted.delete(k);
+  if (trusted.size >= MAX_TRUSTED) trusted.clear();
+  trusted.set(token, { account, until: Date.now() + TOKEN_TRUST_MS });
+  return account;
 }
 
 interface CardRow {

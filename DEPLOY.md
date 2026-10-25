@@ -39,7 +39,7 @@ Railway no longer reads `railway.json` files for new services, so these settings
 
 ### Variables
 
-`game-server` (the secret key lives only here):
+`game-server` (and `web`, for profile pictures; the secret key is never sent to a browser):
 - `NEXT_PUBLIC_SUPABASE_URL` = the same value as in `mtg/.env.local`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = same
 - `SUPABASE_SECRET_KEY` = same
@@ -50,6 +50,7 @@ Railway no longer reads `railway.json` files for new services, so these settings
 - `NEXT_PUBLIC_SUPABASE_URL` = the same value as in `mtg/.env.local`
 - `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` = same
 - `NEXT_PUBLIC_GAME_SERVER_URL` = `https://${{game-server.RAILWAY_PUBLIC_DOMAIN}}` (Railway fills in the game server's address)
+- `SUPABASE_SECRET_KEY` = same (only the server part of the website uses it, to store profile pictures)
 - `PORT` = `8080`
 
 The website's `NEXT_PUBLIC_*` values are baked in at build time: if you change one, or the game server's address changes, redeploy `web`.
