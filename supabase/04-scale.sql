@@ -43,6 +43,9 @@ create index official_decks_status_newest on public.official_decks_status (relea
 create index official_decks_status_type on public.official_decks_status (deck_type);
 create index official_decks_status_name_trgm on public.official_decks_status using gin (name extensions.gin_trgm_ops);
 
+-- A stored view can't have row-level security, so WHO may read it is decided only here. Supabase gives new objects
+-- in "public" to signed-out visitors (anon) by default: take that away. Only signed-in players may read the list.
+revoke all on public.official_decks_status from anon, public;
 grant select on public.official_decks_status to authenticated;
 
 -- Refreshes the stored list without blocking readers. Only the server's secret key may call it.

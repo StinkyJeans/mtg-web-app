@@ -1,6 +1,7 @@
 import type { CardDef } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
-import { useTokenArt } from "@/lib/tokenArt";
+import { isTokenDef, useTokenArt } from "@/lib/tokenArt";
+import TokenFrame from "./TokenFrame";
 
 type Size = "sm" | "md" | "lg";
 
@@ -62,7 +63,8 @@ interface Props {
 
 function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness, tags, castable, dim, hint, ring = "", note, size = "sm", iid, attacking, onClick, onHover, onZoom }: Props) {
   const tokenArt = useTokenArt(def); // tokens have no stored art: it comes from Scryfall
-  const imageUrl = def.image ? cardImageUrl(def.image) : (tokenArt?.small ?? null);
+  const imageUrl = def.image ? cardImageUrl(def.image) : tokenArt?.small || null;
+  const tokenFrame = !imageUrl && isTokenDef(def); // a token Scryfall has no picture of: we draw the card ourselves
   const nowPower = power ?? def.power ?? 0;
   const toughnessLeft = (toughness ?? def.toughness ?? 0) - damage;
   const changed = def.type === "creature" && (nowPower !== (def.power ?? 0) || (toughness ?? def.toughness ?? 0) !== (def.toughness ?? 0));
@@ -79,7 +81,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
   ) : null;
 
   // Real card art already shows name, cost, text and P/T: only add the live game status on top.
-  if (imageUrl) {
+  if (imageUrl || tokenFrame) {
     return (
       <button
         type="button"
@@ -89,10 +91,11 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
         onContextMenu={onZoom && ((e) => (e.preventDefault(), onZoom()))}
         onFocus={onHover}
         title={hover}
-        style={{ backgroundImage: `url(${imageUrl})`, backgroundSize: "cover", backgroundPosition: "center" }}
+        style={imageUrl ? { backgroundImage: `url(${imageUrl})`, backgroundSize: "cover", backgroundPosition: "center" } : undefined}
         className={`${base} ${ART_SIZE[size]} bg-slate-800`}
       >
         <span className="sr-only">{def.name}</span>
+        {tokenFrame && <TokenFrame def={def} art={tokenArt?.crop} power={nowPower} toughness={toughnessLeft} damaged={damage > 0} />}
         {badge}
         <div className="absolute inset-x-0 bottom-0 flex flex-wrap gap-1 p-1 text-[10px] font-semibold">
           {note && <span className="rounded bg-sky-600 px-1 text-white">{note}</span>}
@@ -108,7 +111,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
           )}
           {summoningSick && <span className="rounded bg-black/80 px-1 text-zinc-200">Summoning sick</span>}
         </div>
-        {(damage > 0 || changed) && (
+        {!tokenFrame && (damage > 0 || changed) && (
           <span className={`absolute right-1 top-1 rounded px-1.5 py-0.5 text-xs font-bold text-white ${damage > 0 ? "bg-red-700" : "bg-emerald-700"}`} title="Power / toughness now">
             {nowPower}/{toughnessLeft}
           </span>
