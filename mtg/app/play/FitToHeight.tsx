@@ -9,7 +9,21 @@ const MAX_ZOOM = 1.7;
  * Uses all of the space it has, without scrolling: the contents are sized to the largest size that still fits.
  * With few cards they grow to fill the space; with many they shrink (never below half) until everything is on screen.
  */
-export default function FitToHeight({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+export default function FitToHeight({
+  children,
+  className = "",
+  innerClassName = "flex flex-col gap-1",
+  minZoom = MIN_ZOOM,
+  maxZoom = MAX_ZOOM,
+}: {
+  children: React.ReactNode;
+  className?: string;
+  innerClassName?: string;
+  /** The smallest the contents may get (0.5 = half size). */
+  minZoom?: number;
+  /** The biggest: 1 means "never larger than normal", only shrink to fit. */
+  maxZoom?: number;
+}) {
   const outer = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
 
@@ -25,11 +39,12 @@ export default function FitToHeight({ children, className = "" }: { children: Re
       return content.getBoundingClientRect().height;
     };
     const fit = () => {
-      const room = box.clientHeight;
+      const pad = getComputedStyle(box);
+      const room = box.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
       if (room <= 0) return;
       // The biggest zoom (in steps of 0.02) that still fits, found by halving the range: taller contents are never smaller.
-      let low = Math.round(MIN_ZOOM * 50);
-      let high = Math.round(MAX_ZOOM * 50);
+      let low = Math.round(minZoom * 50);
+      let high = Math.round(maxZoom * 50);
       if (heightAt(high / 50) <= room) low = high;
       else {
         while (high - low > 1) {
@@ -40,7 +55,7 @@ export default function FitToHeight({ children, className = "" }: { children: Re
       }
       // Only a real change is written back, so the size observers below do not wake themselves up again.
       current = Math.abs(low / 50 - current) < 0.04 && heightAt(current) <= room ? current : low / 50;
-      content.style.zoom = String(current);
+      heightAt(current);
     };
     const later = () => {
       cancelAnimationFrame(frame);
@@ -54,11 +69,11 @@ export default function FitToHeight({ children, className = "" }: { children: Re
       cancelAnimationFrame(frame);
       watch.disconnect();
     };
-  }, []);
+  }, [minZoom, maxZoom]);
 
   return (
     <div ref={outer} className={`min-h-0 min-w-0 overflow-hidden ${className}`}>
-      <div ref={inner} className="flex flex-col gap-1">
+      <div ref={inner} className={innerClassName}>
         {children}
       </div>
     </div>
