@@ -4,23 +4,37 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CardDef } from "@mtg/engine";
-import {
-  combineDecks,
-  copyOfficialDeck,
-  deckStatus,
-  deleteDeck,
-  listMyDecks,
-  listOfficialDecks,
-  loadDefsFor,
-  OFFICIAL_DECK_TYPES,
-  OFFICIAL_PAGE_SIZE,
-} from "@/lib/decks";
-import type { Deck, OfficialDeck } from "@/lib/decks";
+import { copyOfficialDeck, DECK_PAGE_SIZE, deckColors, deckStatus, deleteDeck, listMyDecks, listOfficialDecks, loadDefsFor, OFFICIAL_SECTIONS, setName } from "@/lib/decks";
+import type { Deck, DeckEntries, OfficialDeck } from "@/lib/decks";
+import { cardImageUrl } from "@/lib/cards";
 import LiveWallpaper from "../LiveWallpaper";
+import { ManaSymbol } from "../play/ManaSymbols";
 import DeckPreview from "./DeckPreview";
 
 const pill = (on: boolean) =>
   `rounded px-3 py-1 text-sm ${on ? "bg-amber-500 font-semibold text-black" : "bg-white/15 text-slate-200 hover:bg-white/25"}`;
+
+/** The deck's colors as mana symbols. */
+function Colors({ colors }: { colors: string[] }) {
+  if (colors.length === 0) return null;
+  return (
+    <span className="flex gap-0.5" aria-label={`Colors: ${colors.join(", ")}`}>
+      {colors.map((c) => (
+        <ManaSymbol key={c} symbol={c} />
+      ))}
+    </span>
+  );
+}
+
+const cardTotal = (entries: DeckEntries) => Object.values(entries).reduce((n, q) => n + q, 0);
+
+/** The card a deck is shown with: its most expensive creature (or spell) that has a picture. */
+function coverOf(defs: Record<string, CardDef>, entries: DeckEntries): CardDef | undefined {
+  const cards = Object.keys(entries)
+    .map((id) => defs[id])
+    .filter((d): d is CardDef => Boolean(d?.image) && d.type !== "land");
+  return cards.sort((a, b) => Number(b.type === "creature") - Number(a.type === "creature") || b.cost - a.cost)[0];
+}
 
 /** Numbered page buttons: first, previous, a window of numbers around the current page, next, last. */
 function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
@@ -74,7 +88,7 @@ export default function DeckList() {
           My decks
         </button>
         <button onClick={() => setTab("official")} className={pill(tab === "official")}>
-          Official decks
+          Ready-made decks
         </button>
         <Link href="/decks/new" className="ml-auto rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400">
           New deck
@@ -105,20 +119,26 @@ function MyDecks() {
   if (!data || data.version !== version) return <p className="text-slate-100">Loading decks…</p>;
   if (data.error) return <p className="text-sm text-[#fca5a5]">Could not load decks: {data.error}</p>;
   if (data.decks.length === 0)
-    return <p className="text-slate-100">No decks yet. Create one with &quot;New deck&quot;, or copy one from the Official decks tab.</p>;
+    return (
+      <p className="text-slate-100">
+        No decks of your own yet. Build one with &quot;New deck&quot;, or open Ready-made decks: you can play those as they are, or copy one
+        and change its cards.
+      </p>
+    );
 
-  const pages = Math.max(1, Math.ceil(data.decks.length / OFFICIAL_PAGE_SIZE));
+  const pages = Math.max(1, Math.ceil(data.decks.length / DECK_PAGE_SIZE));
   const current = Math.min(shown, pages - 1);
   return (
     <>
     <ul className="flex flex-col gap-2">
-      {data.decks.slice(current * OFFICIAL_PAGE_SIZE, (current + 1) * OFFICIAL_PAGE_SIZE).map((deck) => {
+      {data.decks.slice(current * DECK_PAGE_SIZE, (current + 1) * DECK_PAGE_SIZE).map((deck) => {
         const status = deckStatus(data.defs, deck.entries);
         return (
           <li key={deck.id} className="flex flex-wrap items-center gap-3 rounded-lg border border-white/20 bg-slate-950/35 px-3 py-2">
             <Link href={`/decks/${deck.id}`} className="font-semibold hover:text-[#fcd34d]">
               {deck.name}
             </Link>
+            <Colors colors={deckColors(data.defs, deck.entries)} />
             <span className="text-sm text-slate-100">{status.count} cards</span>
             {status.ready ? (
               <span className="rounded bg-emerald-400/20 px-2 py-0.5 text-xs text-[#a7f3d0]">Ready to play</span>
@@ -130,13 +150,16 @@ function MyDecks() {
                 {status.errors.length + status.unplayable.length} problem(s)
               </span>
             )}
+            <Link href={`/decks/${deck.id}`} className="ml-auto rounded border border-white/25 px-2 py-1 text-xs text-slate-200 hover:bg-white/20">
+              Edit
+            </Link>
             <button
               onClick={async () => {
                 if (!window.confirm(`Delete "${deck.name}"?`)) return;
                 await deleteDeck(deck.id);
                 setVersion((v) => v + 1);
               }}
-              className="ml-auto rounded border border-white/25 px-2 py-1 text-xs text-slate-200 hover:bg-white/20"
+              className="rounded border border-white/25 px-2 py-1 text-xs text-slate-200 hover:bg-white/20"
             >
               Delete
             </button>
@@ -151,34 +174,21 @@ function MyDecks() {
 
 function OfficialDecks() {
   const router = useRouter();
-  const [query, setQuery] = useState("");
-  const [page, setPage] = useState(0);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<OfficialDeck | null>(null); // deck being looked at before copying
-  const [deckType, setDeckType] = useState("");
-  const [playableOnly, setPlayableOnly] = useState(false);
-  const [picked, setPicked] = useState<OfficialDeck[]>([]); // decks ticked to be combined into one
-  const [result, setResult] = useState<{ key: string; decks: OfficialDeck[]; total: number; error?: string } | null>(null);
-
-  const key = JSON.stringify({ query, page, deckType, playableOnly });
-  const loading = result?.key !== key;
+  const [data, setData] = useState<{ decks: OfficialDeck[]; defs: Record<string, CardDef>; error?: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    const timer = setTimeout(() => {
-      listOfficialDecks(query, page, deckType, playableOnly)
-        .then((r) => !cancelled && setResult({ key, ...r }))
-        .catch((e: Error) => !cancelled && setResult({ key, decks: [], total: 0, error: e.message }));
-    }, 250);
+    listOfficialDecks()
+      .then(async (decks) => ({ decks, defs: await loadDefsFor(decks) }))
+      .then((d) => !cancelled && setData(d))
+      .catch((e: Error) => !cancelled && setData({ decks: [], defs: {}, error: e.message }));
     return () => {
       cancelled = true;
-      clearTimeout(timer);
     };
-  }, [key, query, page, deckType, playableOnly]);
-
-  const total = result?.total ?? 0;
-  const pages = Math.max(1, Math.ceil(total / OFFICIAL_PAGE_SIZE));
+  }, []);
 
   async function copy(deck: OfficialDeck) {
     setBusy(deck.id);
@@ -191,153 +201,97 @@ function OfficialDecks() {
     }
   }
 
-  const isPicked = (deck: OfficialDeck) => picked.some((p) => p.id === deck.id);
-  const togglePick = (deck: OfficialDeck) =>
-    deck.unplayable === 0 &&
-    setPicked((list) => (list.some((p) => p.id === deck.id) ? list.filter((p) => p.id !== deck.id) : [...list, deck]));
+  if (!data) return <p className="text-slate-100">Loading decks…</p>;
+  if (data.error) return <p className="text-sm text-[#fca5a5]">Could not load decks: {data.error}</p>;
+  if (data.decks.length === 0) return <p className="text-slate-100">No ready-made decks yet.</p>;
 
-  async function combine() {
-    setBusy("combine");
-    setError(null);
-    try {
-      router.push(`/decks/${await combineDecks(picked)}`);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not combine the decks.");
-      setBusy(null);
-    }
-  }
+  const known = new Set(OFFICIAL_SECTIONS.map((s) => s.deckType));
+  const others = [...new Set(data.decks.map((d) => d.deckType ?? "Other"))].filter((t) => !known.has(t));
+  const sections = [...OFFICIAL_SECTIONS, ...others.map((t) => ({ deckType: t, title: t, blurb: "" }))]
+    .map((s) => ({ ...s, decks: data.decks.filter((d) => (d.deckType ?? "Other") === s.deckType) }))
+    .filter((s) => s.decks.length > 0);
 
   return (
     <>
-      <div className="flex flex-wrap items-center gap-3">
-        <input
-          value={query}
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setPage(0);
-          }}
-          placeholder="Search official decks"
-          className="rounded-lg border border-white/20 bg-white/10 text-slate-100 placeholder:text-slate-300 px-3 py-1.5 text-sm outline-none focus:border-amber-400"
-        />
-        <select
-          value={deckType}
-          onChange={(e) => {
-            setDeckType(e.target.value);
-            setPage(0);
-          }}
-          className="glass-select rounded-lg border border-white/20 bg-white/10 px-3 py-1.5 text-sm text-slate-100"
-          aria-label="Deck type"
-        >
-          <option value="">All deck types</option>
-          {OFFICIAL_DECK_TYPES.map((t) => (
-            <option key={t} value={t}>
-              {t}
-            </option>
-          ))}
-        </select>
-        <label className="flex cursor-pointer items-center gap-1.5 text-sm">
-          <input
-            type="checkbox"
-            checked={playableOnly}
-            onChange={(e) => {
-              setPlayableOnly(e.target.checked);
-              setPage(0);
-            }}
-            className="h-4 w-4 accent-amber-500"
-          />
-          Only playable decks
-        </label>
-        <span className="text-sm text-slate-300">{loading ? "Loading…" : `${total.toLocaleString()} decks`}</span>
-        <span className="text-xs text-slate-300">
-          View cards shows what&apos;s inside. Only decks where every card can be played by the game can be copied or combined;
-          the others are greyed out. Tick Combine on two or more decks to merge them into one of your own: two 20-card
-          Jumpstart packs make a 40-card deck.
-        </span>
-      </div>
+      <p className="text-sm text-slate-200">
+        Every card in these decks works in the game. Pick one when a game asks for your deck, or copy it to your decks to change cards.
+      </p>
+      {error && <p className="text-sm text-[#fca5a5]">{error}</p>}
+      {sections.map((section) => (
+        <section key={section.deckType} className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h2 className="text-lg font-bold">{section.title}</h2>
+            {section.blurb && <span className="text-sm text-slate-300">{section.blurb}</span>}
+          </div>
+          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {section.decks.map((deck) => (
+              <OfficialDeckTile
+                key={deck.id}
+                deck={deck}
+                defs={data.defs}
+                busy={busy === deck.id}
+                disabled={busy !== null}
+                onView={() => setPreview(deck)}
+                onCopy={() => copy(deck)}
+              />
+            ))}
+          </ul>
+        </section>
+      ))}
 
-      {picked.length > 0 && (
-        <div className="sticky top-2 z-10 flex flex-wrap items-center gap-3 rounded-lg border border-amber-400/60 bg-slate-900/85 p-3 text-sm shadow">
-          <span className="font-semibold">{picked.length} selected:</span>
-          <span className="min-w-0 flex-1 truncate">{picked.map((p) => p.name).join(" + ")}</span>
-          <button
-            onClick={combine}
-            disabled={picked.length < 2 || busy !== null}
-            title={picked.length < 2 ? "Tick at least two decks" : undefined}
-            className="rounded-lg bg-amber-500 px-4 py-1.5 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
-          >
-            {busy === "combine" ? "Combining…" : "Combine into one deck"}
+      {preview && <DeckPreview deck={preview} busy={busy === preview.id} onCopy={() => copy(preview)} onClose={() => setPreview(null)} />}
+    </>
+  );
+}
+
+function OfficialDeckTile({
+  deck,
+  defs,
+  busy,
+  disabled,
+  onView,
+  onCopy,
+}: {
+  deck: OfficialDeck;
+  defs: Record<string, CardDef>;
+  busy: boolean;
+  disabled: boolean;
+  onView: () => void;
+  onCopy: () => void;
+}) {
+  const cover = coverOf(defs, deck.entries);
+  return (
+    <li className="flex flex-col overflow-hidden rounded-xl border border-white/15 bg-white/10">
+      <button
+        onClick={onView}
+        aria-label={`View the cards of ${deck.name}`}
+        className="h-28 bg-slate-900/60 bg-cover opacity-90 transition hover:opacity-100"
+        style={cover?.image ? { backgroundImage: `url(${cardImageUrl(cover.image)})`, backgroundPosition: "50% 22%" } : undefined}
+      />
+      <div className="flex flex-1 flex-col gap-1 p-3">
+        <div className="flex items-center gap-2">
+          <span className="font-semibold">{deck.name}</span>
+          <span className="ml-auto">
+            <Colors colors={deckColors(defs, deck.entries)} />
+          </span>
+        </div>
+        <span className="text-xs text-slate-200">
+          {[`${cardTotal(deck.entries)} cards`, setName(deck.code), deck.releaseDate?.slice(0, 4)].filter(Boolean).join(" · ")}
+        </span>
+        <div className="mt-2 flex gap-2">
+          <button onClick={onView} className="flex-1 rounded border border-white/25 px-2 py-1 text-xs hover:bg-white/20">
+            View cards
           </button>
-          <button onClick={() => setPicked([])} className="rounded border border-white/25 px-3 py-1 hover:bg-white/20">
-            Clear
+          <button
+            disabled={disabled}
+            onClick={onCopy}
+            title="Make your own copy to change its cards"
+            className="flex-1 rounded border border-white/25 px-2 py-1 text-xs hover:bg-white/20 disabled:opacity-50"
+          >
+            {busy ? "Copying…" : "Copy & edit"}
           </button>
         </div>
-      )}
-      {(result?.error || error) && <p className="text-sm text-[#fca5a5]">{result?.error ?? error}</p>}
-
-      {!loading && playableOnly && total === 0 && !result?.error && (
-        <p className="rounded-lg border border-white/20 bg-slate-950/35 px-3 py-2 text-sm text-slate-100">
-          No official deck is made only of cards the game can play yet. The game understands about 1,900 of 39,000 cards, and a
-          whole deck needs every one of its cards. Untick the box to see the decks, each with how many cards are missing.
-        </p>
-      )}
-
-      <ul className={`flex flex-col gap-2 transition-opacity ${loading ? "opacity-50" : ""}`}>
-        {result?.decks.map((deck) => (
-          <li
-            key={deck.id}
-            className={`flex flex-wrap items-center gap-3 rounded-lg border bg-white/10 p-3 ${isPicked(deck) ? "border-amber-500" : "border-white/15"}`}
-          >
-            <label className={`flex items-center gap-1.5 text-xs text-slate-100 ${deck.unplayable ? "cursor-not-allowed opacity-40" : "cursor-pointer"}`}>
-              <input
-                type="checkbox"
-                checked={isPicked(deck)}
-                disabled={deck.unplayable > 0}
-                onChange={() => togglePick(deck)}
-                className="h-4 w-4 accent-amber-500"
-              />
-              Combine
-            </label>
-            <span className={`font-semibold ${deck.unplayable ? "text-slate-300" : ""}`}>{deck.name}</span>
-            {deck.unplayable === 0 ? (
-              <span className="rounded bg-emerald-400/20 px-2 py-0.5 text-xs text-[#a7f3d0]">Playable</span>
-            ) : (
-              <span className="rounded bg-amber-400/20 px-2 py-0.5 text-xs text-[#fde68a]" title="Cards the game can't play yet are in this deck">
-                {deck.unplayable} card{deck.unplayable === 1 ? "" : "s"} can&apos;t be played yet
-              </span>
-            )}
-            <span className="text-sm text-slate-100">
-              {[deck.deckType, deck.code, deck.releaseDate?.slice(0, 4)].filter(Boolean).join(" · ")}
-            </span>
-            <button
-              onClick={() => setPreview(deck)}
-              className="ml-auto rounded border border-white/25 px-3 py-1 text-xs hover:bg-white/20"
-            >
-              View cards
-            </button>
-            <button
-              disabled={busy !== null || deck.unplayable > 0}
-              title={deck.unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
-              onClick={() => copy(deck)}
-              className="rounded border border-white/25 px-3 py-1 text-xs hover:bg-white/20 disabled:opacity-50"
-            >
-              {busy === deck.id ? "Copying…" : "Copy to my decks"}
-            </button>
-          </li>
-        ))}
-      </ul>
-
-      <Pager page={page} pages={pages} onPage={setPage} />
-
-      {preview && (
-        <DeckPreview
-          deck={preview}
-          busy={busy === preview.id}
-          onCopy={() => copy(preview)}
-          picked={isPicked(preview)}
-          onTogglePick={() => togglePick(preview)}
-          onClose={() => setPreview(null)}
-        />
-      )}
-    </>
+      </div>
+    </li>
   );
 }

@@ -1,4 +1,5 @@
-import type { CardDef, PlayerId } from "@mtg/engine";
+import { playerToAct } from "@mtg/engine";
+import type { CardDef, GameState, PlayerId } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
 import { cardDetailImageUrl, cardImageUrl } from "@/lib/cards";
 import { sleeveOf } from "@/lib/playmat";
@@ -279,4 +280,10 @@ export async function playDeal(draws: Draw[]): Promise<void> {
       if (el) el.style.visibility = "";
     }
   }
+}
+
+/** The hand of the player looking at the screen (`seat`, or in hot-seat the player to act), as cards to animate. */
+export function handDraws(s: GameState, seat: PlayerId | null): Draw[] {
+  const viewer = seat ?? playerToAct(s);
+  return s.players[viewer].hand.map((c) => ({ iid: c.iid, owner: viewer, faceUp: true, def: s.cards[c.defId] }));
 }

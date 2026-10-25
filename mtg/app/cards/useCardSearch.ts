@@ -16,14 +16,15 @@ export interface CardSearchResult {
 /** Debounced, paged card search against the database. `loading` is true while results are stale. */
 export function useCardSearch(search: CardSearch) {
   const { query, type, playableOnly, page } = search;
+  const colors = search.colors?.join("") ?? ""; // a string, so a new array with the same colors doesn't search again
   const [result, setResult] = useState<CardSearchResult | null>(null);
-  const key = JSON.stringify({ query, type, playableOnly, page });
+  const key = JSON.stringify({ query, type, playableOnly, colors, page });
 
   useEffect(() => {
     let cancelled = false;
     // Small delay so typing doesn't fire a request per keystroke.
     const timer = setTimeout(() => {
-      searchCards({ query, type, playableOnly, page })
+      searchCards({ query, type, playableOnly, colors: [...colors], page })
         .then((r) => !cancelled && setResult({ key, ...r }))
         .catch((e: Error) => !cancelled && setResult({ key, cards: [], total: 0, error: e.message }));
     }, 250);
@@ -31,7 +32,7 @@ export function useCardSearch(search: CardSearch) {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [key, query, type, playableOnly, page]);
+  }, [key, query, type, playableOnly, colors, page]);
 
   return { result, loading: result?.key !== key };
 }

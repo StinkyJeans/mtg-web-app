@@ -64,6 +64,8 @@ export interface CardInstance {
   iid: string;
   defId: string;
   owner: PlayerId;
+  /** On the battlefield, the card's own definition while it is something else (a copy of another creature, or an enchantment instead of a creature). */
+  printed?: string;
 }
 
 export interface Permanent {
@@ -91,8 +93,9 @@ export interface Permanent {
   sacOnDamage?: boolean;
   /** It attacked this turn. */
   attackedThisTurn?: boolean;
-  /** Cards this permanent keeps in exile until it leaves the battlefield (Banishing Light). */
+  /** Cards this permanent keeps in exile until it leaves the battlefield (Banishing Light), and ones exiled from a hand (Deep-Cavern Bat). */
   held?: CardInstance[];
+  heldFromHand?: CardInstance[];
   powerBonus?: number;
   toughnessBonus?: number;
   tempKeywords?: Keyword[];
@@ -122,6 +125,30 @@ export interface Permanent {
   loyaltyUsed?: boolean;
   /** Indexes of its activated abilities already used this turn (for "activate only once each turn"). */
   usedAbilities?: number[];
+  /** The turn it entered, for "as long as this Aura entered this turn". */
+  enteredTurn?: number;
+  /** The X paid for it, for "when this enters, tap X target creatures". */
+  xPaid?: number;
+  /** Prepared: the card id of its spell, a copy of which may be cast (and that unprepares it). */
+  prepared?: string;
+  /** "Choose one that hasn't been chosen": the modes already chosen. */
+  chosenModes?: number[];
+  /** "If that creature would die this turn, exile it instead." */
+  exileOnDeath?: boolean;
+  /** "Must be blocked this turn if able." */
+  mustBeBlocked?: boolean;
+  /** "~ becomes a Werewolf": its creature types now. */
+  subtypesOverride?: string[];
+  /** Indexes of its "activate only once" abilities that were used. */
+  usedOnce?: number[];
+  /** Until end of turn: "When this creature dies, return it to the battlefield tapped under its owner's control with a +1/+1 counter on it." */
+  diesReturn?: boolean;
+  /** A finality counter: if it would die, it is exiled instead. */
+  finality?: boolean;
+  /** Cast for its warp cost: exiled at the beginning of the next end step. */
+  warped?: boolean;
+  /** A Case that has been solved. */
+  solved?: boolean;
 }
 
 export interface PlayerState {
@@ -138,8 +165,13 @@ export interface PlayerState {
   /** Life gained and spells cast so far this turn ("if you gained 3 or more life this turn", "your first spell"). */
   lifeGainedThisTurn?: number;
   spellsCastThisTurn?: number;
-  /** Cards in exile that may be played: "During any turn you attacked with ~, you may play that card". */
-  mayPlay?: { iid: string; source: string }[];
+  /** Life lost this turn ("if an opponent lost life this turn"), and whether the player attacked (raid). */
+  lifeLostThisTurn?: number;
+  attackedThisTurn?: boolean;
+  /** Cards in exile that may be played: "During any turn you attacked with ~, you may play that card", or a warped card from turn `fromTurn` on. */
+  mayPlay?: { iid: string; source: string; fromTurn?: number }[];
+  /** Creature cards in the graveyard that may be cast from there until end of turn. */
+  yardCastable?: string[];
   /** "If a source you control would deal damage to an opponent this turn, it deals double that damage instead." */
   doubleDamage?: boolean;
   /** Permanents the player chose not to tap for mana: payments skip them. Only set around one action, and cleared as a turn begins. */
@@ -177,7 +209,7 @@ export interface GameState {
   /** "Creatures without flying can't block this turn." */
   noGroundBlock?: boolean;
   /** Triggers that have happened and are about to go on the stack. */
-  triggerQueue: { item: Extract<StackItem, { kind: "ability" }>; specs: TargetSpec[]; modes?: ModeSpec[] }[];
+  triggerQueue: { item: Extract<StackItem, { kind: "ability" }>; specs: TargetSpec[]; modes?: ModeSpec[]; /** "Choose one that hasn't been chosen". */ unchosen?: boolean }[];
   /** Counter used to give every stack item a unique id. */
   nextId: number;
 }

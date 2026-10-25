@@ -3,40 +3,42 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { CardDef, CardType } from "@mtg/engine";
-import { MAX_COPIES, isBasicLand } from "@mtg/engine";
-import { CARDS_PAGE_SIZE, fetchCardsByIds } from "@/lib/cards";
+import type { CardDef } from "@mtg/engine";
+import { fetchCardsByIds } from "@/lib/cards";
 import { deckStatus, getDeck, saveDeck } from "@/lib/decks";
 import type { DeckEntries } from "@/lib/decks";
 import { Lightbox } from "../play/CardDetail";
-import CardView from "../play/CardView";
-import { ManaSymbol } from "../play/ManaSymbols";
-import TypeButton from "../cards/TypeButton";
-import { useCardSearch } from "../cards/useCardSearch";
+import CardPool from "./CardPool";
+import DeckCards from "./DeckCards";
+import DeckSidebar from "./DeckSidebar";
 
-type Filter = "all" | CardType;
-const TYPES: Filter[] = ["all", "creature", "land", "instant", "sorcery", "enchantment", "artifact", "planeswalker"];
+const tabClass = (on: boolean) =>
+  `rounded-lg px-4 py-1.5 text-sm font-semibold ${on ? "bg-amber-500 text-black" : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300"}`;
 
-const pill = (on: boolean) =>
-  `rounded px-2.5 py-1 text-xs capitalize ${on ? "bg-amber-500 font-semibold text-black" : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300"}`;
+/** How the Deck tab groups the cards. */
+const GROUPS: { label: string; has: (def: CardDef) => boolean }[] = [
+  { label: "Creatures", has: (d) => d.type === "creature" },
+  { label: "Spells", has: (d) => d.type !== "creature" && d.type !== "land" },
+  { label: "Lands", has: (d) => d.type === "land" },
+];
+
+// The same deck always gives the same text, whatever order its cards were added in.
+const snapshot = (name: string, entries: DeckEntries) => JSON.stringify([name.trim(), Object.entries(entries).sort()]);
 
 /** Create (no deckId) or edit a deck. */
 export default function DeckEditor({ deckId }: { deckId?: string }) {
   const router = useRouter();
   const [name, setName] = useState("New deck");
   const [entries, setEntries] = useState<DeckEntries>({});
+  const [saved, setSaved] = useState(() => snapshot("New deck", {}));
   const [defs, setDefs] = useState<Record<string, CardDef>>({});
   const [loaded, setLoaded] = useState(!deckId);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [zoomed, setZoomed] = useState<CardDef | null>(null); // card shown large in the popup
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<{ text: string; bad?: boolean } | null>(null);
-
-  const [query, setQuery] = useState("");
-  const [type, setType] = useState<Filter>("all");
-  const [playableOnly, setPlayableOnly] = useState(true);
-  const [page, setPage] = useState(0);
-  const { result, loading } = useCardSearch({ query, type, playableOnly, page });
+  const [tab, setTab] = useState<"deck" | "pool">(deckId ? "deck" : "pool");
+  const dirty = snapshot(name, entries) !== saved;
 
   useEffect(() => {
     if (!deckId) return;
@@ -47,6 +49,7 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
         if (cancelled) return;
         setName(deck.name);
         setEntries(deck.entries);
+        setSaved(snapshot(deck.name, deck.entries));
         setDefs(defs);
         setLoaded(true);
       })
@@ -55,6 +58,14 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
       cancelled = true;
     };
   }, [deckId]);
+
+  // The browser asks before closing or reloading the page with unsaved changes.
+  useEffect(() => {
+    if (!dirty) return;
+    const warn = (e: BeforeUnloadEvent) => e.preventDefault();
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [dirty]);
 
   const status = useMemo(() => deckStatus(defs, entries), [defs, entries]);
   const rows = useMemo(
@@ -65,6 +76,10 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
         .sort((a, b) => a.cost - b.cost || a.name.localeCompare(b.name)),
     [entries, defs],
   );
+  const groups = GROUPS.map((g) => ({ label: g.label, cards: rows.filter(g.has) })).filter((g) => g.cards.length > 0);
+  // In the Deck tab the large view steps through the deck in the order shown.
+  const shown = groups.flatMap((g) => g.cards);
+  const zoomedAt = tab === "deck" && zoomed ? shown.findIndex((d) => d.id === zoomed.id) : -1;
 
   function change(def: CardDef, delta: number) {
     setMessage(null);
@@ -83,6 +98,7 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
     setMessage(null);
     try {
       const id = await saveDeck({ id: deckId, name, entries });
+      setSaved(snapshot(name, entries));
       if (deckId) setMessage({ text: "Saved." });
       else router.replace(`/decks/${id}`);
     } catch (e) {
@@ -95,9 +111,6 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
   if (loadError) return <Shell>{<p className="text-red-600">Could not load the deck: {loadError}</p>}</Shell>;
   if (!loaded) return <Shell>{<p className="text-zinc-600">Loading deck…</p>}</Shell>;
 
-  const total = result?.total ?? 0;
-  const pages = Math.max(1, Math.ceil(total / CARDS_PAGE_SIZE));
-
   return (
     <Shell>
       <div className="flex flex-wrap items-center gap-3">
@@ -105,129 +118,61 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={120}
+          aria-label="Deck name"
           className="min-w-64 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1.5 text-lg font-semibold outline-none focus:border-amber-400"
         />
         <button
           onClick={save}
-          disabled={saving}
+          disabled={saving || !dirty}
           className="rounded-lg bg-amber-500 px-5 py-1.5 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Save deck"}
         </button>
-        {message && <span className={`text-sm ${message.bad ? "text-red-600" : "text-emerald-600"}`}>{message.text}</span>}
+        {message?.bad ? (
+          <span className="text-sm text-red-600">{message.text}</span>
+        ) : dirty ? (
+          <span className="text-sm text-amber-700">Unsaved changes</span>
+        ) : (
+          message && <span className="text-sm text-emerald-600">{message.text}</span>
+        )}
+      </div>
+
+      <div className="flex gap-2" role="tablist">
+        <button role="tab" aria-selected={tab === "deck"} onClick={() => setTab("deck")} className={tabClass(tab === "deck")}>
+          Deck ({status.count})
+        </button>
+        <button role="tab" aria-selected={tab === "pool"} onClick={() => setTab("pool")} className={tabClass(tab === "pool")}>
+          Add cards
+        </button>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
-        {/* Card search */}
-        <section className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <input
-              value={query}
-              onChange={(e) => {
-                setQuery(e.target.value);
-                setPage(0);
-              }}
-              placeholder="Search cards"
-              className="rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1.5 text-sm outline-none focus:border-amber-400"
-            />
-            <button
-              onClick={() => {
-                setPlayableOnly(!playableOnly);
-                setPage(0);
-              }}
-              className={pill(playableOnly)}
-              title="Only cards the game can play today"
-            >
-              Playable only
-            </button>
-            {TYPES.map((t) => (
-              <TypeButton
-                key={t}
-                type={t}
-                active={type === t}
-                onClick={() => {
-                  setType(t);
-                  setPage(0);
-                }}
-              />
-            ))}
-            <span className="text-xs text-zinc-500">{loading ? "Loading…" : `${total.toLocaleString()} cards`}</span>
-          </div>
-          {result?.error && <p className="text-sm text-red-600">{result.error}</p>}
-          <div className={`flex flex-wrap gap-2 transition-opacity ${loading ? "opacity-50" : ""}`}>
-            {result?.cards.map((def) => (
-              <CardView
-                key={def.id}
-                def={def}
-                note={entries[def.id] ? `×${entries[def.id]}` : undefined}
-                onClick={() => change(def, 1)}
-                onZoom={() => setZoomed(def)}
-              />
-            ))}
-          </div>
-          <div className="flex items-center gap-3 text-sm">
-            <button disabled={page === 0} onClick={() => setPage(page - 1)} className="rounded bg-zinc-200 px-3 py-1 disabled:opacity-40">
-              ← Prev
-            </button>
-            <span className="text-zinc-600">
-              Page {page + 1} of {pages.toLocaleString()}
-            </span>
-            <button disabled={page + 1 >= pages} onClick={() => setPage(page + 1)} className="rounded bg-zinc-200 px-3 py-1 disabled:opacity-40">
-              Next →
-            </button>
-          </div>
-        </section>
-
-        {/* The deck */}
-        <aside className="flex h-fit flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-100 p-3 lg:sticky lg:top-4">
-          <div className="flex items-baseline justify-between">
-            <h2 className="font-semibold">Deck</h2>
-            <span className="text-sm text-zinc-600">{status.count} cards</span>
-          </div>
-          {status.ready ? (
-            <p className="text-sm text-emerald-600">Ready to play.</p>
-          ) : (
-            <ul className="flex flex-col gap-1 text-xs">
-              {status.errors.map((e) => (
-                <li key={e} className="text-amber-700">
-                  {e}
-                </li>
-              ))}
-              {status.unplayable.length > 0 && (
-                <li className="text-red-600">Can&apos;t be played yet: {status.unplayable.map((c) => c.name).join(", ")}</li>
-              )}
-            </ul>
-          )}
-          {rows.length === 0 && <p className="text-sm text-zinc-500">Click cards on the left to add them.</p>}
-          <ul className="flex max-h-[60vh] flex-col gap-1 overflow-y-auto">
-            {rows.map((def) => {
-              const qty = entries[def.id];
-              const over = qty > MAX_COPIES && !isBasicLand(def);
-              return (
-                <li key={def.id} className="flex items-center gap-2 rounded bg-zinc-200/60 px-2 py-1 text-sm">
-                  <span className="flex w-6 justify-center"><ManaSymbol symbol={String(def.cost)} /></span>
-                  <button
-                    type="button"
-                    onClick={() => setZoomed(def)}
-                    className={`flex-1 cursor-zoom-in truncate text-left hover:underline ${def.playable === false ? "text-red-600" : ""}`}
-                    title={`${def.name} (click to enlarge)`}
-                  >
-                    {def.name}
-                  </button>
-                  <button onClick={() => change(def, -1)} className="rounded bg-zinc-300 px-2 hover:bg-zinc-400" aria-label={`Remove one ${def.name}`}>
-                    −
-                  </button>
-                  <span className={`w-5 text-center ${over ? "font-bold text-amber-700" : ""}`}>{qty}</span>
-                  <button onClick={() => change(def, 1)} className="rounded bg-zinc-300 px-2 hover:bg-zinc-400" aria-label={`Add one ${def.name}`}>
-                    +
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        </aside>
+        {tab === "deck" && <DeckCards groups={groups} entries={entries} onChange={change} onZoom={setZoomed} onAdd={() => setTab("pool")} />}
+        {/* kept mounted while hidden, so the search is still there when you come back */}
+        <CardPool hidden={tab !== "pool"} entries={entries} onAdd={(def) => change(def, 1)} onZoom={setZoomed} />
+        <DeckSidebar
+          rows={rows}
+          groups={groups}
+          entries={entries}
+          status={status}
+          emptyText={tab === "pool" ? "Click cards on the left to add them." : "Open Add cards to pick cards."}
+          onChange={change}
+          onZoom={setZoomed}
+        />
       </div>
-      {zoomed && <Lightbox def={zoomed} onClose={() => setZoomed(null)} />}
+      {zoomed && (
+        <Lightbox
+          def={zoomed}
+          onClose={() => setZoomed(null)}
+          {...(zoomedAt >= 0
+            ? {
+                onPrev: () => setZoomed(shown[(zoomedAt - 1 + shown.length) % shown.length]),
+                onNext: () => setZoomed(shown[(zoomedAt + 1) % shown.length]),
+                caption: `card ${zoomedAt + 1} of ${shown.length} · ×${entries[zoomed.id]} in the deck`,
+              }
+            : {})}
+        />
+      )}
     </Shell>
   );
 }

@@ -76,7 +76,7 @@ export function parseManaCost(text: string): ManaCost | null {
 /** The cost to cast a card. Hand-made cards without a printed cost just cost `cost` generic mana. */
 export function manaCostOf(def: CardDef): ManaCost | null {
   if (def.manaCost === undefined) return { generic: def.cost, colored: {} };
-  return parseManaCost(def.manaCost);
+  return parseManaCost(def.manaCost.split(" // ")[0]); // a two-part card is cast as its first half
 }
 
 const BASIC_LAND_COLOR: Record<string, ManaColor> = {
@@ -127,14 +127,37 @@ export function manaAbilityRestriction(def: CardDef): "instantOrSorcery" | undef
   return /\bspend this mana only to cast an instant or sorcery spell\b/i.test(def.text ?? "") ? "instantOrSorcery" : undefined;
 }
 
+/** "{T}: Add {R}. If that mana is spent on a Dragon creature spell, it gains haste until end of turn.": the creature type. */
+export function manaAbilityHasteFor(def: CardDef): string | undefined {
+  return /\bif that mana is spent on an? ([a-z]+) creature spell, it gains haste until end of turn\b/i.exec(def.text ?? "")?.[1].toLowerCase();
+}
+
+/** "{T}: Add {G} for each Elf you control.": the creature type counted. */
+function manaAbilityPerSubtype(def: CardDef): string | undefined {
+  return /^\{t\}: add \{[wubrgc]\} for each ([a-z]+) you control\.?$/im.exec((def.text ?? "").replace(/\([^)]*\)/g, ""))?.[1].toLowerCase();
+}
+
+/** An Aura such as New Horizons: 'Enchanted land has "{T}: Add two mana of any one color."' */
+export const grantsTwoOfOneColor = (def: CardDef): boolean => /^enchanted land has "\{t\}: add two mana of any one color\.?"\.?$/im.test(def.text ?? "");
+
 function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chosen: boolean } | undefined {
-  const text = (def.text ?? "").replace(/\([^)]*\)/g, "").replace(/\.? ?spend this mana only to cast an instant or sorcery spell\.?/gi, "").toLowerCase();
+  const text = (def.text ?? "")
+    .replace(/\([^)]*\)/g, "")
+    .replace(/\.? ?spend this mana only to cast an instant or sorcery spell\.?/gi, "")
+    .replace(/^\{t\}: add \{[wubrgc]\}\. spend this mana only to cast a creature spell\.?$/gim, "")
+    .replace(/\.? ?if that mana is spent on an? [a-z]+ creature spell, it gains haste until end of turn\.?/gi, "")
+    .toLowerCase();
   const found = new Set<ManaColor>();
   let amount = 1;
   let chosen = false;
   for (const raw of text.split("\n")) {
     const m = /^\{t\}(?:, sacrifice (?:~|this [a-z]+))?: add (.+?)\.?$/.exec(raw.trim());
     if (!m) continue;
+    const perType = /^(\{[wubrgc]\}) for each [a-z]+ you control$/.exec(m[1]);
+    if (perType) {
+      found.add(perType[1][1].toUpperCase() as ManaColor);
+      continue;
+    }
     const twice = /^(\{[wubrgc]\})\1+$/.exec(m[1]); // "{c}{c}": two mana of one color
     if (twice) {
       found.add(twice[1][1].toUpperCase() as ManaColor);
@@ -172,7 +195,7 @@ function manaColorsOf(state: GameState, perm: Permanent, forSpell?: CardDef): Ma
   if (manaAbilityRestriction(def) === "instantOrSorcery" && !(forSpell && (forSpell.type === "instant" || forSpell.type === "sorcery"))) return [];
   const chosen = manaAbilityUsesChosenColor(def) && perm.chosenColor ? [perm.chosenColor] : [];
   const withChosen = (colors: ManaColor[]) => [...new Set([...colors, ...chosen])];
-  if (def.type === "land") return withChosen(landManaColors(def));
+  if (def.type === "land") return withChosen([...landManaColors(def), ...(forSpell?.type === "creature" ? creatureOnlyColors(def) : [])]);
   if (def.type === "artifact") return withChosen(manaAbilityColors(def) ?? []); // artifacts aren't "summoning sick"
   if (def.type === "creature" && (!perm.summoningSick || hasKeyword(def, "haste"))) return withChosen(manaAbilityColors(def) ?? []);
   return [];
@@ -188,9 +211,22 @@ interface Source {
   colors: ManaColor[];
 }
 
-/** How many mana one tap of this permanent makes. */
-function manaAmountOf(state: GameState, perm: Permanent): number {
-  return manaAbilityAmount(getCard(state, perm.card.defId));
+/** An enchanted land with "{T}: Add two mana of any one color." */
+function makesTwoOfOneColor(state: GameState, perm: Permanent): boolean {
+  if (getCard(state, perm.card.defId).type !== "land") return false;
+  return Object.values(state.players).some((pl) => pl.battlefield.some((aura) => aura.attachedTo === perm.card.iid && grantsTwoOfOneColor(getCard(state, aura.card.defId))));
+}
+
+/** How many mana one tap of this permanent makes ("{T}: Add {G} for each Elf you control" counts the controller's Elves). */
+function manaAmountOf(state: GameState, player: PlayerId, perm: Permanent): number {
+  const def = getCard(state, perm.card.defId);
+  const per = manaAbilityPerSubtype(def);
+  if (!per) return makesTwoOfOneColor(state, perm) ? 2 : manaAbilityAmount(def);
+  const isType = (p: Permanent) => {
+    const line = (getCard(state, p.card.defId).typeLine ?? "").split(" // ")[0].toLowerCase();
+    return line.includes("creature") && (p.subtypesOverride ?? line.split("—")[1]?.trim().split(/\s+/) ?? []).includes(per);
+  };
+  return state.players[player].battlefield.filter(isType).length;
 }
 
 /**
@@ -203,15 +239,52 @@ export function payMana(state: GameState, player: PlayerId, cost: ManaCost, forS
   const sources: Source[] = [];
   const spare = state.players[player].spareMana ?? [];
   // Lands come first, so a creature or artifact that makes mana is only used when the lands can't pay.
-  const order = [...state.players[player].battlefield].sort((a, b) => Number(getCard(state, b.card.defId).type === "land") - Number(getCard(state, a.card.defId).type === "land"));
+  // Mana that gives the spell haste (Carnelian Orb of Dragonkind on a Dragon) goes before everything.
+  const rank = (p: Permanent) => (forSpell && hasteFrom(state, p.card.iid, forSpell) ? -1 : getCard(state, p.card.defId).type === "land" ? 0 : 1);
+  const order = [...state.players[player].battlefield].sort((a, b) => rank(a) - rank(b));
+  const oneColor: string[] = [];
   for (const perm of order) {
     if (perm.tapped || spare.includes(perm.card.iid)) continue;
     const colors = manaColorsOf(state, perm, forSpell);
     // A source that makes two mana counts twice; tapping it once pays for both.
-    const amount = colors.length > 0 ? manaAmountOf(state, perm) : 0;
-    for (let i = 0; i < amount; i++) sources.push({ iid: perm.card.iid, colors });
+    const amount = colors.length > 0 ? manaAmountOf(state, player, perm) : 0;
+    if (amount > 0 && makesTwoOfOneColor(state, perm)) oneColor.push(perm.card.iid);
+    for (let i = 0; i < amount; i++) sources.push({ iid: perm.card.iid, colors: oneColor.includes(perm.card.iid) ? ALL_FIVE : colors });
   }
+  if (oneColor.length === 0) return paySources(state, player, cost, sources, forSpell);
+  // "Two mana of any one color": try each color for each such land, keeping the payment that taps the fewest permanents.
+  let best: PayResult | undefined;
+  const tryColors = (i: number, picked: ManaColor[]) => {
+    if (i === oneColor.length) {
+      const fixed = sources.map((src) => (oneColor.includes(src.iid) ? { ...src, colors: [picked[oneColor.indexOf(src.iid)]] } : src));
+      const paid = paySources(state, player, cost, fixed, forSpell);
+      if (paid.ok && (!best?.ok || paid.tap.length < best.tap.length)) best = paid;
+      else best ??= paid;
+      return;
+    }
+    for (const c of ALL_FIVE) tryColors(i + 1, [...picked, c]);
+  };
+  tryColors(0, []);
+  return best!;
+}
 
+/** "{T}: Add {B}. Spend this mana only to cast a creature spell.": the colors that only pay for creature spells. */
+export function creatureOnlyColors(def: CardDef): ManaColor[] {
+  const out: ManaColor[] = [];
+  for (const m of (def.text ?? "").toLowerCase().matchAll(/^\{t\}: add \{([wubrgc])\}\. spend this mana only to cast a creature spell\.?$/gm)) out.push(m[1].toUpperCase() as ManaColor);
+  return out;
+}
+
+/** Was this permanent's mana the kind that gives `spell` haste? */
+export function hasteFrom(state: GameState, iid: string, spell: CardDef): boolean {
+  const perm = Object.values(state.players).flatMap((pl) => pl.battlefield).find((p) => p.card.iid === iid);
+  const type = perm ? manaAbilityHasteFor(getCard(state, perm.card.defId)) : undefined;
+  if (!type) return false;
+  const line = (spell.typeLine ?? "").split(" // ")[0].toLowerCase();
+  return line.includes("creature") && (line.split("—")[1] ?? "").trim().split(/\s+/).includes(type);
+}
+
+function paySources(state: GameState, player: PlayerId, cost: ManaCost, sources: Source[], forSpell?: CardDef): PayResult {
   // Every requirement lists the colors that can pay it: a plain {R} is [R], a hybrid {W/U} is [W, U].
   const needs: ManaColor[][] = [
     ...MANA_COLORS.flatMap((c) => Array<ManaColor[]>(cost.colored[c] ?? 0).fill([c])),
@@ -257,7 +330,7 @@ export function payMana(state: GameState, player: PlayerId, cost: ManaCost, forS
   const plenty = new Map<ManaColor, number>();
   for (const src of rest) if (src.colors.length === 1) plenty.set(src.colors[0], (plenty.get(src.colors[0]) ?? 0) + 1);
   rest.sort((a, b) => {
-    const rank = (src: Source) => (src.colors.length === 1 ? -(plenty.get(src.colors[0]) ?? 0) : 1000 + src.colors.length);
+    const rank = (src: Source) => (forSpell && hasteFrom(state, src.iid, forSpell) ? -Infinity : src.colors.length === 1 ? -(plenty.get(src.colors[0]) ?? 0) : 1000 + src.colors.length);
     return rank(a) - rank(b);
   });
   if (rest.length < cost.generic + extraGeneric) return { ok: false, missing: "generic" };
@@ -282,7 +355,8 @@ export function availableMana(state: GameState, player: PlayerId): Record<ManaCo
   const pool: Record<ManaColor, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   for (const perm of state.players[player].battlefield) {
     if (perm.tapped) continue;
-    for (const color of manaColorsOf(state, perm)) pool[color]++;
+    const colors = makesTwoOfOneColor(state, perm) ? ALL_FIVE : manaColorsOf(state, perm);
+    for (const color of colors) pool[color] += manaAmountOf(state, player, perm);
   }
   return pool;
 }

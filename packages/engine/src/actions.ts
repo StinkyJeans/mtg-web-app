@@ -1,27 +1,25 @@
 import { getCard } from "./cards.js";
 import {
+  askColor,
   checkStateBasedActions,
+  entersTappedNow,
+  exilePlayable,
   findPermanent,
   findPermanentOrNull,
   forbidden,
-  staticEffectsOn,
   isCreature,
-  askColor,
-  drawCards,
-  putIntoGraveyard,
-  entersTappedNow,
-  exilePlayable,
   isProtectedFrom,
-  onLifeGained,
-  landEntered,
-  qualityOfDef,
   kw,
+  landEntered,
   lethalFor,
   nameOf,
   onBoard,
   playerToAct,
   powerOf,
+  qualityOfDef,
   queueTriggers,
+  staticEffectsOn,
+  subtypesOf,
   toughnessOf,
 } from "./core.js";
 import type { TargetChoice } from "./effects.js";
@@ -29,7 +27,12 @@ import { parseCard } from "./oracle.js";
 import { shuffle, STARTING_HAND } from "./state.js";
 import { activateAbility, activateLoyalty, castSpell, chooseTargets, crewVehicle, cycleCard, getCastable, openWindow, passPriority, pickCard, settle } from "./stack.js";
 import { OPPONENT } from "./types.js";
-import type { GameState, Permanent, PlayerId, PlayerState } from "./types.js";
+import type { GameState, Permanent, PlayerId } from "./types.js";
+import { continueAfterBlockers, getDamageAssignments, resolveCombat } from "./actions/combat.js";
+import { advancePhase, startNextTurn } from "./actions/turn.js";
+
+export { getDamageAssignments, suggestDamageAssignment } from "./actions/combat.js";
+export type { DamageEntry } from "./actions/combat.js";
 
 export { playerToAct };
 
@@ -42,7 +45,7 @@ export type Action =
   | { type: "keepHand"; bottom: string[] }
   | { type: "playLand"; iid: string }
   | { type: "castCreature"; iid: string }
-  | { type: "castSpell"; iid: string; targets?: TargetChoice[]; x?: number; kicked?: boolean; from?: "graveyard" | "exile"; modes?: number[]; sacrifice?: string }
+  | { type: "castSpell"; iid: string; targets?: TargetChoice[]; x?: number; kicked?: boolean; from?: "graveyard" | "exile" | "prepared"; modes?: number[]; sacrifice?: string; warp?: boolean }
   | { type: "activateAbility"; iid: string; index: number; targets?: TargetChoice[]; payWith?: string }
   | { type: "crew"; iid: string } // crew a Vehicle: then choose the creatures to tap
   | { type: "cycle"; iid: string } // cycle a card from hand (pay its cycling cost, discard it, draw a card)
@@ -93,8 +96,6 @@ export const MAX_HAND_SIZE = 7;
 export const MAX_MULLIGANS = 7;
 
 const fail = (error: string): Result => ({ ok: false, error });
-
-const power = (s: GameState, p: Permanent) => (p.damageByToughness ? Math.max(0, toughnessOf(s, p)) : powerOf(s, p)); // "assigns combat damage equal to its toughness"
 /** "Attacks each combat if able": printed on the creature, or given by another permanent ("Other Goblins you control attack each combat if able"). */
 const mustAttack = (state: GameState, perm: Permanent): boolean => parseCard(getCard(state, perm.card.defId)).mustAttack === true || staticEffectsOn(state, perm).some((st) => st.mustAttack === true);
 
@@ -195,7 +196,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
 
     case "castCreature":
     case "castSpell": {
-      const error = castSpell(next, player, action.iid, action.type === "castSpell" ? (action.targets ?? []) : [], events, action.type === "castSpell" ? action.x : 0, action.type === "castSpell" ? action.kicked === true : false, action.type === "castSpell" ? (action.from ?? "hand") : me.hand.some((c) => c.iid === action.iid) ? "hand" : "exile", action.type === "castSpell" ? action.modes : undefined, action.type === "castSpell" ? action.sacrifice : undefined);
+      const error = castSpell(next, player, action.iid, action.type === "castSpell" ? (action.targets ?? []) : [], events, action.type === "castSpell" ? action.x : 0, action.type === "castSpell" ? action.kicked === true : false, action.type === "castSpell" ? (action.from ?? "hand") : me.hand.some((c) => c.iid === action.iid) ? "hand" : "exile", action.type === "castSpell" ? action.modes : undefined, action.type === "castSpell" ? action.sacrifice : undefined, action.type === "castSpell" && action.warp === true);
       if (error) return fail(error);
       break;
     }
@@ -287,6 +288,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
         advancePhase(next, events); // no attack: straight to main2
         break;
       }
+      me.attackedThisTurn = true; // raid
       chosen.forEach((p) => {
         p.attackedThisTurn = true;
         if (!kw(next, p, "vigilance")) p.tapped = true; // vigilance: attacking doesn't tap it
@@ -300,7 +302,9 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       chosen.forEach((p) => queueTriggers(next, p.card, player, "attacks", { attackers: chosen.map((c) => c.card.iid) }));
       if (chosen.length >= 3) chosen.forEach((p) => queueTriggers(next, p.card, player, "battalion")); // "Battalion — whenever this and at least two other creatures attack"
       if (chosen.length >= 2) for (const p of me.battlefield) queueTriggers(next, p.card, player, "attackTwo");
-      for (const p of me.battlefield) queueTriggers(next, p.card, player, "youAttack", { attackers: chosen.map((c) => c.card.iid) }); // "Whenever one or more creatures you control attack" // "Whenever you attack with two or more creatures"
+      for (const p of me.battlefield) queueTriggers(next, p.card, player, "youAttack", { attackers: chosen.map((c) => c.card.iid) });
+      // "Whenever a Bat you control attacks": once for each attacking Bat.
+      for (const attacker of chosen) for (const p of me.battlefield) queueTriggers(next, p.card, player, "allyAttacks", { subtypes: subtypesOf(next, attacker), other: attacker.card.iid }); // "Whenever one or more creatures you control attack" // "Whenever you attack with two or more creatures"
       events.push({ type: "attackersDeclared", player, attackers: [...ids] });
       events.push({ type: "phaseChanged", phase: "blockers" });
       // The attacking player gets priority first, so a trick like "attacking creatures get +2/+0" can be cast now that there are attackers.
@@ -384,6 +388,16 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
             }
             if (able) return fail(`${nameOf(next, b)} must block ${nameOf(next, findPermanent(next, a.attacker).perm)}: all creatures able to block it do so.`);
           }
+        }
+      }
+      // "Must be blocked this turn if able": as many of those attackers as possible are blocked (rule 509.1c).
+      if (!lureProbe) {
+        const required = getRequiredBlocks(state);
+        const blocked = new Set(action.blocks.map((b) => b.attacker));
+        const met = [...blocked].filter((a) => findPermanent(next, a).perm.mustBeBlocked).length;
+        const missed = required.find((r) => !blocked.has(r.attacker));
+        if (met < required.length && missed) {
+          return fail(`${nameOf(next, findPermanent(next, missed.attacker).perm)} must be blocked this turn if able: ${nameOf(next, findPermanent(next, missed.blocker).perm)} can block it.`);
         }
       }
       for (const blocker of usedBlockers) {
@@ -472,302 +486,6 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
   return { ok: true, state: next, events };
 }
 
-/** After the blockers are declared and anyone has responded: assign damage, or deal it. */
-function continueAfterBlockers(state: GameState, events: GameEvent[]): void {
-  const combat = state.combat;
-  if (!combat) return;
-  // Spells cast before damage can have removed creatures from the fight.
-  combat.attackers = combat.attackers.filter((a) => onBoard(state, a.attacker));
-  if (combat.attackers.length === 0) {
-    state.combat = null;
-    state.phase = "main2";
-    events.push({ type: "phaseChanged", phase: "main2" });
-    return;
-  }
-  if (getDamageAssignments(state).length > 0) {
-    state.phase = "damage"; // the attacker's controller must divide damage (rule 510.1c)
-    events.push({ type: "phaseChanged", phase: "damage" });
-  } else {
-    resolveCombat(state, events, {});
-  }
-}
-
-export interface DamageEntry {
-  attacker: string;
-  blockers: string[];
-  power: number;
-  /** Set when the attacker has trample: it may also assign damage to this (the defending) player. */
-  trampleTo?: PlayerId;
-}
-
-/** Attackers blocked by two or more creatures: their controller divides the damage (rule 510.1c). */
-export function getDamageAssignments(state: GameState): DamageEntry[] {
-  if (!state.combat) return [];
-  return state.combat.attackers
-    // Several blockers need a split (rule 510.1c). A trampler with even one blocker chooses how much goes past it (702.19b).
-    .filter((a) => {
-      if (!onBoard(state, a.attacker)) return false;
-      const alive = a.blockers.filter((b) => onBoard(state, b)).length;
-      return alive >= 2 || (alive === 1 && kw(state, findPermanent(state, a.attacker).perm, "trample"));
-    })
-    .map((a) => {
-      const perm = findPermanent(state, a.attacker).perm;
-      const entry: DamageEntry = { attacker: a.attacker, blockers: a.blockers.filter((b) => onBoard(state, b)), power: power(state, perm) };
-      if (kw(state, perm, "trample")) entry.trampleTo = OPPONENT[state.active];
-      return entry;
-    })
-    .filter((a) => a.power > 0);
-}
-
-/**
- * Lethal damage to each blocker in turn. Without trample the leftover goes on the last blocker; with
- * trample it goes to the defending player. Always totals the attacker's full power.
- */
-function planDamage(state: GameState, attacker: Permanent, blockers: string[], defender: PlayerId): Record<string, number> {
-  let left = power(state, attacker);
-  const trample = kw(state, attacker, "trample");
-  const out: Record<string, number> = {};
-  blockers.forEach((id, i) => {
-    const lethal = lethalFor(state, attacker, findPermanent(state, id).perm);
-    const give = i === blockers.length - 1 && !trample ? left : Math.min(left, lethal);
-    out[id] = give;
-    left -= give;
-  });
-  if (trample && left > 0) out[defender] = left;
-  return out;
-}
-
-/** A sensible default split for the UI (see planDamage). */
-export function suggestDamageAssignment(state: GameState, attacker: string): Record<string, number> {
-  const entry = getDamageAssignments(state).find((a) => a.attacker === attacker);
-  if (!entry) return {};
-  return planDamage(state, findPermanent(state, attacker).perm, entry.blockers, OPPONENT[state.active]);
-}
-
-/**
- * Combat damage (rule 510). With first strike or double strike in the fight there are two damage steps:
- * first strikers and double strikers deal damage first, creatures that died deal none, and then everyone
- * else (and the double strikers again) deals damage. Each step's damage is dealt at once, then state-based
- * actions run. `assigned` holds the split the player chose for multiple blockers (used for the first
- * damage a creature deals; a second strike is split automatically among the blockers still alive).
- */
-function resolveCombat(state: GameState, events: GameEvent[], assigned: Record<string, Record<string, number>>): void {
-  const combat = state.combat!;
-  const defenderId = OPPONENT[state.active];
-  const onBoard = (iid: string) => Object.values(state.players).some((p) => p.battlefield.some((x) => x.card.iid === iid));
-  const find = (iid: string) => findPermanent(state, iid).perm;
-
-  const everyone = [...combat.attackers.map((a) => a.attacker), ...combat.attackers.flatMap((a) => a.blockers)].filter((id) => onBoard(id)); // (this function's own onBoard takes just the id)
-  const anyFirstStrike = everyone.some((id) => kw(state, find(id), "first strike") || kw(state, find(id), "double strike"));
-  const dealsIn = (p: Permanent, step: "first" | "regular") => {
-    const first = kw(state, p, "first strike") || kw(state, p, "double strike");
-    return step === "first" ? first : kw(state, p, "double strike") || !first;
-  };
-
-  const split = new Set<string>(); // attackers that already used the split the player chose
-
-  const runStep = (step: "first" | "regular") => {
-    // Work out every hit first, so the damage of a step really is simultaneous.
-    const hits: { source: Permanent; target: Permanent | PlayerState; amount: number }[] = [];
-    for (const { attacker, blockers, target: walkerId } of combat.attackers) {
-      if (!onBoard(attacker)) continue;
-      const a = find(attacker);
-      const alive = blockers.filter(onBoard);
-      // Who the attacker is really hitting: the player, or the planeswalker it attacked (if that is gone, nothing).
-      const defendingTarget = (): Permanent | PlayerState | null => (walkerId ? (onBoard(walkerId) ? find(walkerId) : null) : state.players[defenderId]);
-
-      if (dealsIn(a, step)) {
-        const p = power(state, a);
-        if (blockers.length === 0) {
-          const hitTarget = defendingTarget();
-          if (hitTarget) hits.push({ source: a, target: hitTarget, amount: p });
-        } else if (alive.length === 0) {
-          // Blocked, but every blocker is gone: only a trampler still hurts the player (rule 702.19e).
-          const hitTarget = defendingTarget();
-          if (kw(state, a, "trample") && hitTarget) hits.push({ source: a, target: hitTarget, amount: p });
-        } else {
-          const chosen = split.has(attacker) ? undefined : assigned[attacker];
-          const usable = chosen && Object.keys(chosen).every((k) => k === defenderId || alive.includes(k));
-          const plan = usable ? chosen : planDamage(state, a, alive, defenderId);
-          split.add(attacker);
-          for (const [targetId, amount] of Object.entries(plan)) {
-            const hitTarget = targetId === defenderId ? defendingTarget() : find(targetId);
-            if (hitTarget) hits.push({ source: a, target: hitTarget, amount });
-          }
-        }
-      }
-      for (const id of alive) {
-        const b = find(id);
-        if (dealsIn(b, step)) hits.push({ source: b, target: a, amount: power(state, b) }); // blockers hit back
-      }
-    }
-
-    const gains = new Map<PlayerId, number>();
-    const sacrifice = new Set<Permanent>(); // "When this creature deals combat damage, sacrifice it"
-    for (const hit of state.preventCombat ? [] : hits) {
-      const { source, target } = hit;
-      let { amount } = hit;
-      // Protection: damage from a source with the quality it is protected from is prevented.
-      if (!("battlefield" in target) && isProtectedFrom(state, target, qualityOfDef(getCard(state, source.card.defId)))) amount = 0;
-      if (amount <= 0) continue; // rule 510.1a: 0 or less damage isn't dealt
-      const toPlayer = "battlefield" in target;
-      if (toPlayer && state.players[source.card.owner].doubleDamage && target.id !== source.card.owner) amount *= 2;
-      if (toPlayer) {
-        target.life -= amount;
-      } else if (getCard(state, target.card.defId).type === "planeswalker") {
-        target.loyalty = (target.loyalty ?? 0) - amount; // damage to a planeswalker removes loyalty
-      } else {
-        target.damage += amount;
-        (target.damagedBy ??= []).push(source.card.iid);
-        if (kw(state, source, "deathtouch")) target.deathtouched = true;
-      }
-      if (kw(state, source, "lifelink")) gains.set(source.card.owner, (gains.get(source.card.owner) ?? 0) + amount);
-      events.push({ type: "combatDamage", source: source.card.iid, target: toPlayer ? target.id : target.card.iid, amount });
-      if (source.sacOnDamage) sacrifice.add(source);
-      if (toPlayer && onBoard(source.card.iid)) {
-        queueTriggers(state, source.card, source.card.owner, "combatDamagePlayer");
-        // Auras on the creature: "Whenever enchanted creature deals damage to an opponent, ..."
-        for (const owner of Object.values(state.players)) {
-          for (const aura of owner.battlefield) if (aura.attachedTo === source.card.iid) queueTriggers(state, aura.card, owner.id, "hostDamagesPlayer");
-        }
-      }
-    }
-    for (const doomed of sacrifice) {
-      const owner = Object.values(state.players).find((p) => p.battlefield.includes(doomed));
-      if (owner) putIntoGraveyard(state, doomed, owner.id, events);
-    }
-    for (const [player, amount] of gains) {
-      state.players[player].life += amount;
-      events.push({ type: "lifeGained", player, amount });
-      onLifeGained(state, player);
-    }
-  };
-
-  for (const step of anyFirstStrike ? (["first", "regular"] as const) : (["regular"] as const)) {
-    runStep(step);
-    checkStateBasedActions(state, events);
-    if (state.winner) {
-      state.combat = null;
-      return;
-    }
-  }
-
-  state.combat = null;
-  state.phase = "main2";
-  events.push({ type: "phaseChanged", phase: "main2" });
-}
-
-/** Untap, upkeep and draw are automatic, so a player only stops in main1, attackers, blockers, damage, main2, end or cleanup. */
-function advancePhase(state: GameState, events: GameEvent[]): void {
-  switch (state.phase) {
-    case "main1":
-      state.phase = "attackers";
-      // "At the beginning of combat on your turn"
-      for (const perm of state.players[state.active].battlefield) queueTriggers(state, perm.card, state.active, "beginCombat");
-      break;
-    case "attackers":
-      state.phase = "main2"; // reached only when nobody attacks
-      break;
-    case "main2":
-      state.phase = "end";
-      // "At the beginning of your end step" / "of each end step"
-      for (const owner of Object.values(state.players)) {
-        for (const perm of owner.battlefield) queueTriggers(state, perm.card, owner.id, owner.id === state.active ? "endStep" : "endStepEach");
-      }
-      for (const perm of state.players[state.active].battlefield) queueTriggers(state, perm.card, state.active, "endStepEach");
-      break;
-    case "end":
-      // Cleanup step (rule 514.1): discard down to the maximum hand size.
-      if (state.players[state.active].hand.length > MAX_HAND_SIZE) {
-        state.phase = "cleanup";
-        break;
-      }
-      startNextTurn(state, events);
-      return;
-    default:
-      return;
-  }
-  events.push({ type: "phaseChanged", phase: state.phase });
-}
-
-function startNextTurn(state: GameState, events: GameEvent[]): void {
-  state.preventCombat = undefined;
-  state.noGroundBlock = undefined;
-  // Rule 514.2: damage wears off for everyone at end of turn.
-  for (const p of Object.values(state.players)) {
-    p.drawnThisTurn = 0;
-    p.doubleDamage = undefined;
-    p.lifeGainedThisTurn = 0;
-    p.spellsCastThisTurn = 0;
-    p.battlefield.forEach((perm) => {
-      perm.damage = 0;
-      perm.unblockableTurn = undefined;
-      perm.tempBase = undefined;
-      perm.attackedThisTurn = undefined;
-      perm.sacOnDamage = undefined;
-      perm.tempNoDefender = undefined;
-      perm.damagedBy = undefined;
-      perm.deathtouched = false;
-      perm.powerBonus = 0;
-      perm.tempFrom = undefined;
-      perm.toughnessBonus = 0;
-      perm.tempKeywords = [];
-      perm.regenShield = 0; // "until end of turn"
-      perm.usedAbilities = [];
-      perm.crewed = false; // a Vehicle stops being a creature at end of turn
-      perm.loyaltyUsed = false;
-      perm.cantBlockTurn = false;
-      perm.noRegen = false;
-    });
-  }
-  // "Gain control of target creature until end of turn": it goes back to its controller.
-  for (const p of Object.values(state.players)) {
-    for (const perm of [...p.battlefield]) {
-      if (!perm.controlReturn) continue;
-      const back = perm.controlReturn;
-      delete perm.controlReturn;
-      if (back === p.id) continue;
-      p.battlefield.splice(p.battlefield.indexOf(perm), 1);
-      state.players[back].battlefield.push(perm);
-    }
-  }
-  // The "until end of turn" effects just ended: a creature that was only alive because of one (toughness 0 now) dies (rule 704.3).
-  checkStateBasedActions(state, events);
-  if (state.winner) return;
-
-  state.active = OPPONENT[state.active];
-  state.turn++;
-  events.push({ type: "turnStarted", player: state.active, turn: state.turn });
-
-  const p = state.players[state.active];
-  untap(state, p);
-  // Upkeep: "at the beginning of your upkeep" / "of each upkeep"
-  for (const owner of Object.values(state.players)) {
-    for (const perm of owner.battlefield) queueTriggers(state, perm.card, owner.id, owner.id === state.active ? "upkeep" : "upkeepEach");
-  }
-  for (const perm of p.battlefield) queueTriggers(state, perm.card, state.active, "upkeepEach");
-
-  if (p.library.length === 0) {
-    state.winner = OPPONENT[state.active];
-    events.push({ type: "gameWon", player: state.winner });
-    return;
-  }
-  drawCards(state, state.active, 1, events, true); // (the draw step's card counts as the first card drawn this turn)
-
-  state.phase = "main1";
-  events.push({ type: "phaseChanged", phase: "main1" });
-}
-
-function untap(state: GameState, p: PlayerState): void {
-  p.landsPlayedThisTurn = 0;
-  p.spareMana = undefined;
-  for (const perm of p.battlefield) {
-    if (perm.stun && perm.tapped) perm.stun -= 1; // a stun counter: instead of untapping, remove one
-    else if (!forbidden(state, perm, "noUntap")) perm.tapped = false; // "doesn't untap during its controller's untap step"
-    perm.summoningSick = false;
-  }
-}
-
 /** iids of creatures the active player could attack with right now. */
 export function getPossibleAttackers(state: GameState): string[] {
   if (state.winner || state.phase !== "attackers") return [];
@@ -797,6 +515,44 @@ export function getForcedBlocks(state: GameState): { blocker: string; attacker: 
     lureProbe = false;
   }
   return out;
+}
+
+/** Can this creature block that attacker by itself? (A one-block trial of the declare-blockers rules.) */
+function ableToBlock(state: GameState, defender: PlayerId, blocker: string, attacker: string): boolean {
+  lureProbe = true;
+  try {
+    return applyAction(state, defender, { type: "declareBlockers", blocks: [{ blocker, attacker }] }).ok;
+  } finally {
+    lureProbe = false;
+  }
+}
+
+/**
+ * "Must be blocked this turn if able" (rule 509.1c): blocks, one blocker each, that meet as many of those requirements as can be met.
+ * How many there are is how many the defending player must meet. `taken`: blockers already spoken for.
+ */
+export function getRequiredBlocks(state: GameState, taken: string[] = []): { blocker: string; attacker: string }[] {
+  if (state.winner || state.phase !== "blockers" || !state.combat) return [];
+  const defender = OPPONENT[state.active];
+  const must = state.combat.attackers.map((a) => a.attacker).filter((iid) => findPermanentOrNull(state, iid)?.perm.mustBeBlocked);
+  if (must.length === 0) return [];
+  const blockers = state.players[defender].battlefield.filter((b) => !b.tapped && isCreature(state, b) && !taken.includes(b.card.iid)).map((b) => b.card.iid);
+  const able = new Map(must.map((a) => [a, blockers.filter((b) => ableToBlock(state, defender, b, a))]));
+  // A maximum matching of blockers to those attackers (Kuhn's algorithm).
+  const owner = new Map<string, string>();
+  const place = (attacker: string, seen: Set<string>): boolean => {
+    for (const b of able.get(attacker) ?? []) {
+      if (seen.has(b)) continue;
+      seen.add(b);
+      if (!owner.has(b) || place(owner.get(b)!, seen)) {
+        owner.set(b, attacker);
+        return true;
+      }
+    }
+    return false;
+  };
+  for (const a of must) place(a, new Set());
+  return [...owner].map(([blocker, attacker]) => ({ blocker, attacker }));
 }
 
 /** iids of creatures the defending player could block with right now. */

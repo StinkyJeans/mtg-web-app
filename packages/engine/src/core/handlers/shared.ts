@@ -1,0 +1,88 @@
+import { getCard } from "../../cards.js";
+import type { GameEvent } from "../../actions.js";
+import type { Amount, Effect, PendingPick, RunContext } from "../../effects.js";
+import { parseCard } from "../../oracle.js";
+import { nextRandom } from "../../state.js";
+import type { CardInstance, GameState, Permanent, PlayerId } from "../../types.js";
+import { findPermanentOrNull, isPlaneswalker, nameOf, playerLabel } from "../permanents.js";
+import { changeLife } from "../zones.js";
+
+/** A spell, ability or creature dealing damage, with what changes how its damage works. */
+export interface DamageSource {
+  name: string;
+  controller: PlayerId;
+  deathtouch: boolean;
+  lifelink: boolean;
+}
+
+/** What every effect handler gets: the game, the spell or ability being run, and helpers bound to them. */
+export interface EffectRun {
+  state: GameState;
+  ctx: RunContext;
+  events: GameEvent[];
+  /** The source of the effects as a damage dealer. */
+  trait: DamageSource;
+  say: (text: string) => void;
+  value: (amount: Amount) => number;
+  /** "It can't be regenerated" is part of this spell. */
+  preventRegen: boolean;
+  /** A choice among cards: the game waits, and the effects after this one run once it is answered. */
+  startPick: (pick: PendingPick) => void;
+  /** Runs more effects of the same spell or ability ("if it was kicked, ..."). */
+  nested: (effects: Effect[]) => void;
+}
+
+export type EffectOf<T extends Effect["type"]> = Extract<Effect, { type: T }>;
+export type EffectHandlers = { [T in Effect["type"]]?: (run: EffectRun, effect: EffectOf<T>) => void };
+
+/** A random number from 0 up to (not including) 1, taken from the game's seeded generator. */
+export function rngNext(state: GameState): number {
+  const [r, next] = nextRandom(state.rng);
+  state.rng = next;
+  return r;
+}
+
+/** Damage that isn't combat damage (spells, abilities). Deathtouch and lifelink on the source count. */
+export function dealDamage(
+  state: GameState,
+  source: DamageSource,
+  target: { k: "player"; id: PlayerId } | { k: "perm"; perm: Permanent },
+  amount: number,
+  events: GameEvent[],
+): void {
+  if (amount <= 0) return;
+  // "Prevent all noncombat damage that would be dealt to you and creatures you control."
+  const victim = target.k === "player" ? target.id : isPlaneswalker(state, target.perm) ? undefined : findPermanentOrNull(state, target.perm.card.iid)?.owner.id;
+  if (victim && state.players[victim].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).preventNoncombat)) {
+    events.push({ type: "effect", text: `The damage to ${target.k === "player" ? playerLabel(target.id) : nameOf(state, target.perm)} is prevented.` });
+    return;
+  }
+  if (target.k === "player") {
+    if (state.players[source.controller].doubleDamage && target.id !== source.controller) amount *= 2; // "it deals double that damage instead"
+    changeLife(state, target.id, -amount, events);
+  } else if (isPlaneswalker(state, target.perm)) {
+    target.perm.loyalty = (target.perm.loyalty ?? 0) - amount; // damage to a planeswalker removes that much loyalty
+  } else {
+    target.perm.damage += amount;
+    if (source.deathtouch) target.perm.deathtouched = true;
+  }
+  events.push({ type: "damage", source: source.name, target: target.k === "player" ? target.id : target.perm.card.iid, amount });
+  if (source.lifelink) changeLife(state, source.controller, amount, events);
+}
+
+export const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Remembers which spell or ability put an "until end of turn" effect on a permanent. */
+export function noteTempSource(perm: Permanent, ctx: { sourceName: string; sourceDefId?: string }): void {
+  const list = (perm.tempFrom ??= []);
+  if (!list.some((x) => x.name === ctx.sourceName)) list.push({ name: ctx.sourceName, ...(ctx.sourceDefId ? { defId: ctx.sourceDefId } : {}) });
+}
+
+/** A card wherever it is: on the battlefield, or in a hand, graveyard, library or exile. */
+export function cardAnywhere(state: GameState, iid: string): CardInstance | undefined {
+  for (const p of Object.values(state.players)) {
+    const card = p.battlefield.find((perm) => perm.card.iid === iid)?.card ?? [...p.hand, ...p.graveyard, ...p.library, ...p.exile].find((c) => c.iid === iid);
+    if (card) return card;
+  }
+  return undefined;
+}

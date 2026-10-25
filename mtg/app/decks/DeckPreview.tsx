@@ -1,10 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { unplayableCards } from "@mtg/engine";
 import type { CardDef } from "@mtg/engine";
 import { fetchCardsByIds } from "@/lib/cards";
-import { getDeckContents } from "@/lib/decks";
+import { getDeckContents, setName } from "@/lib/decks";
 import type { DeckBoard, DeckContents, OfficialDeck } from "@/lib/decks";
 import { Lightbox } from "../play/CardDetail";
 import CardView from "../play/CardView";
@@ -19,22 +18,7 @@ const BOARDS: { id: DeckBoard; label: string }[] = [
 type Loaded = { contents: DeckContents; defs: Record<string, CardDef> };
 
 /** Look inside an official deck before copying it. Click a card to read it large. */
-export default function DeckPreview({
-  deck,
-  busy,
-  onCopy,
-  picked,
-  onTogglePick,
-  onClose,
-}: {
-  deck: OfficialDeck;
-  busy: boolean;
-  onCopy: () => void;
-  /** Whether the deck is ticked for combining, and a way to tick / untick it from here. */
-  picked: boolean;
-  onTogglePick: () => void;
-  onClose: () => void;
-}) {
+export default function DeckPreview({ deck, busy, onCopy, onClose }: { deck: OfficialDeck; busy: boolean; onCopy: () => void; onClose: () => void }) {
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [zoomedIdx, setZoomedIdx] = useState<number | null>(null); // position in the deck, while a card is open large
@@ -81,8 +65,6 @@ export default function DeckPreview({
   const current = zoomedIdx === null ? null : flat[zoomedIdx];
 
   const allIds = sections.flatMap((s) => s.entries.flatMap((e) => Array<string>(e.qty).fill(e.def.id)));
-  const blocked = loaded ? new Set(unplayableCards(loaded.defs, allIds).map((c) => c.id)) : new Set<string>();
-  const playableCopies = allIds.filter((id) => !blocked.has(id)).length;
 
   return (
     <div
@@ -100,25 +82,16 @@ export default function DeckPreview({
           <div className="min-w-0">
             <h2 className="truncate text-xl font-bold">{deck.name}</h2>
             <p className="text-sm text-slate-200">
-              {[deck.deckType, deck.code, deck.releaseDate?.slice(0, 4)].filter(Boolean).join(" · ")}
-              {loaded && ` · ${allIds.length} cards · ${playableCopies} playable by the game today`}
+              {[setName(deck.code), deck.releaseDate?.slice(0, 4), loaded && `${allIds.length} cards`].filter(Boolean).join(" · ")}
             </p>
           </div>
           <button
-            onClick={onTogglePick}
-            disabled={deck.unplayable > 0}
-            title={deck.unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
-            className={`ml-auto rounded-lg border px-4 py-2 font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${picked ? "border-amber-400 bg-amber-400/25" : "border-white/30 bg-white/10 hover:bg-white/20"}`}
-          >
-            {picked ? "Selected to combine ✓" : "Add to combine"}
-          </button>
-          <button
             onClick={onCopy}
-            disabled={busy || deck.unplayable > 0}
-            title={deck.unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
-            className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
+            disabled={busy}
+            title="Make your own copy to change its cards"
+            className="ml-auto rounded-lg bg-amber-500 px-4 py-2 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
           >
-            {busy ? "Copying…" : "Copy to my decks"}
+            {busy ? "Copying…" : "Copy & edit"}
           </button>
           <button onClick={onClose} aria-label="Close" className="rounded-lg border border-white/30 bg-white/10 px-3 py-2 hover:bg-white/20">
             ×
@@ -141,19 +114,12 @@ export default function DeckPreview({
                     def={def}
                     size="md"
                     note={qty > 1 ? `×${qty}` : undefined}
-                    ring={blocked.has(def.id) ? "ring-1 ring-red-500/60" : ""}
                     onClick={() => setZoomedIdx(sectionStart[si] + ei)}
                   />
                 ))}
               </div>
             </section>
           ))}
-          {loaded && (
-            <p className="text-xs text-slate-300">
-              A red outline means the game can&apos;t play that card yet. Copying merges the commander into the main deck and leaves out
-              the sideboard.
-            </p>
-          )}
         </div>
       </div>
 

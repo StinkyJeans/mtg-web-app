@@ -1,4 +1,4 @@
-import type { CardInstance, PlayerId } from "./types.js";
+import type { CardDef, CardInstance, PlayerId } from "./types.js";
 import type { Keyword } from "./keywords.js";
 import type { ManaColor } from "./mana.js";
 
@@ -12,7 +12,7 @@ export type Ref =
   | { t: "you" } // the controller
   | { t: "opp" } // the controller's opponent
   | { t: "eachPlayer" }
-  | { t: "allCreatures"; scope: "all" | "yours" | "opponents"; except?: number; noFlying?: boolean; subtype?: string } // `except`: not the i-th target
+  | { t: "allCreatures"; scope: "all" | "yours" | "opponents"; except?: number; noFlying?: boolean; subtype?: string; notSelf?: boolean } // `except`: not the i-th target; `notSelf`: "all other creatures"
   | { t: "allPlaneswalkers" }
   | { t: "ownerOf"; i: number } // the owner of the i-th target ("its owner gains 4 life")
   | { t: "controllerOf"; i: number } // the controller of the i-th target, as it was when the spell resolved
@@ -38,7 +38,7 @@ export type Effect =
   | { type: "grant"; keyword: Keyword; what: Ref } // until end of turn
   | { type: "counter"; what: Ref }
   | { type: "topOfLibrary"; what: Ref } // "put target creature on top of its owner's library"
-  | { type: "reanimate"; what: Ref; to: "battlefield" | "hand"; tapped?: boolean } // a creature card from a graveyard
+  | { type: "reanimate"; what: Ref; to: "battlefield" | "hand"; tapped?: boolean; finality?: boolean } // a card from a graveyard (`finality`: "with a finality counter on it")
   // The next three ask a player to choose cards, so a card that has one can't have any other effect (see PendingPick).
   | { type: "discard"; who: Ref; amount: number; chooser: "victim" | "you" | "random" } // "target player discards two cards" / "you choose a card from their hand"
   | { type: "lookPick"; mode: "toHand" | "toGraveyard" | "arrange"; n: number; who?: Ref } // look at the top cards of a library
@@ -64,12 +64,12 @@ export type Effect =
   | { type: "setBase"; what: Ref; power: number; toughness: number } // becomes N/N until end of turn
   | { type: "loseDefender"; what: Ref }
   | { type: "winGame" }
-  | { type: "mayPay"; cost: string; then: Effect[]; thenSpecs?: TargetSpec[] } // "When you do, ... target ...": the targets are chosen after paying // "you may pay {1}. If you do, ..."
+  | { type: "mayPay"; cost: string; life?: number; then: Effect[]; thenSpecs?: TargetSpec[] } // "When you do, ... target ...": the targets are chosen after paying // "you may pay {1}. If you do, ..." (`life`: "pay 2 life")
   | { type: "drawUnlessPay"; cost: string } // "you may draw a card unless that player pays {1}" (the opponent who cast the spell)
   | { type: "tapOrUntap"; what: Ref } // you may tap or untap target permanent
   | { type: "bounceOwn"; other: boolean } // "return a creature you control to its owner's hand": the player chooses
   | { type: "sacrifice"; what: Ref } // sacrifice a permanent ("when this becomes the target of a spell or ability, sacrifice it")
-  | { type: "stun"; what: Ref } // a stun counter
+  | { type: "stun"; what: Ref; theirsOnly?: boolean } // a stun counter (`theirsOnly`: only on the ones the controller doesn't control)
   | { type: "unblockable"; what: Ref } // can't be blocked this turn
   | { type: "exileUntilLeaves"; what: Ref } // exile target permanent until this one leaves the battlefield
   | { type: "fog" } // prevent all combat damage this turn
@@ -83,11 +83,29 @@ export type Effect =
   | { type: "gainControl"; what: Ref } // until end of turn
   | { type: "cantBlockThisTurn"; what: Ref }
   | { type: "crewed" } // this Vehicle becomes an artifact creature until end of turn
-  | { type: "wardCheck"; cost: string; itemId: string } // ward: counter the spell or ability unless its controller pays
+  | { type: "wardCheck"; cost: string; itemId: string; life?: number } // ward: counter the spell or ability unless its controller pays (mana, or `life`)
   | { type: "ifKicked"; then: Effect[]; otherwise?: Effect[] } // "if this spell was kicked, ..." (and "... instead")
   | { type: "surveil"; n: number } // like scry, but the cards you don't keep go to the graveyard
   | { type: "attach"; what: Ref } // equip: attach this permanent to the target
-  | { type: "createToken"; token: TokenSpec; amount: Amount; who?: Ref };
+  | { type: "returnAsEnchantment" } // "return it to the battlefield under its owner's control. It's an enchantment." (from the graveyard)
+  | { type: "becomeCopy"; what: Ref } // "~ becomes a copy of another target creature you control"
+  | { type: "exileIfDies"; what: Ref } // "if that creature would die this turn, exile it instead"
+  | { type: "ifSubtype"; what: Ref; subtype: string; then: Effect[] } // "if it's a Zombie card, draw a card" (wherever the card is now)
+  | { type: "mustBeBlocked"; what: Ref } // "must be blocked this turn if able"
+  | { type: "becomeSubtype"; what: Ref; subtype: string } // "~ becomes a Werewolf": the new creature type replaces the others
+  | { type: "returnSelfToBattlefield"; tapped?: boolean; counters?: number } // the card itself, from its owner's graveyard
+  | { type: "grantDiesReturn"; what: Ref } // until end of turn: "when this dies, return it to the battlefield tapped with a +1/+1 counter"
+  | { type: "distributeCounters"; total: number; double?: boolean } // among the chosen targets, the first ones getting any extra; then double them
+  | { type: "createToken"; token: TokenSpec; amount: Amount; who?: Ref }
+  | { type: "ifLifeGained"; atLeast: number; then: Effect[] } // "if you gained life this turn, ..." / "draw a card if you've gained 3 or more life this turn"
+  | { type: "ifSelfPower"; n: number; then: Effect[] } // "then destroy all other creatures if its power is exactly 20"
+  | { type: "explore" } // the permanent explores (rule 701.44)
+  | { type: "exileFromHand"; who: Ref } // look at target opponent's hand; you may exile a nonland card from it until this leaves the battlefield
+  | { type: "putSavedCounters"; what: Ref } // "put its counters on target creature you control": the counters it had as it died
+  | { type: "offspringCopy" } // offspring: create a 1/1 token copy of this creature
+  | { type: "yardCastable" } // creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn
+  | { type: "solve" } // a Case becomes solved
+  | { type: "warpExile" }; // warp: exile the permanent; its owner may cast it from exile on a later turn
 
 /** Which cards a "reveal a ... card" effect may take: any of the types, or any of the creature types (subtypes), or any nonland card. */
 export interface CardFilter {
@@ -136,6 +154,15 @@ export interface RunContext {
   sourceDefId?: string;
   /** "That creature": the creature a blocker blocked, or that blocked it. */
   other?: string;
+  /** A "when this dies" ability: the creature as it last was on the battlefield (its power and counters). */
+  died?: LastKnown;
+}
+
+/** A permanent as it last existed on the battlefield. */
+export interface LastKnown {
+  power: number;
+  counters: number;
+  minusCounters: number;
 }
 
 /** The qualities of a source that protection looks at. */
@@ -148,9 +175,9 @@ export interface SourceQuality {
 export interface TargetSpec {
   /**
    * "any" = a creature or a player. "land" and "artifactOrLand" are permanents. "graveyardCreature" is a creature
-   * card in a graveyard (see `controller` for whose).
+   * card in a graveyard (see `controller` for whose); "graveyardCard" is a card of any type (see `subtypes`).
    */
-  kind: "creature" | "player" | "any" | "spell" | "permanent" | "graveyardSpell" | "land" | "artifact" | "artifactOrLand" | "enchantment" | "artifactOrEnchantment" | "graveyardCreature" | "planeswalker" | "creatureOrPlaneswalker" | "playerOrPlaneswalker";
+  kind: "creature" | "player" | "any" | "spell" | "permanent" | "graveyardSpell" | "land" | "artifact" | "artifactOrLand" | "enchantment" | "artifactOrEnchantment" | "graveyardCreature" | "graveyardPermanent" | "graveyardCard" | "planeswalker" | "creatureOrPlaneswalker" | "playerOrPlaneswalker";
   /** "with power 4 or greater" / "with power 2 or less". */
   power?: { n: number; op: "min" | "max" };
   /** "nonartifact": not an artifact. */
@@ -173,8 +200,14 @@ export interface TargetSpec {
   notSubtype?: string;
   /** "target Goblin you control": a creature of this type. */
   subtype?: string;
+  /** "target Bat, Lizard, Rat, or Squirrel card": a card with any of these types. */
+  subtypes?: string[];
+  /** "with mana value less than or equal to this creature's power": its power as it died, filled in as `mv` when the ability triggers. */
+  mvAtMostPower?: boolean;
   /** "target spell or permanent": a spell on the stack is also allowed. */
   orSpell?: boolean;
+  /** "X target creatures": every target marked this way must be a different permanent. */
+  distinct?: boolean;
   /** "Up to one target ...": the player may choose no target at all (a "none" choice). */
   optional?: boolean;
   /** "another target ...": not the permanent the ability belongs to (filled in as `except` when the ability is put on the stack). */
@@ -182,6 +215,10 @@ export interface TargetSpec {
   except?: string;
   /** "with mana value 2 or greater" / "with toughness 4 or greater". */
   mv?: { n: number; op: "min" | "max" };
+  /** "Target artifact, enchantment, or creature with flying": a creature only counts with this keyword. */
+  creatureWith?: Keyword;
+  /** "Exile up to one target Equipment attached to that creature": it must be attached to the permanent chosen for this target. */
+  attachedToTarget?: number;
   toughness?: { n: number; op: "min" | "max" };
   /** For spells: "target creature spell" / "target noncreature spell". */
   spellKind?: "creature" | "noncreature" | "artifactOrCreature";
@@ -201,8 +238,16 @@ export interface StaticEffect {
   attackingOnly?: boolean;
   /** "Other Goblin creatures you control attack each combat if able." */
   mustAttack?: boolean;
-  /** "As long as you've drawn two or more cards this turn". */
-  cond?: { drawnAtLeast?: number; lifeAtLeast?: number; yourTurn?: boolean };
+  /** "As long as you've drawn two or more cards this turn" / "as long as this Aura entered this turn". */
+  cond?: { drawnAtLeast?: number; lifeAtLeast?: number; yourTurn?: boolean; enteredThisTurn?: boolean; controls?: string; attacking?: boolean; lostLife?: boolean };
+  /** "Tapped creatures you control have hexproof." */
+  tappedOnly?: boolean;
+  /** "Gets +1/+1 for each enchantment you control": the power and toughness are multiplied by this count. */
+  per?: CountSpec;
+  /** "...and is an Angel in addition to its other types." */
+  addSubtypes?: string[];
+  /** "...has lifelink and ward {2}." */
+  ward?: string;
   /** "Can't be blocked" while it applies. */
   unblockable?: boolean;
   /** "Other creatures you control": not the permanent itself. */
@@ -258,9 +303,38 @@ export interface TriggeredAbility {
   /** "When this enters, if it was kicked, ...": only triggers when it was cast kicked. */
   ifKicked?: boolean;
   event: "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
-    | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth";
+    | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
+    | "allyDies" | "allyCountersAdded" | "allyAttacks";
   /** An "intervening if": the trigger only happens when this is true as the event occurs. */
-  cond?: { lifeGainedAtLeast?: number; lifeAtLeast?: number; controlsTypes?: string[]; enchantedUntapped?: boolean; attackPowerAtLeast?: number };
+  cond?: {
+    lifeGainedAtLeast?: number;
+    lifeAtLeast?: number;
+    controlsTypes?: string[];
+    enchantedUntapped?: boolean;
+    attackPowerAtLeast?: number;
+    wasCreature?: boolean;
+    /** "If an opponent lost life this turn" / "if you attacked this turn" (raid). */
+    opponentLostLife?: boolean;
+    attackedThisTurn?: boolean;
+    /** "If you control another Elf". */
+    controlsOther?: string;
+    /** "If you control three or more creatures". */
+    creaturesAtLeast?: number;
+    /** A Case's "if unsolved, solve at the beginning of your end step". */
+    unsolved?: boolean;
+  };
+  /** "Whenever you cast a noncreature or Dragon spell": a creature spell of this type counts too. */
+  orSpellSubtype?: string;
+  /** For "allyCountersAdded": "another non-Hydra creature you control". */
+  notSubtype?: string;
+  /** For "allyEnters": "whenever an enchantment you control enters" (eerie). */
+  enchantments?: boolean;
+  /** For "allyEnters": "whenever ~ or another creature or artifact you control enters": artifacts count too. */
+  artifacts?: boolean;
+  /** "Choose one that hasn't been chosen —": each mode can be chosen once for this permanent. */
+  unchosenOnly?: boolean;
+  /** "Tap X target creatures": the one target is repeated X times, where X is what was paid for the permanent. */
+  xTargets?: boolean;
   /** "Whenever another nontoken creature you control enters". */
   nontoken?: boolean;
   /** "Whenever another Angel or Cleric you control enters": only creatures of these types. */
@@ -315,6 +389,10 @@ export interface ActivatedAbility {
   payLife?: number;
   /** "Activate only once each turn." */
   oncePerTurn?: boolean;
+  /** "Activate only once." (ever, for this permanent) */
+  onceOnly?: boolean;
+  /** A Case's "Solved — ..." ability: only once the Case is solved. */
+  solvedOnly?: boolean;
   /** Tap the permanent as part of the cost ({T}). */
   tap: boolean;
   /** Mana to pay, as printed, e.g. "{1}{R}". Empty string = none. */
@@ -344,18 +422,31 @@ export interface ParsedCard {
   loyaltyAbilities?: LoyaltyAbility[];
   /** "Crew 3": a Vehicle. Tapping creatures with total power 3 or more makes it a creature until end of turn. */
   crew?: number;
-  /** "Ward {2}": whoever targets this with a spell or ability pays this or it is countered. */
+  /** "Ward {2}": whoever targets this with a spell or ability pays this or it is countered. "Ward—Pay 3 life": `wardLife`, with an empty `ward`. */
   ward?: string;
+  wardLife?: number;
   /** "Protection from red": colors, and whether it is also protected from artifacts. */
   protection?: { colors: string[]; artifacts: boolean };
   /** "Flashback {2}{R}": the cost to cast this from the graveyard. */
   flashback?: string;
-  /** "Kicker {2}": the extra mana that may be paid when casting. */
+  /** "Kicker {2}": the extra mana that may be paid when casting. Offspring is a kicker by another name (`kickerName`). */
   kicker?: string;
+  kickerName?: "offspring";
+  /** "As an additional cost to cast this spell, you may blight 1": the -1/-1 counters put on a creature you control. Paying it counts as kicking. */
+  blight?: number;
+  /** "Warp {W}": the cost to cast it from hand, after which it is exiled at the next end step. */
+  warp?: string;
+  /** "Creatures your opponents control can be the targets of spells and abilities as though they didn't have hexproof. Ward abilities of those creatures don't trigger." */
+  ignoresHexproof?: boolean;
+
   /** "If this creature was kicked, it enters with two +1/+1 counters on it." */
   kickedCounters?: number;
   /** "This spell can't be countered." */
   cantBeCountered?: boolean;
+  /** "This creature enters prepared." */
+  entersPrepared?: boolean;
+  /** A preparation card's spell (the second half of "Quill-Blade Laureate // Twofold Intent"): a copy of it can be cast while the creature is prepared. */
+  prepare?: CardDef;
   /** "This creature attacks each combat if able." */
   mustAttack?: boolean;
   /** "Swampwalk" etc.: unblockable while the defender controls a land of this type ("swamp"). */
@@ -388,13 +479,19 @@ export interface ParsedCard {
   lifeGainPlus?: number;
   lifeGainDouble?: boolean;
   /** "~ costs {1} less to cast if you control a Wizard" / "for each spell your opponents have cast this turn" / "if you control a creature with flying". */
-  costReduction?: { n: number; ifControl?: string; ifFlyer?: boolean; perOpponentSpell?: boolean };
+  costReduction?: { n: number; ifControl?: string; ifFlyer?: boolean; perOpponentSpell?: boolean; per?: CountSpec };
   /** Permanents that make your spells cost less: "Goblin spells you cast cost {1} less", "during turns other than yours...". */
   costMods?: { n: number; subtype?: string; minMV?: number; otherTurn?: boolean }[];
   /** "Spells you cast with mana value 5 or greater can't be countered." */
   uncounterableMinMV?: number;
   /** "As an additional cost to cast this spell, sacrifice a Goblin." */
   extraSacrificeType?: string;
+  /** "As an additional cost to cast this spell, discard a card." */
+  extraDiscard?: boolean;
+  /** "As an additional cost to cast this spell, sacrifice a creature or pay {3}{B}": the mana paid instead of sacrificing. */
+  extraSacrificeOrPay?: string;
+  /** "Enchanted creature loses all abilities and is a black Skeleton creature with base power and toughness 1/1." */
+  hostBecomes?: { subtype: string; color: string; power: number; toughness: number };
   /** "Can't attack unless you control more creatures than defending player" / "can't block unless ...". */
   attackIfMoreCreatures?: boolean;
   blockIfMoreCreatures?: boolean;
@@ -448,6 +545,12 @@ export type StackItem =
       kicked?: boolean;
       /** Cast from the graveyard with flashback: it is exiled afterwards, not put back in the graveyard. */
       flashback?: boolean;
+      /** A copy of a spell (a prepared creature's spell): it ceases to exist when it leaves the stack. */
+      copy?: boolean;
+      /** Paid with mana that gives it haste ("if that mana is spent on a Dragon creature spell, it gains haste until end of turn"). */
+      haste?: boolean;
+      /** Cast for its warp cost: the permanent is exiled at the beginning of the next end step. */
+      warped?: boolean;
     }
   | {
       kind: "ability";
@@ -464,6 +567,8 @@ export type StackItem =
       other?: string;
       /** A number remembered when the ability was activated (the power of a creature that was sacrificed as its cost). */
       x?: number;
+      /** A "when this dies" ability: the creature as it last was. */
+      died?: LastKnown;
     };
 
 /** An open round of priority: `holder` may respond or pass. When both pass in a row, the top item resolves. */
@@ -485,7 +590,7 @@ export interface PendingPick {
   /** The card the choice comes from. A resolving spell is already in the graveyard, so this is how both players see what is going on. */
   source?: { iid: string; name: string; defId?: string };
   prompt: string;
-  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color";
+  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color" | "handExile";
   /** The cards to choose between (instance ids). They are shown to the chooser. */
   options: string[];
   /** The player may decline (eye spy, a search that finds nothing). */
@@ -499,12 +604,18 @@ export interface PendingPick {
   /** Ward: the spell or ability on the stack that is countered unless the cost is paid, and the cost. */
   wardItem?: string;
   wardCost?: string;
+  /** "You may pay 2 life": the life paid with (or instead of) `wardCost`. */
+  payLife?: number;
   /** Crew: the Vehicle being crewed. */
   vehicle?: string;
   /** Color: the permanent that is choosing a color as it enters. */
   colorFor?: string;
   /** Search: the land enters tapped. */
   entersTapped?: boolean;
+  /** Cards the chooser looks at that can't be chosen (the lands in a hand being looked at). */
+  seen?: string[];
+  /** Hand exile: the permanent that keeps the card until it leaves the battlefield. */
+  holder?: string;
   /** Search or look, to hand: the card text reveals the chosen card, so the opponent may learn its name. */
   reveal?: boolean;
   /** Reveal-to-hand / tutor: where the card goes, and what happens to the rest of the looked-at cards. */
@@ -520,6 +631,8 @@ export interface PendingPick {
   toggleIid?: string;
   /** Mode: the choices (the options are their indexes as text) and the ability waiting for one. */
   modes?: ModeSpec[];
+  /** Mode: "choose one that hasn't been chosen": the choice is remembered on the source permanent. */
+  modeUnchosen?: boolean;
   modeItem?: Extract<StackItem, { kind: "ability" }>;
   /** The effects that come after this choice on the same card ("Scry 2, then draw a card"), run once it is answered. */
   rest?: Effect[];

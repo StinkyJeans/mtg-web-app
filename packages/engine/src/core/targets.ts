@@ -1,0 +1,212 @@
+import { getCard } from "../cards.js";
+import type { Ref, RunContext, StackItem, TargetChoice, TargetSpec } from "../effects.js";
+import { parseCard } from "../oracle.js";
+import { OPPONENT } from "../types.js";
+import type { CardInstance, GameState, Permanent, PlayerId } from "../types.js";
+import {
+  defSubtypes,
+  findPermanentOrNull,
+  isArtifactDef,
+  isCreature,
+  isEnchantmentDef,
+  isPermanentCard,
+  isPlaneswalker,
+  isProtectedFrom,
+  kw,
+  powerOf,
+  subtypesOf,
+  toughnessOf,
+} from "./permanents.js";
+
+// Legal targets, and the players, permanents and cards an effect applies to.
+
+/** "Creatures your opponents control can be the targets of spells and abilities as though they didn't have hexproof." */
+export function ignoresHexproof(state: GameState, player: PlayerId): boolean {
+  return state.players[player].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).ignoresHexproof);
+}
+
+/** Can `choice` be a target for `spec` of something controlled by `controller`? `ignoreStackId` excludes the spell itself. */
+export function isLegalTarget(state: GameState, spec: TargetSpec, choice: TargetChoice, controller: PlayerId, ignoreStackId?: string): boolean {
+  switch (choice.kind) {
+    case "player":
+      return (spec.kind === "player" || spec.kind === "any" || spec.kind === "playerOrPlaneswalker") && (!spec.opponentOnly || choice.id !== controller);
+    case "permanent": {
+      const found = findPermanentOrNull(state, choice.iid);
+      if (!found) return false;
+      const def = getCard(state, found.perm.card.defId);
+      // Protection: it can't be targeted by spells or abilities with the quality it is protected from.
+      if (spec.source && isProtectedFrom(state, found.perm, spec.source)) return false;
+      // Hexproof: only its controller can target it (unless the targeting player has Nowhere to Run).
+      if (found.owner.id !== controller && kw(state, found.perm, "hexproof") && !ignoresHexproof(state, controller)) return false;
+      if (spec.except && spec.except === choice.iid) return false; // "another target creature"
+      if (spec.subtype && !subtypesOf(state, found.perm).includes(spec.subtype)) return false;
+      if (spec.notSubtype && subtypesOf(state, found.perm).includes(spec.notSubtype)) return false;
+      if (spec.mv && (spec.mv.op === "min" ? def.cost < spec.mv.n : def.cost > spec.mv.n)) return false;
+      if (spec.kind === "permanent") {
+        // "enchant permanent", or "target nonland permanent an opponent controls", or "target creature or enchantment"
+        if (spec.nonland && def.type === "land") return false;
+        const creatureFits = () => (def.type === "creature" || found.perm.crewed === true) && (!spec.creatureWith || kw(state, found.perm, spec.creatureWith)); // "or creature with flying"
+        if (spec.types && !spec.types.some((t) => (t === "creature" ? creatureFits() : t === "artifact" ? isArtifactDef(def) : t === "enchantment" ? isEnchantmentDef(def) : def.type === t))) return false;
+        if (spec.controller === "you" && found.owner.id !== controller) return false;
+        if (spec.controller === "opponent" && found.owner.id === controller) return false;
+        return true;
+      }
+      if (spec.kind === "land") return def.type === "land";
+      const walker = def.type === "planeswalker";
+      if (spec.kind === "planeswalker") return walker;
+      if (spec.kind === "playerOrPlaneswalker") return walker;
+      if (walker) return (spec.kind === "any" || spec.kind === "creatureOrPlaneswalker") && !(spec.controller === "you" && found.owner.id !== controller) && !(spec.controller === "opponent" && found.owner.id === controller);
+      if (spec.kind === "enchantment") return isEnchantmentDef(def);
+      if (spec.kind === "artifactOrEnchantment") return isArtifactDef(def) || isEnchantmentDef(def);
+      if (spec.kind === "artifact") return isArtifactDef(def);
+      if (spec.kind === "artifactOrLand") return def.type === "land" || isArtifactDef(def);
+      if (spec.kind !== "creature" && spec.kind !== "any" && spec.kind !== "creatureOrPlaneswalker") return false;
+      if (def.type !== "creature" && !found.perm.crewed) return false;
+      if (spec.controller === "you" && found.owner.id !== controller) return false;
+      if (spec.controller === "opponent" && found.owner.id === controller) return false;
+      if (spec.filter === "tapped" && !found.perm.tapped) return false;
+      if (spec.toughness && (spec.toughness.op === "min" ? toughnessOf(state, found.perm) < spec.toughness.n : toughnessOf(state, found.perm) > spec.toughness.n)) return false;
+      if (spec.notArtifact && isArtifactDef(def)) return false;
+      if (spec.power && (spec.power.op === "min" ? powerOf(state, found.perm) < spec.power.n : powerOf(state, found.perm) > spec.power.n)) return false;
+      if (spec.keyword && kw(state, found.perm, spec.keyword.name) !== spec.keyword.has) return false;
+      if (spec.filter && spec.filter !== "tapped") {
+        const attacking = state.combat?.attackers.some((a) => a.attacker === choice.iid) ?? false;
+        const blocking = state.combat?.attackers.some((a) => a.blockers.includes(choice.iid)) ?? false;
+        if (spec.filter === "attacking" ? !attacking : spec.filter === "blocking" ? !blocking : !(attacking || blocking)) return false;
+      }
+      return !spec.notColors?.some((c) => (def.colors ?? []).includes(c));
+    }
+    case "card": {
+      if (spec.kind !== "graveyardCreature" && spec.kind !== "graveyardSpell" && spec.kind !== "graveyardPermanent" && spec.kind !== "graveyardCard") return false;
+      const owner = Object.values(state.players).find((p) => p.graveyard.some((c) => c.iid === choice.iid));
+      const card = owner?.graveyard.find((c) => c.iid === choice.iid);
+      if (!owner || !card || spec.except === choice.iid) return false;
+      const def = getCard(state, card.defId);
+      const fits = spec.kind === "graveyardCreature" ? def.type === "creature" : spec.kind === "graveyardPermanent" ? isPermanentCard(def) || def.type === "land" : spec.kind === "graveyardCard" ? true : def.type === "instant" || def.type === "sorcery";
+      if (!fits || (spec.subtype && !defSubtypes(def).includes(spec.subtype))) return false;
+      if (spec.subtypes && !spec.subtypes.some((t) => defSubtypes(def).includes(t))) return false;
+      if (spec.notSubtype && defSubtypes(def).includes(spec.notSubtype)) return false;
+      if (spec.nonland && def.type === "land") return false;
+      if (spec.mv && (spec.mv.op === "min" ? def.cost < spec.mv.n : def.cost > spec.mv.n)) return false;
+      return spec.controller !== "you" || owner.id === controller;
+    }
+    case "none":
+      return spec.optional === true;
+    case "stack": {
+      const item = state.stack.find((i) => i.id === choice.id && i.kind === "spell" && i.id !== ignoreStackId);
+      if (!item || item.kind !== "spell") return false;
+      if (spec.orSpell) return true; // "target spell or permanent": any spell on the stack
+      if (spec.kind !== "spell") return false;
+      if (!spec.spellKind) return true;
+      const def = getCard(state, item.card.defId);
+      const creature = def.type === "creature";
+      return spec.spellKind === "creature" ? creature : spec.spellKind === "noncreature" ? !creature : creature || isArtifactDef(def);
+    }
+  }
+}
+
+/** Everything that could be chosen for `spec`. */
+export function legalTargets(state: GameState, spec: TargetSpec, controller: PlayerId, ignoreStackId?: string): TargetChoice[] {
+  const out: TargetChoice[] = [];
+  for (const id of ["p1", "p2"] as const) {
+    const choice: TargetChoice = { kind: "player", id };
+    if (isLegalTarget(state, spec, choice, controller, ignoreStackId)) out.push(choice);
+  }
+  for (const player of Object.values(state.players)) {
+    for (const perm of player.battlefield) {
+      const choice: TargetChoice = { kind: "permanent", iid: perm.card.iid };
+      if (isLegalTarget(state, spec, choice, controller, ignoreStackId)) out.push(choice);
+    }
+    for (const card of player.graveyard) {
+      const choice: TargetChoice = { kind: "card", iid: card.iid };
+      if (isLegalTarget(state, spec, choice, controller, ignoreStackId)) out.push(choice);
+    }
+  }
+  for (const item of state.stack) {
+    const choice: TargetChoice = { kind: "stack", id: item.id };
+    if (isLegalTarget(state, spec, choice, controller, ignoreStackId)) out.push(choice);
+  }
+  if (spec.optional) out.push({ kind: "none" }); // "up to one": choosing nothing is always possible
+  return out;
+}
+
+type Subject =
+  | { k: "player"; id: PlayerId }
+  | { k: "perm"; perm: Permanent; owner: PlayerId }
+  | { k: "card"; card: CardInstance; owner: PlayerId } // a card in a graveyard
+  | { k: "stack"; item: StackItem };
+
+const creaturesOfPlayer = (state: GameState, owner: PlayerId): Subject[] =>
+  state.players[owner].battlefield.filter((perm) => isCreature(state, perm)).map((perm): Subject => ({ k: "perm", perm, owner }));
+
+export function subjectsOf(state: GameState, ref: Ref, ctx: RunContext): Subject[] {
+  switch (ref.t) {
+    case "you":
+      return [{ k: "player", id: ctx.controller }];
+    case "opp":
+      return [{ k: "player", id: OPPONENT[ctx.controller] }];
+    case "eachPlayer":
+      return [{ k: "player", id: "p1" }, { k: "player", id: "p2" }];
+    case "self": {
+      const found = findPermanentOrNull(state, ctx.sourceId);
+      return found ? [{ k: "perm", perm: found.perm, owner: found.owner.id }] : [];
+    }
+    case "allCreatures": {
+      const skip = ref.except !== undefined && ctx.targets[ref.except]?.kind === "permanent" ? (ctx.targets[ref.except] as { iid: string }).iid : undefined;
+      return Object.values(state.players)
+        .filter((p) => ref.scope === "all" || (ref.scope === "yours") === (p.id === ctx.controller))
+        .flatMap((p) => p.battlefield.filter((perm) => isCreature(state, perm) && perm.card.iid !== skip && !(ref.notSelf && perm.card.iid === ctx.sourceId) && !(ref.noFlying && kw(state, perm, "flying")) && (!ref.subtype || subtypesOf(state, perm).includes(ref.subtype))).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
+    }
+    case "allPlaneswalkers":
+      return Object.values(state.players).flatMap((p) => p.battlefield.filter((perm) => isPlaneswalker(state, perm)).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
+    case "ownerOf":
+    case "controllerOf": {
+      const choice = ctx.targets[ref.i];
+      if (choice?.kind !== "permanent" && choice?.kind !== "card") return [];
+      const iid = choice.iid;
+      const now = findPermanentOrNull(state, iid);
+      const controller = ctx.lki?.[iid] ?? now?.owner.id;
+      const owner = now?.perm.card.owner ?? (iid.startsWith("p1-") ? "p1" : iid.startsWith("p2-") ? "p2" : controller);
+      const who = ref.t === "ownerOf" ? owner : (controller ?? owner);
+      return who ? [{ k: "player", id: who }] : [];
+    }
+    case "enchanted": {
+      const source = findPermanentOrNull(state, ctx.sourceId)?.perm;
+      const host = source?.attachedTo ? findPermanentOrNull(state, source.attachedTo) : null;
+      return host ? [{ k: "perm", perm: host.perm, owner: host.owner.id }] : [];
+    }
+    case "other": {
+      const found = ctx.other ? findPermanentOrNull(state, ctx.other) : null;
+      return found ? [{ k: "perm", perm: found.perm, owner: found.owner.id }] : [];
+    }
+    case "attackingCreatures":
+      return (state.combat?.attackers ?? []).filter((a) => !(ref.other && a.attacker === ctx.sourceId)).flatMap((a) => {
+        const found = findPermanentOrNull(state, a.attacker);
+        return found ? [{ k: "perm", perm: found.perm, owner: found.owner.id } as Subject] : [];
+      });
+    case "creaturesOf": {
+      const choice = ctx.targets[ref.i];
+      const spec = ctx.specs[ref.i];
+      if (!choice || !spec || choice.kind !== "player" || !isLegalTarget(state, spec, choice, ctx.controller, ctx.stackId)) return [];
+      return creaturesOfPlayer(state, choice.id);
+    }
+    case "target": {
+      const choice = ctx.targets[ref.i];
+      const spec = ctx.specs[ref.i];
+      // A target that is no longer legal (it died, left, or was countered) is simply skipped.
+      if (!choice || !spec || choice.kind === "none" || !isLegalTarget(state, spec, choice, ctx.controller, ctx.stackId)) return [];
+      if (choice.kind === "player") return [{ k: "player", id: choice.id }];
+      if (choice.kind === "card") {
+        const owner = Object.values(state.players).find((p) => p.graveyard.some((c) => c.iid === choice.iid));
+        const card = owner?.graveyard.find((c) => c.iid === choice.iid);
+        return owner && card ? [{ k: "card", card, owner: owner.id }] : [];
+      }
+      if (choice.kind === "permanent") {
+        const found = findPermanentOrNull(state, choice.iid);
+        return found ? [{ k: "perm", perm: found.perm, owner: found.owner.id }] : [];
+      }
+      const item = state.stack.find((i) => i.id === choice.id);
+      return item ? [{ k: "stack", item }] : [];
+    }
+  }
+}

@@ -1,0 +1,100 @@
+import { getCard } from "../../cards.js";
+import type { Permanent, PlayerId } from "../../types.js";
+import { findPermanentOrNull, isProtectedFrom, kw, nameOf, playerLabel, powerOf, qualityOfDef } from "../permanents.js";
+import { changeLife } from "../zones.js";
+import { subjectsOf } from "../targets.js";
+import { dealDamage, type EffectHandlers, type EffectOf, type EffectRun } from "./shared.js";
+
+function changeLifeOf({ state, ctx, events, value }: EffectRun, effect: EffectOf<"gainLife" | "loseLife">): void {
+  for (const s of subjectsOf(state, effect.who, ctx)) {
+    if (s.k === "player") changeLife(state, s.id, effect.type === "gainLife" ? value(effect.amount) : -value(effect.amount), events);
+  }
+}
+
+function fightOrBite({ state, ctx, events, say }: EffectRun, effect: EffectOf<"fight" | "bite">): void {
+  const first = subjectsOf(state, effect.type === "fight" ? effect.a : effect.from, ctx).find((x) => x.k === "perm");
+  const second = subjectsOf(state, effect.type === "fight" ? effect.b : effect.to, ctx).find((x) => x.k === "perm");
+  if (first?.k !== "perm" || second?.k !== "perm") return; // a target is gone: nothing happens
+  const traitOf = (perm: Permanent, controller: PlayerId) => ({ name: nameOf(state, perm), controller, deathtouch: kw(state, perm, "deathtouch"), lifelink: kw(state, perm, "lifelink") });
+  const hit = (from: Permanent, fromOwner: PlayerId, to: Permanent) => {
+    const quality = qualityOfDef(getCard(state, from.card.defId));
+    if (isProtectedFrom(state, to, quality)) return say(`${nameOf(state, to)} has protection: the damage is prevented.`);
+    dealDamage(state, traitOf(from, fromOwner), { k: "perm", perm: to }, Math.max(0, powerOf(state, from)), events);
+  };
+  const a = { perm: first.perm, owner: first.owner };
+  const b = { perm: second.perm, owner: second.owner };
+  hit(a.perm, a.owner, b.perm);
+  if (effect.type === "fight") hit(b.perm, b.owner, a.perm); // power doesn't change from damage, so the order doesn't matter
+}
+
+/** Damage, fights and the rules of combat. */
+export const DAMAGE_EFFECTS = {
+  gainLife: changeLifeOf,
+  loseLife: changeLifeOf,
+  fight: fightOrBite,
+  bite: fightOrBite,
+  damage({ state, ctx, events, trait, say, value, preventRegen }, effect) {
+    for (const s of subjectsOf(state, effect.to, ctx)) {
+      if (s.k === "player") dealDamage(state, trait, s, value(effect.amount), events);
+      else if (s.k === "perm") {
+        if (ctx.sourceDefId && isProtectedFrom(state, s.perm, qualityOfDef(getCard(state, ctx.sourceDefId)))) {
+          say(`${nameOf(state, s.perm)} has protection: the damage is prevented.`);
+          continue;
+        }
+        if (preventRegen) s.perm.noRegen = true;
+        dealDamage(state, trait, s, value(effect.amount), events);
+        if (value(effect.amount) > 0 && findPermanentOrNull(state, ctx.sourceId)) (s.perm.damagedBy ??= []).push(ctx.sourceId);
+      }
+    }
+  },
+  cantBlockThisTurn({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.cantBlockTurn = true;
+      say(`${nameOf(state, s.perm)} can't block this turn.`);
+    }
+  },
+  sacOnDamage({ state, ctx }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k === "perm") s.perm.sacOnDamage = true;
+    }
+  },
+  doubleDamage({ state, ctx, say }) {
+    state.players[ctx.controller].doubleDamage = true;
+    say(`Damage ${playerLabel(ctx.controller)}'s sources deal to an opponent is doubled this turn.`);
+  },
+  noGroundBlock({ state, say }) {
+    state.noGroundBlock = true;
+    say("Creatures without flying can't block this turn.");
+  },
+  loseDefender({ state, ctx }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k === "perm") s.perm.tempNoDefender = true;
+    }
+  },
+  winGame({ state, ctx, events }) {
+    state.winner = ctx.controller;
+    events.push({ type: "gameWon", player: ctx.controller });
+  },
+  unblockable({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.unblockableTurn = true;
+      say(`${nameOf(state, s.perm)} can't be blocked this turn.`);
+    }
+  },
+  fog({ state, say }) {
+    state.preventCombat = true;
+    say("All combat damage this turn is prevented.");
+  },
+  mustBeBlocked({ state, ctx }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) if (s.k === "perm") s.perm.mustBeBlocked = true;
+  },
+  assignByToughness({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.damageByToughness = true;
+      say(`${nameOf(state, s.perm)} assigns combat damage equal to its toughness this turn.`);
+    }
+  },
+} satisfies EffectHandlers;

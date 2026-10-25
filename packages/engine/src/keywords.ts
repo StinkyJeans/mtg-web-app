@@ -54,6 +54,8 @@ const LABELS = new Set([
   "enchant", "cycling", "regenerate", "scry", "mill", "surveil", "devoid", "partner", "changeling", "landwalk",
   "treasure", "battalion", "pack tactics", "double", "food", "investigate", "equip", "landcycling", "typecycling", "basic landcycling", "kicker", "flashback", "protection", "landfall", "ward", "crew",
   "heal", "fight", "swampwalk", "islandwalk", "forestwalk", "mountainwalk", "plainswalk",
+  "eerie", "prepared", "raid",
+  "explore", "solved", "infusion", "warp", "blight", "offspring",
 ]);
 
 /** True if every keyword printed on the card is one the engine implements. */

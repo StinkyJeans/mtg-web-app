@@ -4,19 +4,17 @@ import { useCallback, useEffect, useState } from "react";
 import { STARTER_DECK } from "@mtg/engine";
 import { holdWallpaper } from "../LiveWallpaper";
 import { CoinDisplay } from "../play/CoinFlip";
-import { deckStatus, expandDeck, listMyDecks, loadDefsFor } from "@/lib/decks";
+import { listPlayableDecks } from "@/lib/decks";
+import type { DeckChoice } from "@/lib/decks";
+import DeckOptions from "../decks/DeckOptions";
 import { buildRandomDeck } from "@/lib/randomDeck";
 import { leaveRoom, send } from "@/lib/online/session";
 import { DECK_SIZES } from "@/lib/online/protocol";
 import type { RoomSnapshot } from "@/lib/online/protocol";
 import { KickButton } from "./RoomPopup";
 
-interface DeckOption {
-  id: string;
-  name: string;
-  ids: string[];
-}
 const RANDOM_ID = "random";
+const STARTER: DeckChoice = { id: "starter", name: "Starter deck", ids: STARTER_DECK, official: true };
 const STEPS = [
   { stage: "vote", label: "Vote" },
   { stage: "decks", label: "Decks" },
@@ -99,35 +97,28 @@ function VoteStep({ room }: { room: RoomSnapshot }) {
 
 function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   const size = room.size ?? 40;
-  const [options, setOptions] = useState<DeckOption[] | null>(null);
+  const [options, setOptions] = useState<DeckChoice[] | null>(null);
   const [choice, setChoice] = useState(RANDOM_ID);
   const [busy, setBusy] = useState(false);
 
-  // The starter deck plus every saved deck of this size that is legal and fully playable.
+  // Every saved deck that is legal and fully playable, the ready-made decks and the starter deck; the menu keeps those of this size.
   useEffect(() => {
     let cancelled = false;
-    const load = async () => {
-      const found: DeckOption[] = [];
-      if (STARTER_DECK.length === size) found.push({ id: "starter", name: "Starter deck", ids: STARTER_DECK });
-      try {
-        const decks = await listMyDecks();
-        const defs = await loadDefsFor(decks);
-        for (const d of decks) if (deckStatus(defs, d.entries).ready && expandDeck(d.entries).length === size) found.push({ id: d.id, name: d.name, ids: expandDeck(d.entries) });
-      } catch {
-        // the starter deck and a random deck still work
-      }
-      if (!cancelled) setOptions(found);
-    };
-    void load();
+    listPlayableDecks()
+      .then(({ choices }) => [...choices, STARTER])
+      .catch(() => [STARTER]) // the starter deck and a random deck still work
+      .then((found) => {
+        if (!cancelled) setOptions(found);
+      });
     return () => {
       cancelled = true;
     };
-  }, [size]);
+  }, []);
 
   async function confirm() {
     setBusy(true);
     try {
-      const picked = options?.find((o) => o.id === choice);
+      const picked = options?.find((o) => o.id === choice && o.ids.length === size);
       const mine = picked ?? (await buildRandomDeck(size));
       // against the bot, the host also brings the bot's deck: a random one
       const vsBot = room.players.some((p) => p.bot);
@@ -153,12 +144,7 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
         aria-label="Deck"
         className="glass-select rounded-xl border border-white/25 bg-white/10 px-4 py-3 text-base text-slate-100 disabled:opacity-60"
       >
-        {(options ?? []).map((o) => (
-          <option key={o.id} value={o.id}>
-            {o.name}
-          </option>
-        ))}
-        <option value={RANDOM_ID}>Random {size}-card deck</option>
+        <DeckOptions choices={options ?? []} size={size} randomId={RANDOM_ID} />
       </select>
       <button
         onClick={() => void confirm()}

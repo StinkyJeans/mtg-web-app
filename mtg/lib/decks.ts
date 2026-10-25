@@ -12,14 +12,11 @@ export interface Deck {
   entries: DeckEntries;
 }
 
-export interface OfficialDeck {
-  id: string;
-  name: string;
+/** An official deck the game can fully play. `entries` are the cards it plays with (main deck and commander). */
+export interface OfficialDeck extends Deck {
   deckType: string | null;
   code: string | null;
   releaseDate: string | null;
-  /** Cards in the deck (main deck and commander) the game can't play yet. The deck can only be used when this is 0. */
-  unplayable: number;
 }
 
 interface DeckCardRow {
@@ -69,76 +66,62 @@ export async function listMyDecks(): Promise<Deck[]> {
   }));
 }
 
-export const OFFICIAL_PAGE_SIZE = 13;
+export const DECK_PAGE_SIZE = 13;
 
-/** Deck types offered as a filter, most useful first. */
-export const OFFICIAL_DECK_TYPES = [
-  "Jumpstart",
-  "Commander Deck",
-  "Theme Deck",
-  "Intro Pack",
-  "Starter Deck",
-  "Welcome Deck",
-  "Planeswalker Deck",
-  "Arena Starter Deck",
-  "Duel Deck",
-  "Event Deck",
-  "Challenger Deck",
+/** The sections of the official decks, in order. A deck of any other type gets a section of its own after these. */
+export const OFFICIAL_SECTIONS: { deckType: string; title: string; blurb: string }[] = [
+  { deckType: "Theme Deck", title: "Theme decks", blurb: "Ready-to-play decks built around one idea." },
+  { deckType: "Foundations", title: "Foundations pairs", blurb: "Two Foundations Jumpstart packs shuffled together: 40 cards." },
 ];
 
-export async function listOfficialDecks(
-  query: string,
-  page: number,
-  deckType = "",
-  playableOnly = false,
-): Promise<{ decks: OfficialDeck[]; total: number }> {
+const SET_NAMES: Record<string, string> = { SOS: "Secrets of Strixhaven", ECL: "Lorwyn Eclipse", FDN: "Foundations" };
+export const setName = (code: string | null) => (code ? (SET_NAMES[code] ?? code) : null);
+
+/** The official decks the game can fully play, newest first. Decks with cards the game can't play yet aren't listed. */
+export async function listOfficialDecks(): Promise<OfficialDeck[]> {
   const supabase = createClient();
-  const text = query.trim().replace(/[%_\\]/g, "\\$&");
-  const from = page * OFFICIAL_PAGE_SIZE;
-
-  // Preferred: the database view that already knows how many unplayable cards each deck has (supabase/03-playable-decks.sql).
-  let q = supabase.from("official_decks_status").select("id, name, deck_type, code, release_date, unplayable", { count: "exact" });
-  if (deckType) q = q.eq("deck_type", deckType);
-  if (text) q = q.ilike("name", `%${text}%`);
-  if (playableOnly) q = q.eq("unplayable", 0);
-  const viewed = await q
+  // The database view knows how many unplayable cards each deck has (supabase/03-playable-decks.sql).
+  const { data, error } = await supabase
+    .from("official_decks_status")
+    .select("id, name, deck_type, code, release_date")
+    .eq("unplayable", 0)
     .order("release_date", { ascending: false, nullsFirst: false })
-    .order("name")
-    .range(from, from + OFFICIAL_PAGE_SIZE - 1);
-  if (!viewed.error) {
-    const rows = viewed.data as { id: string; name: string; deck_type: string | null; code: string | null; release_date: string | null; unplayable: number }[];
-    return {
-      total: viewed.count ?? 0,
-      decks: rows.map((d) => ({ id: d.id, name: d.name, deckType: d.deck_type, code: d.code, releaseDate: d.release_date, unplayable: d.unplayable })),
-    };
-  }
-  // The view isn't installed yet: list the decks anyway, and count each deck's unplayable cards one by one.
-  if (playableOnly) throw new Error("To show only playable decks, run supabase/03-playable-decks.sql once in the Supabase SQL editor.");
-
-  let plain = supabase.from("decks").select("id, name, deck_type, code, release_date", { count: "exact" }).eq("official", true);
-  if (deckType) plain = plain.eq("deck_type", deckType);
-  if (text) plain = plain.ilike("name", `%${text}%`);
-  const { data, count, error } = await plain
-    .order("release_date", { ascending: false, nullsFirst: false })
-    .order("name")
-    .range(from, from + OFFICIAL_PAGE_SIZE - 1);
-  if (error) throw new Error(error.message);
+    .order("name");
+  if (error) throw new Error(`${error.message}. To list the official decks, run supabase/03-playable-decks.sql once in the Supabase SQL editor.`);
   const rows = data as { id: string; name: string; deck_type: string | null; code: string | null; release_date: string | null }[];
-  const unplayable = await Promise.all(
-    rows.map(async (d) => {
-      const { count: n, error: countError } = await supabase
-        .from("deck_cards")
-        .select("card_id, cards!inner(playable)", { count: "exact", head: true })
-        .eq("deck_id", d.id)
-        .in("board", ["main", "commander"])
-        .eq("cards.playable", false);
-      if (countError) throw new Error(countError.message);
-      return n ?? 0;
-    }),
-  );
+  if (rows.length === 0) return [];
+  const cards = await supabase.from("deck_cards").select("deck_id, card_id, qty, board").in("deck_id", rows.map((d) => d.id));
+  if (cards.error) throw new Error(cards.error.message);
+  const byDeck = new Map<string, DeckCardRow[]>();
+  for (const c of cards.data as (DeckCardRow & { deck_id: string })[]) byDeck.set(c.deck_id, [...(byDeck.get(c.deck_id) ?? []), c]);
+  return rows.map((d) => ({ id: d.id, name: d.name, deckType: d.deck_type, code: d.code, releaseDate: d.release_date, entries: toEntries(byDeck.get(d.id) ?? []) }));
+}
+
+/** A deck's colors in WUBRG order, from its cards. */
+export function deckColors(defs: Record<string, CardDef>, entries: DeckEntries): string[] {
+  const used = new Set(Object.keys(entries).flatMap((id) => defs[id]?.colors ?? []));
+  return ["W", "U", "B", "R", "G"].filter((c) => used.has(c));
+}
+
+export interface DeckChoice {
+  id: string;
+  name: string;
+  ids: string[];
+  official: boolean;
+}
+
+/**
+ * The decks a player can start a game with: their own saved decks that are legal and fully playable, then the official ones.
+ * `hidden` is how many of their own decks aren't ready yet.
+ */
+export async function listPlayableDecks(): Promise<{ choices: DeckChoice[]; hidden: number }> {
+  const [mine, official] = await Promise.all([listMyDecks(), listOfficialDecks().catch(() => [])]);
+  const defs = await loadDefsFor([...mine, ...official]);
+  const ready = (d: Deck) => deckStatus(defs, d.entries).ready;
+  const choice = (d: Deck, isOfficial: boolean): DeckChoice => ({ id: d.id, name: d.name, ids: expandDeck(d.entries), official: isOfficial });
   return {
-    total: count ?? 0,
-    decks: rows.map((d, i) => ({ id: d.id, name: d.name, deckType: d.deck_type, code: d.code, releaseDate: d.release_date, unplayable: unplayable[i] })),
+    choices: [...mine.filter(ready).map((d) => choice(d, false)), ...official.filter(ready).map((d) => choice(d, true))],
+    hidden: mine.filter((d) => !ready(d)).length,
   };
 }
 
@@ -192,19 +175,6 @@ export async function deleteDeck(id: string): Promise<void> {
 export async function copyOfficialDeck(officialId: string): Promise<string> {
   const source = await getDeck(officialId);
   return saveDeck({ name: source.name, entries: source.entries });
-}
-
-/**
- * Merges several decks into one new deck of your own and returns its id. Copies add up, so two decks
- * that both have 2 Forests give a deck with 4 Forests. Jumpstart packs are 20 cards: two make a 40-card deck.
- */
-export async function combineDecks(sources: { id: string; name: string }[]): Promise<string> {
-  const merged: DeckEntries = {};
-  for (const source of sources) {
-    const deck = await getDeck(source.id);
-    for (const [card, qty] of Object.entries(deck.entries)) merged[card] = (merged[card] ?? 0) + qty;
-  }
-  return saveDeck({ name: sources.map((s) => s.name).join(" + "), entries: merged });
 }
 
 /** Loads card definitions for a set of decks, for checking whether they're ready to play. */
