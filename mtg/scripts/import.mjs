@@ -2,10 +2,11 @@
 //
 //   node scripts/import.mjs cards   [--limit N] [--dry-run]   cards from Scryfall
 //   node scripts/import.mjs images  [--limit N] [--dry-run]   small card images -> Storage bucket "card-art"
-//   node scripts/import.mjs decks   [--dry-run]               official decks from MTGJSON (see KEEP_DECKS)
+//   node scripts/import.mjs decks   [--dry-run] [--hide-stale] official decks from MTGJSON (see KEEP_DECKS)
 //
 // Order matters: cards, then images, then decks. Every phase can be re-run safely and
 // `images` resumes where it stopped. --dry-run needs no Supabase key and writes nothing.
+// --hide-stale unlists the other official decks instead of deleting them (setting official back to true restores one).
 // Needs SUPABASE_SECRET_KEY in mtg/.env.local (server-only: no NEXT_PUBLIC_ prefix!).
 import fs from "node:fs";
 import path from "node:path";
@@ -21,6 +22,7 @@ const BUCKET = "card-art";
 const args = process.argv.slice(2);
 const phase = args[0];
 const dryRun = args.includes("--dry-run");
+const hideStale = args.includes("--hide-stale");
 const limit = args.includes("--limit") ? Number(args[args.indexOf("--limit") + 1]) : Infinity;
 
 if (fs.existsSync(".env.local")) process.loadEnvFile(".env.local");
@@ -372,8 +374,8 @@ async function importDecks() {
     data.forEach((d) => ids.set(d.file_name, d.id));
   }
 
-  // Replace the cards of every imported deck, so re-running never duplicates.
-  for (const batch of chunks([...ids.values()], 200)) {
+  // Replace the cards of every imported deck, so re-running never duplicates (--hide-stale updates them in place instead).
+  for (const batch of hideStale ? [] : chunks([...ids.values()], 200)) {
     const { error } = await withRetry(() => supabase.from("deck_cards").delete().in("deck_id", batch));
     if (error) throw new Error(error.message);
   }
@@ -385,7 +387,9 @@ async function importDecks() {
   );
   let done2 = 0;
   for (const batch of chunks(cardRows, 1000)) {
-    const { error } = await withRetry(() => supabase.from("deck_cards").insert(batch));
+    const { error } = await withRetry(() =>
+      hideStale ? supabase.from("deck_cards").upsert(batch, { onConflict: "deck_id,card_id,board" }) : supabase.from("deck_cards").insert(batch),
+    );
     if (error) throw new Error(error.message);
     done2 += batch.length;
     console.log(`deck cards ${done2}/${cardRows.length}`);
@@ -402,10 +406,13 @@ async function importDecks() {
   }
   const stale = existing.filter((d) => !ids.has(d.file_name)).map((d) => d.id);
   for (const batch of chunks(stale, 100)) {
-    const { error } = await withRetry(() => supabase.from("decks").delete().in("id", batch)); // deck_cards go with them
+    // An unlisted deck has no owner and isn't official, so no player can read it.
+    const { error } = await withRetry(() =>
+      hideStale ? supabase.from("decks").update({ official: false }).in("id", batch) : supabase.from("decks").delete().in("id", batch), // deck_cards go with them
+    );
     if (error) throw new Error(error.message);
   }
-  console.log(`Removed ${stale.length} other official decks.`);
+  console.log(`${hideStale ? "Unlisted" : "Removed"} ${stale.length} other official decks.`);
 }
 
 const phases = { cards: importCards, images: importImages, decks: importDecks };

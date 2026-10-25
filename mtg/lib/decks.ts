@@ -125,13 +125,17 @@ export async function listPlayableDecks(): Promise<{ choices: DeckChoice[]; hidd
   };
 }
 
+// A deck that was deleted, or an official deck that has since been taken off the list.
+const DECK_GONE = "This deck is no longer available. Reload the page to see the current decks.";
+
 export async function getDeck(id: string): Promise<Deck & { official: boolean }> {
   const { data, error } = await createClient()
     .from("decks")
     .select("id, name, official, deck_cards(card_id, qty, board)")
     .eq("id", id)
-    .single();
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  if (!data) throw new Error(DECK_GONE);
   const d = data as { id: string; name: string; official: boolean; deck_cards: DeckCardRow[] };
   return { id: d.id, name: d.name, official: d.official, entries: toEntries(d.deck_cards) };
 }
@@ -197,8 +201,9 @@ export async function getDeckContents(id: string): Promise<DeckContents> {
     .from("decks")
     .select("id, name, deck_cards(card_id, qty, board)")
     .eq("id", id)
-    .single();
+    .maybeSingle();
   if (error) throw new Error(error.message);
+  if (!data) throw new Error(DECK_GONE);
   const d = data as { id: string; name: string; deck_cards: DeckCardRow[] };
   const boards: DeckContents["boards"] = { commander: {}, main: {}, side: {} };
   for (const row of d.deck_cards) {
