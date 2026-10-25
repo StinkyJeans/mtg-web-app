@@ -56,6 +56,7 @@ export function readable(text: string, cardName: string): string {
 export function StackPanel({ state, actor, onPass, waiting }: { state: GameState; actor: PlayerId; onPass: () => void; /** Online, and the other player has to act: what to say while waiting. */ waiting?: string }) {
   // With nothing on the stack there can still be a window to respond (before combat damage): it needs its pass button too.
   if (state.stack.length === 0 && !state.priority) return null;
+  const deciding = state.pendingPick !== null || state.pendingChoice !== null; // that choice comes first: passing is refused until it's made
   return (
     <section className="flex flex-col gap-2 rounded-lg border border-violet-500/50 bg-violet-50 p-3">
       <h2 className="text-sm font-semibold uppercase font-display tracking-wide text-violet-700">
@@ -72,8 +73,8 @@ export function StackPanel({ state, actor, onPass, waiting }: { state: GameState
           </li>
         ))}
       </ol>
-      {state.priority && waiting && <p className="text-base font-medium text-violet-800">{waiting}</p>}
-      {state.priority && !waiting && (
+      {state.priority && waiting && !deciding && <p className="text-base font-medium text-violet-800">{waiting}</p>}
+      {state.priority && !waiting && !deciding && (
         <div className="flex items-center gap-3">
           <button onClick={onPass} className="rounded-lg bg-violet-600 px-4 py-2 text-base font-semibold text-white hover:bg-violet-500">
             {playerName(actor)}: {state.stack.length === 0 ? "pass (continue)" : "pass (let it resolve)"}
@@ -302,7 +303,50 @@ const CONFIRM: Partial<Record<PickKind, (name: string) => string>> = {
   surveil: (n) => `Put ${n} into the graveyard`,
 };
 
-export function PickPanel({ state, onPick, onZoom }: { state: GameState; onPick: (iid?: string) => void; onZoom: (def: CardDef) => void }) {
+interface PickProps {
+  state: GameState;
+  onPick: (iid?: string) => void;
+  onZoom: (def: CardDef) => void;
+  onPreview?: (def: CardDef, el: HTMLElement) => void;
+  onUnpreview?: () => void;
+}
+
+/** A choice the game is waiting for (discard a card, scry, search...), in a dialog in front of the board so it can't be missed. */
+export function PickPanel(props: PickProps) {
+  const pick = props.state.pendingPick;
+  if (!pick) return null;
+  return (
+    <PickDialog key={`${pick.kind}:${pick.options.join()}`} title={pick.source ? `${pick.source.name}: ${pick.prompt}` : pick.prompt}>
+      <PickChoice {...props} />
+    </PickDialog>
+  );
+}
+
+/** "See the board" tucks the dialog away into a button, for a look at the battlefield before choosing. */
+function PickDialog({ title, children }: { title: string; children: React.ReactNode }) {
+  const [tucked, setTucked] = useState(false);
+  if (tucked)
+    return (
+      <button
+        onClick={() => setTucked(false)}
+        className="fixed bottom-4 left-1/2 z-30 max-w-[calc(100vw-2rem)] -translate-x-1/2 truncate rounded-full border-2 border-rose-400 bg-rose-50 px-5 py-2 text-sm font-bold text-rose-800 shadow-2xl shadow-black/40 hover:bg-rose-100"
+      >
+        ✋ {title}: choose
+      </button>
+    );
+  return (
+    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-2 overflow-y-auto">
+        <button onClick={() => setTucked(true)} className="self-end rounded-full border border-white/30 bg-white/10 px-3 py-1 text-sm text-white hover:bg-white/20">
+          👁 See the board
+        </button>
+        <div className="shadow-2xl shadow-black/50">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps) {
   const [selected, setSelected] = useState<string | null>(null); // a clicked card waits for the Confirm button
   const pick = state.pendingPick;
   if (!pick) return null;
@@ -360,20 +404,24 @@ export function PickPanel({ state, onPick, onZoom }: { state: GameState; onPick:
   const chosen = cards.find((c) => c.iid === selected);
   const confirm = (iid?: string) => {
     setSelected(null);
+    onUnpreview?.(); // the card under the mouse goes away without a mouseleave
     onPick(iid);
   };
+  const preview = (def: CardDef) => ({ onMouseEnter: (e: React.MouseEvent<HTMLElement>) => onPreview?.(def, e.currentTarget), onMouseLeave: () => onUnpreview?.() });
   return (
     <section className="flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
       <PickHeader state={state} onZoom={onZoom} />
       <div className="flex flex-wrap gap-2">
         {cards.map((c) => (
-          <CardView
-            key={c.iid}
-            def={state.cards[c.defId]}
-            ring={c === chosen ? "ring-4 ring-amber-400" : "ring-2 ring-rose-400"}
-            onClick={() => setSelected(c === chosen ? null : c.iid)}
-            onZoom={() => onZoom(state.cards[c.defId])}
-          />
+          <div key={c.iid} className="shrink-0" {...preview(state.cards[c.defId])}>
+            <CardView
+              def={state.cards[c.defId]}
+              size="md"
+              ring={c === chosen ? "ring-4 ring-amber-400" : "ring-2 ring-rose-400"}
+              onClick={() => setSelected(c === chosen ? null : c.iid)}
+              onZoom={() => onZoom(state.cards[c.defId])}
+            />
+          </div>
         ))}
       </div>
       {/* The other cards that were looked at are shown too, so the player can see what goes to the bottom. */}
@@ -385,7 +433,9 @@ export function PickPanel({ state, onPick, onZoom }: { state: GameState; onPick:
               .filter((id) => !pick.options.includes(id))
               .flatMap((id) => owner.library.filter((c) => c.iid === id))
               .map((c) => (
-                <CardView key={c.iid} def={state.cards[c.defId]} dim onZoom={() => onZoom(state.cards[c.defId])} />
+                <div key={c.iid} className="shrink-0" {...preview(state.cards[c.defId])}>
+                  <CardView def={state.cards[c.defId]} dim onZoom={() => onZoom(state.cards[c.defId])} />
+                </div>
               ))}
           </div>
         </div>

@@ -4,7 +4,7 @@ Everything runs on **Railway**, in the project **mtg-web**. Two pieces, two serv
 
 | Piece | Railway service | Address |
 |---|---|---|
-| The website (`mtg/`) | `web` | https://web-production-45825.up.railway.app |
+| The website (`mtg/`) | `web` | https://mtg-web.up.railway.app |
 | The live game server (`game-server/`) | `game-server` | https://game-server-production-e4d8.up.railway.app |
 
 Both build from the GitHub repository `mtg-fanatics/mtg-web-app`, branch `main`, starting at the repository root.
@@ -55,6 +55,16 @@ Railway no longer reads `railway.json` files for new services, so these settings
 
 The website's `NEXT_PUBLIC_*` values are baked in at build time: if you change one, or the game server's address changes, redeploy `web`.
 
+## Matches survive a deploy
+
+The game server saves every match in progress to Supabase after each change. When a deploy restarts it, the match is
+saved once more, both browsers show "Reconnecting to the game server…", and they rejoin by themselves once the new
+server is up, at the same point in the game. Nobody loses because of the restart. A player who doesn't come back within
+two minutes forfeits, as with any dropped connection.
+
+This needs the `live_matches` table: run `supabase/04-live-matches.sql` once in the Supabase SQL editor. Without it
+the game works as before, but a deploy ends the matches in progress (the game server logs "Could not save a match in progress").
+
 ## First game
 
 1. Both of you open the website address and sign in (your brother makes his own account with "Create one").
@@ -68,6 +78,7 @@ The website's `NEXT_PUBLIC_*` values are baked in at build time: if you change o
 - **A player is told "Please sign in again"**: the login expired; sign out and in.
 - **Build fails on `npm ci`**: `mtg/package-lock.json`, `game-server/package-lock.json` and `packages/engine/package-lock.json` must be committed.
 - **Cards missing in a match**: the card database import (`npm run import:cards` in `mtg/`) must have been run on the same Supabase project.
+- **A deploy ended a match**: check that `supabase/04-live-matches.sql` was run, and look for "Could not save" in the game server's logs.
 - **Logs**: `railway logs --service web` (or `game-server`); add `--build` for the build log.
 
 ## Costs

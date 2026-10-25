@@ -1,13 +1,18 @@
 import assert from "assert";
 import { ColyseusTestServer, boot } from "@colyseus/testing";
+<<<<<<< HEAD
 import { botAction, createGame, viewFor, getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
+=======
+import type { Room as SDKRoom } from "@colyseus/sdk";
+import { botAction, getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
+>>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
 import type { Action, GameState, PlayerId } from "@mtg/engine";
 import appConfig from "../src/app.config.js";
 import { BotPool } from "../src/botPool.js";
 import { GuessLimiter } from "../src/limits.js";
 import { loadCards } from "../src/supabase.js";
 import { KICKED } from "../src/rooms/MatchRoom.js";
-import type { RoomSnapshot } from "../src/rooms/MatchRoom.js";
+import type { MatchRoom, RoomSnapshot } from "../src/rooms/MatchRoom.js";
 
 // These tests start the real server and play with real cards from the database (so they need the Supabase settings,
 // and DEV_AUTH=1 so that tokens like "dev:alice" count as accounts).  Run:  npm test
@@ -292,6 +297,7 @@ describe("a live match", function () {
     assert.doesNotMatch(JSON.stringify(snapshot), /s3cret/);
   });
 
+<<<<<<< HEAD
   // ───────── what keeps the server healthy when many people use it ─────────
 
   it("lets one account hold only one room at a time, and frees it when they leave", async () => {
@@ -417,5 +423,190 @@ describe("a live match", function () {
       await pool.close();
     }
     assert.ok(await pool.think(view, "p1"), "a closed pool still answers (it thinks on the spot)");
+=======
+  it("brings a match back after the server restarts, as it was, with nobody losing for it", async () => {
+    const room = await colyseus.createRoom<MatchRoom>("match", { name: "Restart" });
+    const ivy = await colyseus.connectTo(room, { token: "dev:ivy" });
+    const jack = await colyseus.connectTo(room, { token: "dev:jack" });
+    const snap: Record<string, RoomSnapshot> = {};
+    for (const [name, c] of [["ivy", ivy], ["jack", jack]] as const) {
+      c.onMessage("room", (s: RoomSnapshot) => (snap[name] = s));
+      c.onMessage("start", () => {});
+      c.onMessage("update", () => {});
+      c.send("hello"); // as the browser does: the snapshot is asked for once something is listening
+    }
+    const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const until = async (what: string, test: () => boolean) => {
+      for (let i = 0; i < 200; i++) {
+        if (test()) return;
+        await wait(25);
+      }
+      throw new Error(`timed out waiting for: ${what}`);
+    };
+    await until("both in the room", () => snap.ivy?.players.length === 2);
+    ivy.send("startVote");
+    await until("vote", () => snap.ivy.stage === "vote");
+    ivy.send("vote", { size: 20 });
+    jack.send("vote", { size: 20 });
+    await until("decks", () => snap.ivy.stage === "decks");
+    ivy.send("deck", { name: "A", ids: deckOf(20, "mountain", "agent-of-atlas") });
+    jack.send("deck", { name: "B", ids: deckOf(20, "forest", "advance-scout") });
+    await until("coin", () => snap.ivy.stage === "coin");
+    jack.send("call", { side: "heads" });
+    await until("the flip", () => snap.ivy.coin?.winner != null);
+    (snap.ivy.coin!.winner === "p1" ? ivy : jack).send("order", { first: true });
+    await until("playing", () => snap.ivy.stage === "playing");
+    for (let i = 0; i < 2; i++) {
+      const s = room.debugGame()!;
+      (playerToAct(s) === "p1" ? ivy : jack).send("action", { action: { type: "keepHand", bottom: [] } });
+      await until("a hand kept", () => room.debugGame() !== s);
+    }
+    assert.notEqual(room.debugGame()!.phase, "mulligan");
+    const before = JSON.stringify(room.debugGame());
+    const roomId = room.roomId;
+
+    // the restart: the match is saved, and both players are let go with "server shutdown", not as players who left
+    const codes = Promise.all([ivy, jack].map((c) => new Promise<number>((resolve) => c.onLeave((code) => resolve(code)))));
+    await room.onBeforeShutdown();
+    assert.deepEqual(await codes, [4001, 4001]);
+    assert.equal(room.debugGame()!.winner, null, "nobody lost because of the restart");
+
+    // the first browser back brings the match back under its old id; the second joins it
+    const ivy2: SDKRoom = await colyseus.sdk.create("match", { token: "dev:ivy", restore: roomId });
+    const jack2: SDKRoom = await colyseus.sdk.joinById(roomId, { token: "dev:jack" });
+    const views: Record<string, GameState> = {};
+    for (const [name, c] of [["ivy", ivy2], ["jack", jack2]] as const) {
+      c.onMessage("room", (s: RoomSnapshot) => (snap[name] = s));
+      c.onMessage("start", (m: { view: GameState }) => (views[name] = m.view));
+      c.onMessage("update", (m: { view: GameState }) => (views[name] = m.view));
+      c.send("hello");
+    }
+    assert.equal(ivy2.roomId, roomId);
+    const back = colyseus.getRoomById<MatchRoom>(roomId);
+    await until("both back", () => snap.ivy?.players.every((p) => p.connected) === true && !!views.ivy && !!views.jack);
+    assert.equal(JSON.stringify(back.debugGame()), before, "the game is exactly where it was");
+    assert.equal(snap.jack.you, "p2", "each player is back in their own seat");
+    assert.equal(views.ivy.players.p2.hand.every((c) => c.defId === HIDDEN_CARD_ID), true, "hands stay hidden after the restart");
+
+    // the game goes on
+    const seat = playerToAct(back.debugGame()!);
+    const turnBefore = back.debugGame()!;
+    (seat === "p1" ? ivy2 : jack2).send("action", { action: choose(views[seat === "p1" ? "ivy" : "jack"], seat) });
+    await until("the next move", () => back.debugGame() !== turnBefore);
+
+    await assert.rejects(colyseus.sdk.joinById(roomId, { token: "dev:mallory" }), /locked|full/);
+    await assert.rejects(colyseus.sdk.create("match", { token: "dev:ivy", restore: "no-such-room" }), /ended/);
+  });
+
+  it("brings a match against the bot back after a restart, and the bot carries on", async () => {
+    const room = await colyseus.createRoom<MatchRoom>("match", { name: "Bot restart" });
+    const kim = await colyseus.connectTo(room, { token: "dev:kim" });
+    let snap: RoomSnapshot | null = null;
+    kim.onMessage("room", (s: RoomSnapshot) => (snap = s));
+    kim.onMessage("start", () => {});
+    kim.onMessage("update", () => {});
+    kim.send("hello");
+    const until = async (what: string, test: () => boolean, ms = 12000) => {
+      for (let i = 0; i < ms / 25; i++) {
+        if (test()) return;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error(`timed out waiting for: ${what}`);
+    };
+    await until("in the room", () => snap?.players.length === 1);
+    kim.send("addBot");
+    await until("bot added", () => snap?.players.length === 2);
+    kim.send("startVote");
+    await until("vote", () => snap?.stage === "vote");
+    kim.send("vote", { size: 20 });
+    await until("decks", () => snap?.stage === "decks");
+    kim.send("deck", { name: "Reds", ids: deckOf(20, "mountain", "agent-of-atlas"), botDeck: { name: "Bot deck", ids: deckOf(20, "forest", "advance-scout") } });
+    await until("the bot called the coin", () => snap?.coin?.winner != null);
+    if (snap!.coin!.winner === "p1") kim.send("order", { first: true });
+    await until("playing", () => snap?.stage === "playing");
+
+    const roomId = room.roomId;
+    const left = new Promise<number>((resolve) => kim.onLeave((code) => resolve(code)));
+    await room.onBeforeShutdown();
+    assert.equal(await left, 4001);
+
+    const kim2: SDKRoom = await colyseus.sdk.create("match", { token: "dev:kim", restore: roomId });
+    const back = colyseus.getRoomById<MatchRoom>(roomId);
+    let view: GameState | null = null;
+    let botMoves = 0;
+    const act = () => {
+      if (!view || view.winner || playerToAct(view) !== "p1") return;
+      const a = botAction(view, "p1");
+      if (a) kim2.send("action", { action: a });
+    };
+    kim2.onMessage("room", (s: RoomSnapshot) => (snap = s));
+    kim2.onMessage("start", (m: { view: GameState }) => ((view = m.view), act()));
+    kim2.onMessage("update", (m: { view: GameState }) => {
+      if (view && playerToAct(view) === "p2") botMoves++;
+      view = m.view;
+      act();
+    });
+    kim2.send("hello");
+    await until("the bot is in its seat, not waited for", () => snap?.players.find((p) => p.bot)?.connected === true);
+    await until("the bot makes moves after the restart", () => botMoves >= 3 || back.debugGame()!.winner !== null, 30000);
+    assert.equal(back.debugGame()!.winner === null || botMoves > 0, true);
+  });
+
+  it("finishes ending the turn by itself after a 'beginning of combat' trigger's target is chosen", async () => {
+    const room = await colyseus.createRoom<MatchRoom>("match", { name: "End turn" });
+    const lee = await colyseus.connectTo(room, { token: "dev:lee" });
+    const max = await colyseus.connectTo(room, { token: "dev:max" });
+    const snap: Record<string, RoomSnapshot> = {};
+    for (const [name, c] of [["lee", lee], ["max", max]] as const) {
+      c.onMessage("room", (s: RoomSnapshot) => (snap[name] = s));
+      c.onMessage("start", () => {});
+      c.onMessage("update", () => {});
+      c.onMessage("error", () => {});
+      c.send("hello");
+    }
+    const until = async (what: string, test: () => boolean) => {
+      for (let i = 0; i < 200; i++) {
+        if (test()) return;
+        await new Promise((r) => setTimeout(r, 25));
+      }
+      throw new Error(`timed out waiting for: ${what}`);
+    };
+    await until("both in the room", () => snap.lee?.players.length === 2);
+    lee.send("startVote");
+    await until("vote", () => snap.lee.stage === "vote");
+    lee.send("vote", { size: 20 });
+    max.send("vote", { size: 20 });
+    await until("decks", () => snap.lee.stage === "decks");
+    lee.send("deck", { name: "A", ids: deckOf(20, "swamp", "slimy-dualleech") });
+    max.send("deck", { name: "B", ids: deckOf(20, "swamp", "slimy-dualleech") });
+    await until("coin", () => snap.lee.stage === "coin");
+    max.send("call", { side: "heads" });
+    await until("the flip", () => snap.lee.coin?.winner != null);
+    (snap.lee.coin!.winner === "p1" ? lee : max).send("order", { first: true });
+    await until("playing", () => snap.lee.stage === "playing");
+    for (let i = 0; i < 2; i++) {
+      const s = room.debugGame()!;
+      (playerToAct(s) === "p1" ? lee : max).send("action", { action: { type: "keepHand", bottom: [] } });
+      await until("a hand kept", () => room.debugGame() !== s);
+    }
+
+    // two creatures with power 2 or less: the trigger has a real choice to make
+    const g = room.debugGame()!;
+    const me = g.active;
+    for (const iid of ["leech-a", "leech-b"]) g.players[me].battlefield.push({ card: { iid, defId: "slimy-dualleech", owner: me }, tapped: false, summoningSick: false, damage: 0 });
+    const turn = g.turn;
+    const client = me === "p1" ? lee : max;
+    client.send("endTurn");
+    await until("End turn stops for the trigger's target", () => room.debugGame()!.pendingChoice !== null);
+    assert.equal(room.debugGame()!.turn, turn);
+    // each Dualleech triggers on its own, so there are two targets to choose
+    for (let i = 0; i < 4 && room.debugGame()!.pendingChoice; i++) {
+      const d = room.debugGame()!;
+      const c = d.pendingChoice!;
+      client.send("action", { action: { type: "chooseTargets", targets: c.specs.map((spec) => legalTargets(d, spec, c.item.controller)[0]) } });
+      await until("the target is taken", () => room.debugGame() !== d);
+    }
+    await until("the turn ends without pressing End turn again", () => room.debugGame()!.turn > turn);
+>>>>>>> 73d4680dc5c2d425f07355f9663ae99c4f608c00
   });
 });

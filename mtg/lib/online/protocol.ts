@@ -6,6 +6,8 @@ export type Stage = "waiting" | "vote" | "decks" | "coin" | "playing" | "over";
 export const DECK_SIZES = [20, 40, 60] as const;
 /** Close code for a guest the host removed: the browser says so, and doesn't try to reconnect. */
 export const KICKED = 4100;
+/** Error code for a restore of a match that has ended or was never saved: the browser stops trying. */
+export const MATCH_GONE = 410;
 
 /** What a room looks like to the lobby list. */
 export interface LobbyRoomInfo {

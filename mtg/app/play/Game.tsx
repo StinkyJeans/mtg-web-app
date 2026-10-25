@@ -61,7 +61,7 @@ import FitToHeight from "./FitToHeight";
 import { useAppearance } from "@/lib/playmat";
 import { useCustomCursor } from "@/lib/cursor";
 import BlockPanel from "./BlockPanel";
-import { attackHint, blockHint } from "./combatHints";
+import { attackHint, blockHint, canBlock } from "./combatHints";
 import { BANNER, PLAYER_STYLE } from "./theme";
 import type { BannerMode } from "./theme";
 import { AbilityPanel, ChoicePanel, PickPanel, readable, ResolvingNotice, StackPanel, TargetPanel, XPanel } from "./StackPanel";
@@ -136,8 +136,16 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   // falling back to the player to act would flip the screen (and the end popup) to the opponent's side.
   const [seat, setSeat] = useState<PlayerId | null>(null);
   if (online && net.game && net.game.you !== seat) setSeat(net.game.you);
+  // Online: after getting back in (a lost connection, a server restart) the server's copy of the game replaces the one on screen.
+  const [startSeen, setStartSeen] = useState(net.game);
+  if (online && net.game !== startSeen) {
+    setStartSeen(net.game);
+    if (net.game && localGame) setGame(net.game.view);
+  }
   const gameRef = useRef<GameState | null>(null);
   const commitRef = useRef<(r: { state: GameState; events: GameEvent[] }) => Promise<void>>(async () => {});
+  const endTurnRef = useRef<() => Promise<void>>(async () => {});
+  const [endingTurn, setEndingTurn] = useState<number | null>(null); // the turn "End turn" was pressed in
   const dealt = useRef(false);
   const background = useBattlefieldBackground(); // the picture behind the battlefield
   const look = useAppearance(); // each player's card sleeves and playmat
@@ -166,7 +174,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [targeting, setTargeting] = useState<{ title: string; specs: TargetSpec[]; build: (t: TargetChoice[]) => Action; detail?: string } | null>(null);
   const [chosen, setChosen] = useState<TargetChoice[]>([]);
   const [aimed, setAimed] = useState<TargetChoice | null>(null); // a target clicked, waiting for "Confirm target"
-  const [confirmSkip, setConfirmSkip] = useState(false); // "Skip attack" asks once more while a creature could attack
+  const [confirmSkip, setConfirmSkip] = useState(false); // "Skip attack" and "No blocks" ask once more while a creature could attack or block
   // A spell being cast step by step: modes, then the kicker, then X, then targets.
   const [plan, setPlan] = useState<{ iid: string; name: string; from?: "graveyard" | "exile"; castable: Castable; modes?: number[]; kicked?: boolean; x?: number; sacrifice?: string } | null>(null);
   const [modePick, setModePick] = useState<number[]>([]);
@@ -198,7 +206,15 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   useEffect(() => {
     gameRef.current = game;
     commitRef.current = commit;
+    endTurnRef.current = endTurn;
   });
+
+  // Hot-seat: "End turn" stopped for a choice along the way (a trigger's target) carries on once it's settled. Online the server does this.
+  useEffect(() => {
+    if (online || !game || endingTurn !== game.turn || game.winner || game.phase === "cleanup") return;
+    if (game.priority || game.pendingChoice || game.pendingPick) return;
+    void endTurnRef.current();
+  }, [online, game, endingTurn]);
 
   // Online: the opening hand is hidden before it is ever painted, then flies in from the library.
   useLayoutEffect(() => {
@@ -582,6 +598,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    */
   async function endTurn() {
     if (isCombatPlaying() || isPileBusy()) return;
+    setEndingTurn(state.turn);
     if (online) {
       if (mine) netSend("endTurn");
       return;
@@ -591,7 +608,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     for (let i = 0; i < 6 && s.turn === state.turn && !s.winner && s.phase !== "cleanup"; i++) {
       const r = applyAction(s, playerToAct(s), { type: "passPhase" });
       if (!r.ok) {
-        setError(r.error);
+        if (i === 0) setError(r.error); // later on, a trigger along the way needs a choice first: the turn carries on after it
         break;
       }
       s = r.state;
@@ -830,6 +847,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           onClick: () => {
             if (target) {
               setBlocks((b) => Object.fromEntries(Object.entries(b).filter(([blocker]) => blocker !== iid)));
+            } else if (attackerIds.length === 1 && canBlock(state, actor, iid, attackerIds[0]).ok) {
+              setBlocks((b) => ({ ...b, [iid]: attackerIds[0] })); // only one attacker: the click blocks it
+              setPicked(null);
             } else {
               setPicked(picked === iid ? null : iid);
             }
@@ -839,6 +859,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       if (owner === actor && isCreature) return { ring: "", dim: true }; // can't block
       if (owner !== actor && attackerIds.includes(iid)) {
         const blockedBy = Object.values(blocks).filter((a) => a === iid).length;
+        const legal = picked ? canBlock(state, actor, picked, iid) : null;
+        if (legal && !legal.ok) return { ring: "", dim: true, combat: { tone: "threat", label: "Can't block this", why: legal.reason } };
         return {
           ring: picked ? "ring-4 ring-red-400" : "",
           combat: blockedBy ? { tone: "blocked", label: `Blocked ×${blockedBy}` } : { tone: "threat", label: picked ? "Block this one" : "⚔ Attacking", why: `Deals ${powerOf(state, perm)} damage if nobody blocks it.` },
@@ -1104,13 +1126,18 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             <div className="ml-auto flex flex-wrap items-center gap-2">
           {primary &&
             (() => {
-              const skipping = state.phase === "attackers" && attacking.length === 0 && possibleAttackers.length > 0;
+              const blocking = state.phase === "blockers";
+              const skipping = blocking ? Object.keys(blocks).length === 0 && possibleBlockers.length > 0 : state.phase === "attackers" && attacking.length === 0 && possibleAttackers.length > 0;
+              const incoming = (state.combat?.attackers ?? []).reduce((n, a) => {
+                const perm = a.target ? undefined : state.players[other].battlefield.find((x) => x.card.iid === a.attacker);
+                return n + (perm ? Math.max(0, powerOf(state, perm)) : 0);
+              }, 0);
               if (skipping && confirmSkip)
                 return (
-                  <span role="group" aria-label="Skip attack?" className="flex flex-wrap items-center gap-2 rounded-xl border-2 border-amber-400 bg-amber-50 px-2 py-1 text-sm font-semibold text-amber-900">
-                    Skip attack? Your creatures won&apos;t attack this turn.
+                  <span role="group" aria-label={blocking ? "No blocks?" : "Skip attack?"} className="flex flex-wrap items-center gap-2 rounded-xl border-2 border-amber-400 bg-amber-50 px-2 py-1 text-sm font-semibold text-amber-900">
+                    {blocking ? `No blocks? You'll take ${incoming} damage.` : "Skip attack? Your creatures won't attack this turn."}
                     <button onClick={() => act(primary.action)} className="rounded-lg bg-gradient-to-b from-amber-300 to-amber-500 px-3 py-1 font-extrabold text-black">
-                      Yes, skip
+                      {blocking ? "Yes, no blocks" : "Yes, skip"}
                     </button>
                     <button onClick={() => setConfirmSkip(false)} className="rounded-lg border border-zinc-400 bg-white px-3 py-1 hover:bg-zinc-100">
                       Back
@@ -1201,7 +1228,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
         {/* Panels that appear while something needs an answer. They share a box that scrolls on its own, so the board never moves. */}
         <div className="action-box flex max-h-[34dvh] shrink-0 flex-col gap-1.5 overflow-y-auto empty:hidden">
-        {mine && state.phase === "blockers" && !state.priority && !state.pendingChoice && !state.pendingPick && <BlockPanel state={state} actor={actor} blocks={blocks} onChange={(b) => { setBlocks(b); setPicked(null); }} />}
+        {mine && state.phase === "blockers" && !state.priority && !state.pendingChoice && !state.pendingPick && <BlockPanel state={state} actor={actor} blocks={blocks} picked={picked} onChange={(b) => { setBlocks(b); setPicked(null); }} onPicked={setPicked} />}
 
         {state.phase === "attackers" && attacking.length > 0 && state.players[other].battlefield.some((p) => state.cards[p.card.defId].type === "planeswalker") && (
           <section className="flex flex-col gap-2 rounded-lg border border-red-400/60 bg-red-50 p-3">
@@ -1291,9 +1318,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           />
         )}
 
-        {mine && <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} />}
         {online && !mine && <ResolvingNotice state={state} onZoom={setZoomed} />}
 
+        {mine && state.pendingChoice && endingTurn === state.turn && (
+          <p className="rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            ⏭ Ending your turn: {state.pendingChoice.item.sourceName} still triggers along the way, even without an attack (that&apos;s the rule). Choose its target and your turn then ends by itself.
+          </p>
+        )}
         {mine && (state.pendingChoice || targeting) && (
           <TargetPanel
             state={state}
@@ -1450,6 +1481,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         </div>
       )}
 
+      {mine && <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} onPreview={showPreview} onUnpreview={() => setHandHover(null)} />}
       {viewingYard && <GraveyardDialog state={state} owner={viewingYard.owner} zone={viewingYard.zone} onClose={() => (setHandHover(null), setViewingYard(null))} onZoom={setZoomed} onPreview={showPreview} onUnpreview={() => setHandHover(null)} />}
 
       {handHover && !zoomed && !state.winner && (
@@ -1472,6 +1504,11 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       )}
 
       {turnSplash > 0 && !state.winner && <TurnSplash key={turnSplash} />}
+      {online && net.reconnecting && (
+        <div role="status" className="pointer-events-none fixed inset-x-0 top-3 z-30 flex justify-center px-4">
+          <div className="rounded-full border border-amber-300/60 bg-slate-950/85 px-4 py-2 text-sm font-semibold text-amber-100 shadow-xl shadow-black/40">⟳ Reconnecting to the game server…</div>
+        </div>
+      )}
       {online && showEndTurn && !state.winner && !targeting && !plan && attacking.length === 0 && (
         <PassReminder state={state} after={state.phase === "main2" && onlyLandsLeft ? REMIND_DONE_MS : REMIND_IDLE_MS} opponent={playerName(other)} onEndTurn={endTurn} />
       )}
