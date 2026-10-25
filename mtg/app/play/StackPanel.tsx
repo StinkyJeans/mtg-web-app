@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import { legalTargets } from "@mtg/engine";
 import type { Activatable, CardDef, Crewable, Cyclable, GameState, LoyaltyOption, PlayerId, StackItem, TargetChoice, TargetSpec } from "@mtg/engine";
 import CardView from "./CardView";
@@ -23,6 +24,8 @@ export function Help({ text, max = 3, large }: { text: string; max?: number; lar
 }
 
 /** Name of something a spell or ability can point at. */
+const targetKey = (t: TargetChoice) => (t.kind === "player" || t.kind === "stack" ? `${t.kind}:${t.id}` : t.kind === "none" ? "none" : `${t.kind}:${t.iid}`);
+
 export function targetName(state: GameState, t: TargetChoice): string {
   if (t.kind === "none") return "No target (skip)";
   if (t.kind === "player") return playerName(t.id);
@@ -90,6 +93,8 @@ export function TargetPanel({
   detail,
   specs,
   chosen,
+  aimed,
+  onAim,
   onPick,
   onCancel,
 }: {
@@ -100,12 +105,16 @@ export function TargetPanel({
   detail?: string;
   specs: TargetSpec[];
   chosen: TargetChoice[];
+  /** Clicked but not yet confirmed. */
+  aimed: TargetChoice | null;
+  onAim: (t: TargetChoice | null) => void;
   onPick: (t: TargetChoice) => void;
   onCancel?: () => void;
 }) {
   const spec = specs[chosen.length];
   if (!spec) return null;
   const options = legalTargets(state, spec, controller);
+  const aim = aimed && options.some((t) => targetKey(t) === targetKey(aimed)) ? aimed : null;
   // Anything on the battlefield is chosen by clicking the glowing card itself. The list only holds what has no card to click:
   // a player, a spell on the stack, a card in a graveyard, or "no target".
   const onBoard = (t: TargetChoice) => t.kind === "permanent" && Object.values(state.players).some((p) => p.battlefield.some((x) => x.card.iid === t.iid));
@@ -128,11 +137,28 @@ export function TargetPanel({
           <Help text={detail} max={3} large />
         </div>
       )}
-      {cardsToClick && <p className="text-sm font-medium text-sky-800">👆 Click one of the glowing cards on the battlefield to choose it.</p>}
+      {cardsToClick && <p className="text-sm font-medium text-sky-800">👆 Click one of the glowing cards on the battlefield, then confirm it here.</p>}
+      {aim && (
+        <div className="flex flex-wrap items-center gap-2 rounded bg-white px-3 py-2">
+          <span className="text-sm text-zinc-800">
+            🎯 <span className="font-semibold">{targetName(state, aim)}</span>
+          </span>
+          <button onClick={() => onPick(aim)} className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400">
+            Confirm target
+          </button>
+          <button onClick={() => onAim(null)} className="rounded-lg border border-zinc-400 px-3 py-1.5 text-sm hover:bg-zinc-200">
+            Change
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap items-center gap-2">
         {listed.length > 0 && cardsToClick && <span className="text-sm text-zinc-600">Or choose:</span>}
         {listed.map((t, i) => (
-          <button key={i} onClick={() => onPick(t)} className="rounded-lg border border-sky-400 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-sky-100">
+          <button
+            key={i}
+            onClick={() => onAim(t)}
+            className={`rounded-lg border px-3 py-1.5 text-sm font-semibold ${aim && targetKey(aim) === targetKey(t) ? "border-amber-500 bg-amber-100 ring-2 ring-amber-400" : "border-sky-400 bg-white hover:bg-sky-100"}`}
+          >
             {targetName(state, t)}
           </button>
         ))}
@@ -261,7 +287,23 @@ export function AbilityPanel({
 }
 
 /** A choice among cards (which to discard, which to keep, which land to fetch, the order of the library). */
+type PickKind = NonNullable<GameState["pendingPick"]>["kind"];
+const CONFIRM: Partial<Record<PickKind, (name: string) => string>> = {
+  discard: (n) => `Discard ${n}`,
+  rummage: (n) => `Discard ${n}`,
+  bounceOwn: (n) => `Return ${n}`,
+  tapSome: (n) => `Tap ${n}`,
+  crew: (n) => `Tap ${n}`,
+  toHand: (n) => `Take ${n}`,
+  searchLand: (n) => `Take ${n}`,
+  searchAny: (n) => `Take ${n}`,
+  revealToHand: (n) => `Take ${n}`,
+  scry: (n) => `Put ${n} on the bottom`,
+  surveil: (n) => `Put ${n} into the graveyard`,
+};
+
 export function PickPanel({ state, onPick, onZoom }: { state: GameState; onPick: (iid?: string) => void; onZoom: (def: CardDef) => void }) {
+  const [selected, setSelected] = useState<string | null>(null); // a clicked card waits for the Confirm button
   const pick = state.pendingPick;
   if (!pick) return null;
   const owner = state.players[pick.owner];
@@ -273,9 +315,7 @@ export function PickPanel({ state, onPick, onZoom }: { state: GameState; onPick:
     const names: Record<string, string> = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" };
     return (
       <section className="flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
-        <h2 className="text-sm font-semibold text-rose-800">
-          {playerName(pick.player)}: {pick.prompt}
-        </h2>
+        <PickHeader state={state} onZoom={onZoom} />
         <div className="flex flex-wrap gap-2">
           {pick.options.map((o) => (
             <button key={o} onClick={() => onPick(o)} className="flex items-center gap-2 rounded-lg border border-rose-400 bg-white px-3 py-1.5 text-sm font-semibold hover:bg-rose-100">
@@ -289,9 +329,7 @@ export function PickPanel({ state, onPick, onZoom }: { state: GameState; onPick:
   if (pick.kind === "ward" || pick.kind === "mode" || pick.kind === "mayPay" || pick.kind === "tax" || pick.kind === "toggle" || pick.kind === "topBottom") {
     return (
       <section className="flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
-        <h2 className="text-sm font-semibold text-rose-800">
-          {playerName(pick.player)}: {pick.prompt}
-        </h2>
+        <PickHeader state={state} onZoom={onZoom} />
         <div className="flex flex-wrap gap-2">
           {(pick.kind === "ward" || pick.kind === "mayPay" || pick.kind === "tax") && (
             <button onClick={() => onPick("pay")} className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400">
@@ -319,14 +357,23 @@ export function PickPanel({ state, onPick, onZoom }: { state: GameState; onPick:
       </section>
     );
   }
+  const chosen = cards.find((c) => c.iid === selected);
+  const confirm = (iid?: string) => {
+    setSelected(null);
+    onPick(iid);
+  };
   return (
     <section className="flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
-      <h2 className="text-sm font-semibold text-rose-800">
-        {playerName(pick.player)}: {pick.prompt}
-      </h2>
+      <PickHeader state={state} onZoom={onZoom} />
       <div className="flex flex-wrap gap-2">
         {cards.map((c) => (
-          <CardView key={c.iid} def={state.cards[c.defId]} ring="ring-2 ring-rose-400" onClick={() => onPick(c.iid)} onZoom={() => onZoom(state.cards[c.defId])} />
+          <CardView
+            key={c.iid}
+            def={state.cards[c.defId]}
+            ring={c === chosen ? "ring-4 ring-amber-400" : "ring-2 ring-rose-400"}
+            onClick={() => setSelected(c === chosen ? null : c.iid)}
+            onZoom={() => onZoom(state.cards[c.defId])}
+          />
         ))}
       </div>
       {/* The other cards that were looked at are shown too, so the player can see what goes to the bottom. */}
@@ -343,13 +390,75 @@ export function PickPanel({ state, onPick, onZoom }: { state: GameState; onPick:
           </div>
         </div>
       )}
-      {pick.optional && (
-        <div>
-          <button onClick={() => onPick(undefined)} className="rounded-lg border border-zinc-400 px-3 py-1.5 text-sm hover:bg-zinc-200">
+      <div className="flex flex-wrap items-center gap-2">
+        <button
+          onClick={() => chosen && confirm(chosen.iid)}
+          disabled={!chosen}
+          className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {chosen ? (CONFIRM[pick.kind] ?? ((n: string) => `Choose ${n}`))(state.cards[chosen.defId].name) : "Click a card, then confirm"}
+        </button>
+        {pick.optional && (
+          <button onClick={() => confirm(undefined)} className="rounded-lg border border-zinc-400 px-3 py-1.5 text-sm hover:bg-zinc-200">
             {pick.kind === "searchLand" || pick.kind === "searchAny" ? "Don't search" : pick.kind === "crew" ? "Cancel" : pick.kind === "scry" || pick.kind === "surveil" ? "Keep the rest on top" : pick.kind === "revealToHand" ? "Take nothing" : pick.kind === "rummage" ? "Don't discard" : pick.kind === "tapSome" ? "Done" : "No, leave it"}
           </button>
-        </div>
-      )}
+        )}
+      </div>
+    </section>
+  );
+}
+
+/** The card a choice comes from, found wherever it is now (a resolving spell is already in the graveyard). */
+function sourceDef(state: GameState): CardDef | null {
+  if (state.pendingPick?.source?.defId) return state.cards[state.pendingPick.source.defId] ?? null;
+  const iid = state.pendingChoice?.item.source;
+  if (!iid) return null;
+  const card = Object.values(state.players)
+    .flatMap((p) => [...p.battlefield.map((x) => x.card), ...p.graveyard, ...p.exile])
+    .find((c) => c.iid === iid);
+  return card ? (state.cards[card.defId] ?? null) : null;
+}
+
+/** What a choice is for: the card it comes from and its text, then the question. */
+function PickHeader({ state, onZoom }: { state: GameState; onZoom: (def: CardDef) => void }) {
+  const pick = state.pendingPick!;
+  const def = sourceDef(state);
+  return (
+    <div className="flex items-start gap-3">
+      {def && <CardView def={def} onZoom={() => onZoom(def)} />}
+      <div className="min-w-0">
+        {pick.source && <div className="text-[11px] font-semibold uppercase font-display tracking-wide text-rose-700">Resolving {pick.source.name}</div>}
+        <h2 className="text-sm font-semibold text-rose-800">
+          {playerName(pick.player)}: {pick.prompt}
+        </h2>
+        {def?.text && (
+          <p className="mt-1 whitespace-pre-line text-[13px] leading-snug text-zinc-700">
+            <ManaText text={def.text} />
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Online, for the player who is waiting: what the other player is in the middle of, so the pause makes sense. */
+export function ResolvingNotice({ state, onZoom }: { state: GameState; onZoom: (def: CardDef) => void }) {
+  const chooser = state.pendingPick?.player ?? state.pendingChoice?.player;
+  const name = state.pendingPick?.source?.name ?? state.pendingChoice?.item.sourceName;
+  if (!chooser || !name) return null;
+  const def = sourceDef(state);
+  return (
+    <section className="flex items-start gap-3 rounded-lg border border-violet-500/50 bg-violet-50 p-3">
+      {def && <CardView def={def} onZoom={() => onZoom(def)} />}
+      <div className="min-w-0">
+        <div className="text-[11px] font-semibold uppercase font-display tracking-wide text-violet-700">Resolving {name}</div>
+        <p className="text-sm font-semibold text-violet-900">Waiting for {playerName(chooser)} to choose…</p>
+        {def?.text && (
+          <p className="mt-1 whitespace-pre-line text-[13px] leading-snug text-zinc-700">
+            <ManaText text={def.text} />
+          </p>
+        )}
+      </div>
     </section>
   );
 }

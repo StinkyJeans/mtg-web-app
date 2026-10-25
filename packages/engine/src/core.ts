@@ -492,6 +492,7 @@ export function askColor(state: GameState, perm: Permanent, controller: PlayerId
     remaining: 1,
     ordered: [],
     colorFor: perm.card.iid,
+    source: { iid: perm.card.iid, name: nameOf(state, perm), defId: perm.card.defId },
   };
 }
 
@@ -791,7 +792,7 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
     const effect = effects[step];
     /** A choice among cards: the game waits, and the effects after this one run once it is answered. */
     const startPick = (pick: PendingPick) => {
-      state.pendingPick = { ...pick, ...(step + 1 < effects.length ? { rest: effects.slice(step + 1), ctx } : {}) };
+      state.pendingPick = { ...pick, source: { iid: ctx.sourceId, name: ctx.sourceName, defId: ctx.sourceDefId }, ...(step + 1 < effects.length ? { rest: effects.slice(step + 1), ctx } : {}) };
     };
     switch (effect.type) {
       case "damage":

@@ -52,7 +52,7 @@ import { hideDrawn, isPileBusy, playDeal, playDraws, playToGraveyard } from "./p
 import type { Draw } from "./pileFx";
 import { announcementsFrom, describeEvents, endReason, playerName } from "./log";
 import type { Announcement } from "./log";
-import Announcements, { PlayedThisTurn } from "./Announcements";
+import Announcements, { PassReminder, PlayedThisTurn, TurnSplash } from "./Announcements";
 import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
 import { ManaText } from "./ManaSymbols";
 import BackgroundPicker from "./BackgroundPicker";
@@ -64,7 +64,7 @@ import BlockPanel from "./BlockPanel";
 import { attackHint, blockHint } from "./combatHints";
 import { BANNER, PLAYER_STYLE } from "./theme";
 import type { BannerMode } from "./theme";
-import { AbilityPanel, ChoicePanel, PickPanel, readable, StackPanel, TargetPanel, XPanel } from "./StackPanel";
+import { AbilityPanel, ChoicePanel, PickPanel, readable, ResolvingNotice, StackPanel, TargetPanel, XPanel } from "./StackPanel";
 import Tip from "./Tip";
 import type { ChatMessage } from "./SidePanels";
 
@@ -106,6 +106,11 @@ const RANDOM_ID = "random"; // a deck built at random when the game starts
 
 /** Width of the big card shown while the mouse is over a card in hand. */
 const HAND_ZOOM_W = 320;
+/** How long "Your turn" stays on screen; matches the turn-splash animation in globals.css. */
+const TURN_SPLASH_MS = 1800;
+// How long a player can sit on their own turn before being reminded to pass it; shorter once nothing is left to do.
+const REMIND_IDLE_MS = 20000;
+const REMIND_DONE_MS = 6000;
 
 /**
  * The online play screen, one per match. Next.js keeps a page alive after leaving it (cacheComponents),
@@ -160,6 +165,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   // A spell or ability being set up: its targets are picked one by one, then `build` makes the action.
   const [targeting, setTargeting] = useState<{ title: string; specs: TargetSpec[]; build: (t: TargetChoice[]) => Action; detail?: string } | null>(null);
   const [chosen, setChosen] = useState<TargetChoice[]>([]);
+  const [aimed, setAimed] = useState<TargetChoice | null>(null); // a target clicked, waiting for "Confirm target"
+  const [confirmSkip, setConfirmSkip] = useState(false); // "Skip attack" asks once more while a creature could attack
   // A spell being cast step by step: modes, then the kicker, then X, then targets.
   const [plan, setPlan] = useState<{ iid: string; name: string; from?: "graveyard" | "exile"; castable: Castable; modes?: number[]; kicked?: boolean; x?: number; sacrifice?: string } | null>(null);
   const [modePick, setModePick] = useState<number[]>([]);
@@ -172,6 +179,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [abilitiesOpen, setAbilitiesOpen] = useState(false); // the abilities pop-up
   const [viewingYard, setViewingYard] = useState<{ owner: PlayerId; zone: "graveyard" | "exile" } | null>(null); // whose graveyard or exile is open
   const [endNote, setEndNote] = useState<string | null>(null); // how the game ended, for the win popup
+  const [turnSplash, setTurnSplash] = useState(0); // online: counts "Your turn" splashes, 0 while none is on screen
 
   const [loading, setLoading] = useState(false);
   // Decks and cards are loaded, and the players are flipping the coin before the game is created.
@@ -275,6 +283,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     }
   }
 
+  // The "Your turn" splash goes away by itself.
+  useEffect(() => {
+    if (turnSplash === 0) return;
+    const timer = setTimeout(() => setTurnSplash(0), TURN_SPLASH_MS);
+    return () => clearTimeout(timer);
+  }, [turnSplash]);
+
   // An announcement fades away by itself after a few seconds.
   useEffect(() => {
     if (announcements.length === 0) return;
@@ -285,6 +300,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   function resetSelection() {
     setTargeting(null);
     setChosen([]);
+    setAimed(null);
+    setConfirmSkip(false);
     setPlan(null);
     setLifeConfirm(null);
     setModePick([]);
@@ -521,12 +538,14 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     const gone = r.events.flatMap((e) => (e.type === "creatureDied" ? [e.iid] : e.type === "cardsDiscarded" ? e.iids : []));
     await playToGraveyard(gone);
     const viewer = seat ?? playerToAct(r.state);
+    // Only the viewer's own cards are animated: the opponent's hand is just a count, so their draw or mulligan
+    // would fly across this screen as if it were the viewer's.
     const draws: Draw[] = state.phase === "mulligan" ? [] : r.events.flatMap((e) => {
-      const card = e.type === "cardDrawn" ? r.state.players[e.player].hand.find((c) => c.iid === e.iid) : undefined;
-      return e.type === "cardDrawn" && card ? [{ iid: card.iid, owner: e.player, faceUp: e.player === viewer, def: r.state.cards[card.defId] }] : [];
+      const card = e.type === "cardDrawn" && e.player === viewer ? r.state.players[viewer].hand.find((c) => c.iid === e.iid) : undefined;
+      return card ? [{ iid: card.iid, owner: viewer, faceUp: true, def: r.state.cards[card.defId] }] : [];
     }).slice(0, 3);
     // A mulligan deals a whole new hand.
-    const redeal = r.events.some((e) => e.type === "mulliganTaken");
+    const redeal = r.events.some((e) => e.type === "mulliganTaken" && e.player === viewer);
     const dealt: Draw[] = redeal ? handDraws(r.state) : [];
     // flushSync puts the new cards on the page right away, so they can be hidden before they are ever painted.
     flushSync(() => {
@@ -534,6 +553,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       setHandHover(null);
       setLog((l) => [...describeEvents(r.events, r.state).reverse(), ...l].slice(0, 60));
       setEndNote(endReason(r.events, r.state));
+      // Online: the opponent passed the turn. Said loudly, in case this player looked away while waiting.
+      if (online && r.events.some((e) => e.type === "turnStarted" && e.player === viewer)) setTurnSplash((n) => n + 1);
       const told = announcementsFrom(r.events, r.state);
       if (told.length > 0) {
         setAnnouncements((a) => [...a, ...told].slice(-4));
@@ -761,6 +782,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   function pickTarget(t: TargetChoice) {
     const ctx = state.pendingChoice ? { specs: state.pendingChoice.specs, build: (targets: TargetChoice[]) => ({ type: "chooseTargets", targets }) as Action } : targeting;
     if (!ctx) return;
+    setAimed(null);
     const next = [...chosen, t];
     if (next.length < ctx.specs.length) setChosen(next);
     else act(ctx.build(next));
@@ -780,8 +802,11 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     const iid = perm.card.iid;
     const def = state.cards[perm.card.defId];
     const isCreature = def.type === "creature" || perm.crewed === true;
+    if (clickableTargets.has(iid) && aimed?.kind === "permanent" && aimed.iid === iid) {
+      return { ring: "ring-4 ring-amber-400", combat: { tone: "block", label: "🎯 Confirm the target", why: "Press Confirm target in the panel, or click another card." }, onClick: () => setAimed(null) };
+    }
     if (clickableTargets.has(iid)) {
-      return { ring: "ring-4 ring-sky-400", combat: { tone: "block", label: "🎯 Click to target", why: "Choose this as the target." }, onClick: () => pickTarget({ kind: "permanent", iid }) };
+      return { ring: "ring-4 ring-sky-400", combat: { tone: "block", label: "🎯 Click to target", why: "Choose this as the target." }, onClick: () => setAimed({ kind: "permanent", iid }) };
     }
     if (clickableTargets.size > 0) return { ring: "", dim: true }; // not a legal target right now
     if (state.phase === "attackers" && owner === actor) {
@@ -885,15 +910,12 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
   // In the first main phase, "Go to combat" is only available once the player has a card on their battlefield.
   const noCombatYet = state.phase === "main1" && state.players[actor].battlefield.length === 0;
-  // "End turn" is the way out when Go to combat is disabled, but not at the very start of the game
-  // (both battlefields empty), where you are expected to play something. The one exception: a player
-  // with nothing playable (no land in hand, say) must still be able to pass, or the game would get stuck.
-  const bothBattlefieldsEmpty = state.players.p1.battlefield.length === 0 && state.players.p2.battlefield.length === 0;
-  // Also offered in a main phase when the only thing left to play is a land (or nothing at all): a way to pass straight away.
+  // When the only thing left to play is a land (or nothing at all), the button says "Pass turn".
   const onlyLandsLeft =
     (state.phase === "main1" || state.phase === "main2") &&
     [...playable].every((iid) => state.cards[state.players[actor].hand.find((c) => c.iid === iid)?.defId ?? ""]?.type === "land");
-  const showEndTurn = mine && !state.priority && !state.pendingChoice && !state.pendingPick && ((noCombatYet && !(bothBattlefieldsEmpty && playable.size > 0)) || onlyLandsLeft);
+  // "End turn" skips the rest of the player's own turn at any point before combat or after it.
+  const showEndTurn = mine && !state.priority && !state.pendingChoice && !state.pendingPick && (state.phase === "main1" || state.phase === "attackers" || state.phase === "main2");
   const noCombatTip =
     "You have no cards on your battlefield yet, so there is nothing to attack with. Play a land or a creature from your hand first, or end your turn.";
 
@@ -1082,9 +1104,22 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             <div className="ml-auto flex flex-wrap items-center gap-2">
           {primary &&
             (() => {
+              const skipping = state.phase === "attackers" && attacking.length === 0 && possibleAttackers.length > 0;
+              if (skipping && confirmSkip)
+                return (
+                  <span role="group" aria-label="Skip attack?" className="flex flex-wrap items-center gap-2 rounded-xl border-2 border-amber-400 bg-amber-50 px-2 py-1 text-sm font-semibold text-amber-900">
+                    Skip attack? Your creatures won&apos;t attack this turn.
+                    <button onClick={() => act(primary.action)} className="rounded-lg bg-gradient-to-b from-amber-300 to-amber-500 px-3 py-1 font-extrabold text-black">
+                      Yes, skip
+                    </button>
+                    <button onClick={() => setConfirmSkip(false)} className="rounded-lg border border-zinc-400 bg-white px-3 py-1 hover:bg-zinc-100">
+                      Back
+                    </button>
+                  </span>
+                );
               const button = (
                 <button
-                  onClick={() => act(primary.action)}
+                  onClick={() => (skipping ? setConfirmSkip(true) : act(primary.action))}
                   disabled={noCombatYet}
                   className="rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-4 py-1.5 text-sm font-extrabold text-black shadow-md shadow-amber-500/40 transition hover:-translate-y-0.5 hover:shadow-lg active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:translate-y-0"
                 >
@@ -1257,6 +1292,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         )}
 
         {mine && <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} />}
+        {online && !mine && <ResolvingNotice state={state} onZoom={setZoomed} />}
 
         {mine && (state.pendingChoice || targeting) && (
           <TargetPanel
@@ -1266,6 +1302,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             detail={state.pendingChoice ? readable(state.pendingChoice.item.text, state.pendingChoice.item.sourceName) : targeting?.detail}
             specs={state.pendingChoice ? state.pendingChoice.specs : (targeting?.specs ?? [])}
             chosen={chosen}
+            aimed={aimed}
+            onAim={setAimed}
             onPick={pickTarget}
             onCancel={state.pendingChoice ? undefined : () => resetSelection()}
           />
@@ -1431,6 +1469,11 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             setResigning(null);
           }}
         />
+      )}
+
+      {turnSplash > 0 && !state.winner && <TurnSplash key={turnSplash} />}
+      {online && showEndTurn && !state.winner && !targeting && !plan && attacking.length === 0 && (
+        <PassReminder state={state} after={state.phase === "main2" && onlyLandsLeft ? REMIND_DONE_MS : REMIND_IDLE_MS} opponent={playerName(other)} onEndTurn={endTurn} />
       )}
 
       {state.winner && <VictoryDialog

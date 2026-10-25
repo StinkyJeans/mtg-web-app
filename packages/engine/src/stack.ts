@@ -542,6 +542,7 @@ export function crewVehicle(state: GameState, player: PlayerId, iid: string): st
     remaining: crew,
     ordered: [],
     vehicle: iid,
+    source: { iid, name: def.name, defId: perm.card.defId },
   };
   return null;
 }
@@ -727,7 +728,8 @@ function flushTriggers(state: GameState): void {
         choose(available[0]);
         continue;
       }
-      state.pendingPick = { player: item.controller, prompt: `${item.sourceName}: choose one`, kind: "mode", options: available.map(String), optional: false, owner: item.controller, remaining: 1, ordered: [], modes, modeItem: item };
+      const sourceDefId = findPermanentOrNull(state, item.source)?.perm.card.defId;
+      state.pendingPick = { player: item.controller, prompt: `${item.sourceName}: choose one`, kind: "mode", options: available.map(String), optional: false, owner: item.controller, remaining: 1, ordered: [], modes, modeItem: item, source: { iid: item.source, name: item.sourceName, defId: sourceDefId } };
       return;
     }
     if (specs.length === 0) {
