@@ -12,7 +12,7 @@ const FRAME_SIZE: Record<Size, string> = ART_SIZE;
 // A card turned sideways is as wide as it is tall; the margin gives it that extra width so its neighbours don't get covered.
 const TAP_MARGIN: Record<Size, string> = { sm: "mx-[calc(var(--card-h,168px)*0.115)]", md: "mx-[calc(var(--card-h,168px)*0.142)]", lg: "mx-8" };
 
-const COMBAT_BADGE: Record<string, string> = {
+export const COMBAT_BADGE: Record<string, string> = {
   free: "bg-yellow-400 text-black",
   best: "bg-yellow-400 text-black",
   safe: "bg-green-600 text-white",

@@ -1,5 +1,5 @@
 // Plain-language advice for the combat steps, so a new player can see which creatures are worth attacking or blocking with.
-// These are simple rules of thumb (damage against toughness, flying, deathtouch), not a full simulation.
+// These are simple rules of thumb (damage against toughness, flying, deathtouch, first strike), not a full simulation.
 import { applyAction, powerOf, toughnessOf } from "@mtg/engine";
 import type { GameState, Permanent, PlayerId } from "@mtg/engine";
 
@@ -25,7 +25,48 @@ function canStopFlying(state: GameState, attacker: Permanent, blocker: Permanent
 
 /** Does `a` kill `b` in a fight (damage, or deathtouch)? */
 function kills(state: GameState, a: Permanent, b: Permanent): boolean {
-  return powerOf(state, a) > 0 && (has(state, a, "deathtouch") || powerOf(state, a) >= lifeLeft(state, b));
+  return powerOf(state, a) > 0 && !has(state, b, "indestructible") && (has(state, a, "deathtouch") || powerOf(state, a) >= lifeLeft(state, b));
+}
+
+const strikesFirst = (state: GameState, perm: Permanent) => has(state, perm, "first strike") || has(state, perm, "double strike");
+
+/** Can `blocker` block `attacker`? Asked of the real rules. "Needs two or more blockers" (menace) counts as yes: a second one can join. */
+export function canBlock(state: GameState, me: PlayerId, blocker: string, attacker: string): { ok: boolean; reason?: string } {
+  const r = applyAction(state, me, { type: "declareBlockers", blocks: [{ blocker, attacker }] });
+  if (r.ok || /two or more|more than one/i.test(r.error)) return { ok: true };
+  return { ok: false, reason: r.error.replace(/^.*?: /, "") };
+}
+
+/** What a block is likely to lead to: who dies. */
+export function blockOutcome(state: GameState, attacker: Permanent, blockers: Permanent[]): CombatHint {
+  if (blockers.length === 1) {
+    const [b] = blockers;
+    let attackerDies = kills(state, b, attacker);
+    let blockerDies = kills(state, attacker, b);
+    if (blockerDies && strikesFirst(state, attacker) && !strikesFirst(state, b)) attackerDies = false; // it dies before it can strike back
+    else if (attackerDies && strikesFirst(state, b) && !strikesFirst(state, attacker)) blockerDies = false;
+    if (attackerDies && blockerDies) return { tone: "trade", label: "⚔ Both die", why: `${name(state, b)} and ${name(state, attacker)} kill each other.` };
+    if (attackerDies) return { tone: "best", label: `★ ${name(state, attacker)} dies`, why: `${name(state, b)} kills it and survives.` };
+    if (blockerDies) return { tone: "chump", label: `💔 ${name(state, b)} dies`, why: `It stops the damage, but dies without killing ${name(state, attacker)}.` };
+    return { tone: "good", label: "🛡 Stopped, nobody dies", why: "No damage gets through, and both creatures survive." };
+  }
+  // Several blockers: their damage adds up, and the attacker splits its own damage among them, smallest first.
+  const attackerDies =
+    !has(state, attacker, "indestructible") &&
+    (blockers.some((b) => has(state, b, "deathtouch") && powerOf(state, b) > 0) || blockers.reduce((n, b) => n + Math.max(0, powerOf(state, b)), 0) >= lifeLeft(state, attacker));
+  let damage = powerOf(state, attacker);
+  let killed = 0;
+  for (const b of [...blockers].sort((x, y) => lifeLeft(state, x) - lifeLeft(state, y))) {
+    const need = has(state, attacker, "deathtouch") ? 1 : lifeLeft(state, b);
+    if (has(state, b, "indestructible") || damage < need) continue;
+    damage -= need;
+    killed++;
+  }
+  const lost = `${killed} of your blockers`;
+  if (attackerDies && killed > 0) return { tone: "trade", label: `⚔ It dies, and takes ${lost}`, why: `Together they kill ${name(state, attacker)}, but it can split its damage to kill ${lost}.` };
+  if (attackerDies) return { tone: "best", label: `★ ${name(state, attacker)} dies`, why: "Together they kill it, and none of them dies." };
+  if (killed > 0) return { tone: "chump", label: `💔 It survives, and can kill ${lost}`, why: `Together they don't deal enough to kill ${name(state, attacker)}.` };
+  return { tone: "good", label: "🛡 Stopped, nobody dies", why: "No damage gets through, and nobody dies." };
 }
 
 /** Advice for one of your creatures that can attack: is it safe, risky, or free to hit? */
@@ -49,10 +90,7 @@ export function blockHint(state: GameState, me: PlayerId, blocker: Permanent): C
     const perm = Object.values(state.players).flatMap((p) => p.battlefield).find((x) => x.card.iid === a.attacker);
     return perm && !a.target ? [perm] : []; // (attacks on planeswalkers are chosen in the block panel)
   });
-  const legal = attackers.filter((a) => {
-    const r = applyAction(state, me, { type: "declareBlockers", blocks: [{ blocker: blocker.card.iid, attacker: a.card.iid }] });
-    return r.ok || /two or more|more than one/i.test(r.error);
-  });
+  const legal = attackers.filter((a) => canBlock(state, me, blocker.card.iid, a.card.iid).ok);
   if (legal.length === 0) return { tone: "block", label: "Can't block these", why: "It can't legally block any of the attackers." };
   const rated = legal.map((a) => ({ a, survives: !kills(state, a, blocker), wins: kills(state, blocker, a) }));
   const best = rated.find((r) => r.survives && r.wins);

@@ -1,23 +1,31 @@
 "use client";
 
-import { applyAction, getPossibleBlockers, powerOf, toughnessOf } from "@mtg/engine";
+import { getPossibleBlockers, powerOf, toughnessOf } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
+import { COMBAT_BADGE } from "./CardView";
+import { blockOutcome, canBlock } from "./combatHints";
 import { playerName } from "./log";
 
 /**
- * The blocking step, spelled out: every attacker is listed with whoever is blocking it, and a menu to add a blocker.
- * `blocks` maps blocker iid -> attacker iid (the same thing the board clicks fill in).
+ * The blocking step, spelled out: what to click next, every attacker with whoever is blocking it, and what that block
+ * is likely to lead to. Blocks are made by clicking: one of your creatures (on the board), then the attacker it should
+ * block (on the board, or its row here). `blocks` maps blocker iid -> attacker iid.
  */
 export default function BlockPanel({
   state,
   actor,
   blocks,
+  picked,
   onChange,
+  onPicked,
 }: {
   state: GameState;
   actor: PlayerId;
   blocks: Record<string, string>;
+  /** The creature clicked to block with, waiting for its attacker. */
+  picked: string | null;
   onChange: (blocks: Record<string, string>) => void;
+  onPicked: (iid: string | null) => void;
 }) {
   const combat = state.combat;
   if (!combat || combat.attackers.length === 0) return null;
@@ -28,14 +36,6 @@ export default function BlockPanel({
     return p ? state.cards[p.card.defId].name : iid;
   };
   const mine = getPossibleBlockers(state);
-
-  /** Could this creature block that attacker? One block is tried against the real rules; "needs two blockers" counts as allowed. */
-  const check = (blocker: string, attacker: string): { ok: boolean; reason?: string } => {
-    const r = applyAction(state, actor, { type: "declareBlockers", blocks: [{ blocker, attacker }] });
-    if (r.ok) return { ok: true };
-    if (/two or more|more than one/i.test(r.error)) return { ok: true };
-    return { ok: false, reason: r.error.replace(/^.*?: /, "") };
-  };
 
   const setBlock = (blocker: string, attacker: string | null) => {
     const next = { ...blocks };
@@ -50,14 +50,18 @@ export default function BlockPanel({
     if (perm && !a.target && !Object.values(blocks).includes(a.attacker)) unblockedDamage += Math.max(0, powerOf(state, perm));
   }
   const life = state.players[actor].life;
+  const step = picked
+    ? null
+    : mine.length === 0
+      ? "You have no creature that can block."
+      : combat.attackers.length === 1
+        ? "Click one of your creatures to block with it. Click it again to take the block back."
+        : "Click one of your creatures, then the attacker it should block. Click a blocker again to take it back.";
 
   return (
     <section className="flex flex-col gap-1.5 rounded-xl border border-sky-400/60 bg-sky-50 px-3 py-2 shadow-sm">
       <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-xs">
-        <h2 className="font-bold text-sky-900">
-          🛡️ {playerName(attackerPlayer)} is attacking
-          {mine.length === 0 && <span className="ml-2 font-normal text-zinc-600">You have no creature that can block.</span>}
-        </h2>
+        <h2 className="font-bold text-sky-900">🛡️ {playerName(attackerPlayer)} is attacking</h2>
         <span className="flex items-center gap-2">
           <span className={`rounded px-1.5 py-0.5 font-semibold ${unblockedDamage >= life ? "bg-red-600 text-white" : "bg-white text-zinc-700"}`}>
             {unblockedDamage >= life ? "Lethal! " : ""}Unblocked: {unblockedDamage} dmg ({life} life)
@@ -70,16 +74,28 @@ export default function BlockPanel({
         </span>
       </div>
 
+      {picked ? (
+        <p className="flex flex-wrap items-center gap-2 rounded-lg bg-sky-600 px-2 py-1 text-sm font-semibold text-white">
+          🛡 Blocking with {nameOf(picked)}: now click the attacker it should block.
+          <button onClick={() => onPicked(null)} className="rounded border border-white/60 px-2 py-0.5 text-xs font-normal hover:bg-white/15">
+            Cancel
+          </button>
+        </p>
+      ) : (
+        <p className="text-sm text-sky-900">👆 {step}</p>
+      )}
+
       <ul className="grid gap-1.5 [grid-template-columns:repeat(auto-fit,minmax(17rem,1fr))]">
         {combat.attackers.map((a) => {
           const perm = find(a.attacker);
           if (!perm) return null;
           const def = state.cards[perm.card.defId];
           const assigned = Object.entries(blocks).filter(([, at]) => at === a.attacker).map(([b]) => b);
-          const free = mine.filter((b) => !blocks[b]);
           const walker = a.target ? nameOf(a.target) : null;
+          const legal = picked ? canBlock(state, actor, picked, a.attacker) : null;
+          const outcome = assigned.length > 0 ? blockOutcome(state, perm, assigned.flatMap((b) => find(b) ?? [])) : null;
           return (
-            <li key={a.attacker} className={`flex flex-col gap-1 rounded-lg border px-2 py-1.5 ${assigned.length ? "border-emerald-400 bg-white" : "border-red-300 bg-white"}`}>
+            <li key={a.attacker} className={`flex flex-col gap-1 rounded-lg border px-2 py-1.5 ${legal?.ok ? "border-sky-500 bg-white ring-2 ring-sky-400" : assigned.length ? "border-emerald-400 bg-white" : "border-red-300 bg-white"}`}>
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 <span className="text-sm font-semibold">{def.name}</span>
                 <span className="rounded bg-zinc-200 px-1.5 text-xs font-bold">
@@ -106,26 +122,27 @@ export default function BlockPanel({
                     </span>
                   ))
                 )}
-                {free.length > 0 && (
-                  <select
-                    value=""
-                    onChange={(e) => e.target.value && setBlock(e.target.value, a.attacker)}
-                    className="rounded border border-zinc-300 bg-white px-2 py-1 text-xs"
-                    aria-label={`Add a blocker for ${def.name}`}
-                  >
-                    <option value="">+ Block with…</option>
-                    {free.map((b) => {
-                      const c = check(b, a.attacker);
-                      const bp = find(b)!;
-                      return (
-                        <option key={b} value={b} disabled={!c.ok}>
-                          {nameOf(b)} ({powerOf(state, bp)}/{toughnessOf(state, bp)}){c.ok ? "" : ` — can't: ${c.reason}`}
-                        </option>
-                      );
-                    })}
-                  </select>
+                {outcome && (
+                  <span title={outcome.why} className={`rounded px-2 py-0.5 text-xs font-semibold ${COMBAT_BADGE[outcome.tone] ?? ""}`}>
+                    {outcome.label}
+                  </span>
                 )}
               </div>
+
+              {legal &&
+                (legal.ok ? (
+                  <button
+                    onClick={() => {
+                      setBlock(picked!, a.attacker);
+                      onPicked(null);
+                    }}
+                    className="self-start rounded-lg bg-sky-600 px-3 py-1 text-sm font-semibold text-white hover:bg-sky-500"
+                  >
+                    🛡 Block this with {nameOf(picked!)}
+                  </button>
+                ) : (
+                  <span className="text-xs text-zinc-500">{nameOf(picked!)} can&apos;t block this: {legal.reason}</span>
+                ))}
             </li>
           );
         })}
