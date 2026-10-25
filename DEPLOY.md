@@ -4,7 +4,7 @@ Everything runs on **Railway**, in the project **mtg-web**. Two pieces, two serv
 
 | Piece | Railway service | Address |
 |---|---|---|
-| The website (`mtg/`) | `web` | https://web-production-45825.up.railway.app |
+| The website (`mtg/`) | `web` | https://mtg-web.up.railway.app |
 | The live game server (`game-server/`) | `game-server` | https://game-server-production-e4d8.up.railway.app |
 
 Both build from the GitHub repository `mtg-fanatics/mtg-web-app`, branch `main`, starting at the repository root.
