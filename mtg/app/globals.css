@@ -143,6 +143,26 @@ body {
   animation: victory-pop 0.45s cubic-bezier(0.2, 0.8, 0.3, 1) both;
 }
 
+/* "Your turn": pops in, holds, then fades (1.8s, see TURN_SPLASH_MS in Game.tsx) */
+@keyframes turn-splash {
+  0% { transform: scale(0.6); opacity: 0; }
+  14% { transform: scale(1.08); opacity: 1; }
+  24% { transform: scale(1); }
+  78% { transform: scale(1); opacity: 1; }
+  100% { transform: scale(1.04); opacity: 0; }
+}
+.turn-splash {
+  animation: turn-splash 1.8s cubic-bezier(0.2, 0.8, 0.3, 1) both;
+}
+
+@keyframes pass-reminder {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(252, 211, 77, 0.55); }
+  50% { box-shadow: 0 0 0 12px rgba(252, 211, 77, 0); }
+}
+.pass-reminder {
+  animation: pass-reminder 1.6s ease-out infinite;
+}
+
 /* A card in hand that can be cast right now: a pulsing green border with a light that sweeps across it. */
 @keyframes castable-pulse {
   0%,

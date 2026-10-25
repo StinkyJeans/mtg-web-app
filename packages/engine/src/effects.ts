@@ -482,6 +482,8 @@ export interface PriorityRound {
 export interface PendingPick {
   /** Who chooses. */
   player: PlayerId;
+  /** The card the choice comes from. A resolving spell is already in the graveyard, so this is how both players see what is going on. */
+  source?: { iid: string; name: string; defId?: string };
   prompt: string;
   kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color";
   /** The cards to choose between (instance ids). They are shown to the chooser. */

@@ -65,6 +65,7 @@ test("look at the top cards, take a matching one, the rest go to the bottom", ()
   g = settle(act(g, "p1", { type: "castSpell", iid: "h0", targets: [] }));
   assert.equal(g.pendingPick?.kind, "revealToHand");
   assert.deepEqual(g.pendingPick?.options, ["c1", "c3"]); // only the creatures
+  assert.equal(g.pendingPick?.source?.name, "digger", "the choice says which spell it belongs to");
   g = act(g, "p1", { type: "pick", iid: "c3" });
   assert.equal(g.players.p1.hand.some((c) => c.iid === "c3"), true);
   assert.deepEqual(order(g), ["c4", "c5", "c0", "c1", "c2"]); // the other three looked-at cards are at the bottom, in order

@@ -1,9 +1,22 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import type { GameState } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
+import { animationsEnabled } from "@/lib/motion";
 import { playerName } from "./log";
 import type { Announcement } from "./log";
+
+/** "Your turn" across the top of the screen when the opponent passes the turn. It doesn't block clicks. */
+export function TurnSplash() {
+  return (
+    <div role="status" aria-live="assertive" className="pointer-events-none fixed inset-x-0 top-[14dvh] z-30 flex justify-center px-4">
+      <div className={`${animationsEnabled() ? "turn-splash" : ""} rounded-3xl border-2 border-amber-300/80 bg-slate-950/75 px-10 py-5 text-center shadow-2xl shadow-black/50 backdrop-blur-sm`}>
+        <div className="font-display text-5xl font-extrabold uppercase tracking-[0.2em] text-amber-300 [text-shadow:0_2px_12px_rgba(0,0,0,0.6)] sm:text-6xl">Your turn</div>
+      </div>
+    </div>
+  );
+}
 
 /** Cards announcing what a player just cast or used, shown on that player's side of the board. */
 export default function Announcements({ items, onClose }: { items: Announcement[]; onClose: (id: number) => void }) {
@@ -74,5 +87,30 @@ export function PlayedThisTurn({ items, state, onZoom }: { items: Announcement[]
         })}
       </ol>
     </section>
+  );
+}
+
+/** Online: a player who sits on their own turn is reminded that the opponent is waiting. Any change to the game starts the wait again. */
+export function PassReminder({ state, after, opponent, onEndTurn }: { state: GameState; after: number; opponent: string; onEndTurn: () => void }) {
+  const [shownFor, setShownFor] = useState<GameState | null>(null);
+  useEffect(() => {
+    const timer = setTimeout(() => setShownFor(state), after);
+    return () => clearTimeout(timer);
+  }, [state, after]);
+  if (shownFor !== state) return null;
+  return (
+    <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 top-[14dvh] z-30 flex justify-center px-4">
+      <div
+        className={`${animationsEnabled() ? "pass-reminder" : ""} pointer-events-auto flex flex-wrap items-center justify-center gap-3 rounded-2xl border-2 border-amber-300/80 bg-slate-950/85 px-5 py-3 text-[15px] font-semibold text-amber-100 shadow-2xl shadow-black/50 backdrop-blur-sm`}
+      >
+        <span>⏰ Still your turn. {opponent} is waiting for you to pass it.</span>
+        <button onClick={onEndTurn} className="rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-4 py-1.5 text-sm font-extrabold text-black shadow-md shadow-amber-500/40 hover:-translate-y-0.5">
+          End turn
+        </button>
+        <button onClick={() => setShownFor(null)} className="rounded-xl border border-white/30 px-3 py-1.5 text-sm hover:bg-white/10">
+          Not yet
+        </button>
+      </div>
+    </div>
   );
 }
