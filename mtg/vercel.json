@@ -1,0 +1,4 @@
+{
+  "installCommand": "npm --prefix ../packages/engine ci && npm --prefix ../packages/engine run build && npm ci",
+  "buildCommand": "npm run build"
+}
