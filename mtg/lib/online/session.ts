@@ -5,6 +5,7 @@ import { Client } from "@colyseus/sdk";
 import type { Room } from "@colyseus/sdk";
 import { createClient } from "@/lib/supabase/client";
 import { setPlayerNames } from "@/app/play/log";
+import { KICKED } from "./protocol";
 import type { ChatLine, LobbyRoomInfo, RoomSnapshot, StartPayload, UpdatePayload } from "./protocol";
 
 // The browser's one connection to the live game server: the lobby (the list of rooms) and, at most, one match room.
@@ -83,6 +84,7 @@ export async function connectLobby(): Promise<void> {
         turn: meta.turn ?? 0,
         clients: Number(r.clients ?? 0),
         maxClients: Number(r.maxClients ?? 2),
+        locked: meta.locked === true,
       };
     };
     room.onMessage("rooms", (rooms: Record<string, unknown>[]) => set({ rooms: rooms.filter((r) => r.name === "match").map(info) }));
@@ -142,28 +144,33 @@ function attach(room: Room) {
   room.onLeave((code: number) => {
     if (matchRoom === room) {
       matchRoom = null;
-      if (code === 4000) keep(null); // a deliberate leave: nothing to come back to
+      if (code === 4000 || code === KICKED) keep(null); // a deliberate leave: nothing to come back to
       set({ snapshot: null, game: null, chat: [] });
+      if (code === KICKED) flash("The host removed you from this room.");
     }
   });
   room.send("hello"); // handlers are ready: now ask where things stand
 }
 
-export async function createRoom(name: string): Promise<void> {
+/** An empty password leaves the room open to anyone. */
+export async function createRoom(name: string, password = ""): Promise<void> {
   set({ error: null });
   try {
-    attach(await getClient().create("match", { token: await accessToken(), name }));
+    attach(await getClient().create("match", { token: await accessToken(), name, password }));
   } catch (e) {
     set({ error: explain(e) });
   }
 }
 
-export async function joinRoom(roomId: string): Promise<void> {
+/** True once inside the room; false (with the reason in `error`) when refused, e.g. a wrong password. */
+export async function joinRoom(roomId: string, password?: string): Promise<boolean> {
   set({ error: null });
   try {
-    attach(await getClient().joinById(roomId, { token: await accessToken() }));
+    attach(await getClient().joinById(roomId, { token: await accessToken(), password }));
+    return true;
   } catch (e) {
     set({ error: explain(e) });
+    return false;
   }
 }
 

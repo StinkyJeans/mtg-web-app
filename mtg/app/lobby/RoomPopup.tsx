@@ -27,6 +27,7 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
               Hosted by <span className="font-bold text-[#fde68a]">{host?.name ?? "…"}</span>
               {iAmHost && <span className="ml-1 text-slate-300">(you)</span>}
             </p>
+            {room.locked && <p className="mt-0.5 text-sm text-slate-300">🔒 Password protected</p>}
           </div>
           <button
             onClick={() => leaveRoom()}
@@ -60,6 +61,7 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
                     </>
                   )}
                 </div>
+                {p && iAmHost && seat !== room.host && <KickButton name={p.name} />}
               </div>
             );
           })}
@@ -84,5 +86,18 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
         </footer>
       </div>
     </div>
+  );
+}
+
+/** The host removes the guest. The guest can't join this room again. */
+export function KickButton({ name }: { name: string }) {
+  return (
+    <button
+      onClick={() => send("kick")}
+      title={`Remove ${name} from the room. They can't join it again.`}
+      className="ml-auto shrink-0 rounded-lg border border-red-300/50 bg-red-500/20 px-3 py-1 text-sm font-bold text-[#fecaca] hover:bg-red-500/35"
+    >
+      Kick
+    </button>
   );
 }

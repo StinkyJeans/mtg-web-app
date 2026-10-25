@@ -3,6 +3,7 @@ import { ColyseusTestServer, boot } from "@colyseus/testing";
 import { getCastable, getDamageAssignments, getForcedBlocks, getPossibleAttackers, HIDDEN_CARD_ID, legalTargets, MAX_HAND_SIZE, playerToAct, suggestDamageAssignment } from "@mtg/engine";
 import type { Action, GameState, PlayerId } from "@mtg/engine";
 import appConfig from "../src/app.config.js";
+import { KICKED } from "../src/rooms/MatchRoom.js";
 import type { RoomSnapshot } from "../src/rooms/MatchRoom.js";
 
 // These tests start the real server and play with real cards from the database (so they need the Supabase settings,
@@ -121,10 +122,20 @@ describe("a live match", function () {
     alice.send("deck", { name: "Reds", ids: deckOf(20, "mountain", "agent-of-atlas") });
     bob.send("deck", { name: "Greens", ids: deckOf(20, "forest", "advance-scout") });
     await until("coin stage", () => snap.alice.stage === "coin");
-    assert.ok(snap.alice.coin && snap.alice.coin.call === "heads");
+    assert.ok(snap.alice.coin && snap.alice.coin.call === null, "nobody has called yet");
+
+    // only the guest calls the toss; the winner is whoever the coin agrees with
+    alice.send("call", { side: "heads" });
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(snap.alice.coin!.call, null, "the host can't call");
+    bob.send("call", { side: "tails" });
+    await until("the coin is flipped", () => snap.alice.coin?.result != null);
+    const coin = snap.alice.coin!;
+    assert.equal(coin.call, "tails");
+    assert.equal(coin.winner, coin.result === "tails" ? "p2" : "p1");
 
     // only the winner of the toss decides the order
-    const winnerName = snap.alice.coin.winner === "p1" ? "alice" : "bob";
+    const winnerName = coin.winner === "p1" ? "alice" : "bob";
     const loser = winnerName === "alice" ? bob : alice;
     loser.send("order", { first: true });
     await new Promise((r) => setTimeout(r, 150));
@@ -168,6 +179,8 @@ describe("a live match", function () {
     alice.send("deck", { name: "A", ids: deckOf(20, "mountain", "agent-of-atlas") });
     bob.send("deck", { name: "B", ids: deckOf(20, "forest", "advance-scout") });
     await wait(1200);
+    bob.send("call", { side: "heads" });
+    await wait(200);
     const chooser = snap.carol.coin!.winner === "p1" ? alice : bob;
     chooser.send("order", { first: true });
     await wait(400);
@@ -177,5 +190,42 @@ describe("a live match", function () {
     bob.send("action", { action: { type: "playLand", iid: "nonsense" } });
     await wait(300);
     assert.ok(errors.length >= 1, `expected an error, got: ${errors.join(" | ")}`);
+  });
+
+  it("lets the host kick the guest, who can't come back to that room", async () => {
+    const room = await colyseus.createRoom("match", { name: "Kick" });
+    const host = await colyseus.connectTo(room, { token: "dev:erin" });
+    const guest = await colyseus.connectTo(room, { token: "dev:frank" });
+    let hostSnap: RoomSnapshot | null = null;
+    host.onMessage("room", (s: RoomSnapshot) => (hostSnap = s));
+    guest.onMessage("room", () => {});
+    const left = new Promise<number>((resolve) => guest.onLeave((code) => resolve(code)));
+    await new Promise((r) => setTimeout(r, 150));
+
+    guest.send("kick");
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(room.clients.length, 2, "a guest can't kick the host");
+
+    host.send("kick");
+    assert.equal(await left, KICKED);
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(hostSnap!.players.length, 1);
+    assert.equal(hostSnap!.stage, "waiting");
+    await assert.rejects(colyseus.connectTo(room, { token: "dev:frank" }), /removed you/);
+  });
+
+  it("keeps a locked room closed to anyone without the password, and never sends the password", async () => {
+    const room = await colyseus.createRoom("match", { name: "Locked", password: "s3cret" });
+    const host = await colyseus.connectTo(room, { token: "dev:gina", password: "s3cret" });
+    let snapshot: RoomSnapshot | null = null;
+    host.onMessage("room", (s: RoomSnapshot) => (snapshot = s));
+    await assert.rejects(colyseus.connectTo(room, { token: "dev:hank" }), /needs a password/);
+    await assert.rejects(colyseus.connectTo(room, { token: "dev:hank", password: "guess" }), /Wrong password/);
+    const guest = await colyseus.connectTo(room, { token: "dev:hank", password: "s3cret" });
+    guest.onMessage("room", () => {});
+    await new Promise((r) => setTimeout(r, 150));
+    assert.equal(snapshot!.players.length, 2);
+    assert.equal(snapshot!.locked, true);
+    assert.doesNotMatch(JSON.stringify(snapshot), /s3cret/);
   });
 });
