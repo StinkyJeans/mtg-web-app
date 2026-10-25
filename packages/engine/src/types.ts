@@ -82,6 +82,15 @@ export interface Permanent {
   stun?: number;
   /** "Can't be blocked this turn." */
   unblockableTurn?: boolean;
+  /** "Becomes 4/4 until end of turn", "loses defender until end of turn". */
+  tempBase?: { power: number; toughness: number };
+  tempNoDefender?: boolean;
+  /** "Assigns combat damage equal to its toughness rather than its power this turn." */
+  damageByToughness?: boolean;
+  /** "When this creature deals combat damage, sacrifice it" (until end of turn). */
+  sacOnDamage?: boolean;
+  /** It attacked this turn. */
+  attackedThisTurn?: boolean;
   /** Cards this permanent keeps in exile until it leaves the battlefield (Banishing Light). */
   held?: CardInstance[];
   powerBonus?: number;
@@ -126,6 +135,13 @@ export interface PlayerState {
   landsPlayedThisTurn: number;
   /** Cards drawn so far this turn ("whenever you draw your second card each turn"). */
   drawnThisTurn?: number;
+  /** Life gained and spells cast so far this turn ("if you gained 3 or more life this turn", "your first spell"). */
+  lifeGainedThisTurn?: number;
+  spellsCastThisTurn?: number;
+  /** Cards in exile that may be played: "During any turn you attacked with ~, you may play that card". */
+  mayPlay?: { iid: string; source: string }[];
+  /** "If a source you control would deal damage to an opponent this turn, it deals double that damage instead." */
+  doubleDamage?: boolean;
   /** Permanents the player chose not to tap for mana: payments skip them. Only set around one action, and cleared as a turn begins. */
   spareMana?: string[];
   /** Tried to draw from an empty library: loses the game when state-based actions are next checked. */
@@ -158,6 +174,8 @@ export interface GameState {
   pendingPick: PendingPick | null;
   /** "Prevent all combat damage that would be dealt this turn." Cleared as the next turn begins. */
   preventCombat?: boolean;
+  /** "Creatures without flying can't block this turn." */
+  noGroundBlock?: boolean;
   /** Triggers that have happened and are about to go on the stack. */
   triggerQueue: { item: Extract<StackItem, { kind: "ability" }>; specs: TargetSpec[]; modes?: ModeSpec[] }[];
   /** Counter used to give every stack item a unique id. */

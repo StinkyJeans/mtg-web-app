@@ -122,8 +122,13 @@ export function manaAbilitySacrifices(def: CardDef): boolean {
   return /^\{t\}, sacrifice (?:~|this [a-z]+): add /m.test((def.text ?? "").replace(/\([^)]*\)/g, "").toLowerCase());
 }
 
+/** "{T}: Add {C}. Spend this mana only to cast an instant or sorcery spell.": the restriction, if there is one. */
+export function manaAbilityRestriction(def: CardDef): "instantOrSorcery" | undefined {
+  return /\bspend this mana only to cast an instant or sorcery spell\b/i.test(def.text ?? "") ? "instantOrSorcery" : undefined;
+}
+
 function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chosen: boolean } | undefined {
-  const text = (def.text ?? "").replace(/\([^)]*\)/g, "").toLowerCase();
+  const text = (def.text ?? "").replace(/\([^)]*\)/g, "").replace(/\.? ?spend this mana only to cast an instant or sorcery spell\.?/gi, "").toLowerCase();
   const found = new Set<ManaColor>();
   let amount = 1;
   let chosen = false;
@@ -161,8 +166,10 @@ export function landManaColors(def: CardDef): ManaColor[] {
 }
 
 /** The colors this permanent can currently be tapped for (empty: it can't make mana right now). */
-function manaColorsOf(state: GameState, perm: Permanent): ManaColor[] {
+function manaColorsOf(state: GameState, perm: Permanent, forSpell?: CardDef): ManaColor[] {
   const def = getCard(state, perm.card.defId);
+  // Restricted mana can only pay for the kind of spell it names.
+  if (manaAbilityRestriction(def) === "instantOrSorcery" && !(forSpell && (forSpell.type === "instant" || forSpell.type === "sorcery"))) return [];
   const chosen = manaAbilityUsesChosenColor(def) && perm.chosenColor ? [perm.chosenColor] : [];
   const withChosen = (colors: ManaColor[]) => [...new Set([...colors, ...chosen])];
   if (def.type === "land") return withChosen(landManaColors(def));
@@ -192,14 +199,14 @@ function manaAmountOf(state: GameState, perm: Permanent): number {
  * then paid from what is left, single-color sources of the most plentiful color first, so scarce colors and the
  * flexible multi-color sources stay untapped for the next spell.
  */
-export function payMana(state: GameState, player: PlayerId, cost: ManaCost): PayResult {
+export function payMana(state: GameState, player: PlayerId, cost: ManaCost, forSpell?: CardDef): PayResult {
   const sources: Source[] = [];
   const spare = state.players[player].spareMana ?? [];
   // Lands come first, so a creature or artifact that makes mana is only used when the lands can't pay.
   const order = [...state.players[player].battlefield].sort((a, b) => Number(getCard(state, b.card.defId).type === "land") - Number(getCard(state, a.card.defId).type === "land"));
   for (const perm of order) {
     if (perm.tapped || spare.includes(perm.card.iid)) continue;
-    const colors = manaColorsOf(state, perm);
+    const colors = manaColorsOf(state, perm, forSpell);
     // A source that makes two mana counts twice; tapping it once pays for both.
     const amount = colors.length > 0 ? manaAmountOf(state, perm) : 0;
     for (let i = 0; i < amount; i++) sources.push({ iid: perm.card.iid, colors });

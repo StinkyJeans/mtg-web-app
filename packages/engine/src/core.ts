@@ -1,12 +1,12 @@
 import { getCard } from "./cards.js";
 import type { GameEvent } from "./actions.js";
-import type { Amount, CardFilter, CountSpec, Effect, PendingPick, Ref, RunContext, SourceQuality, StackItem, StaticEffect, TargetChoice, TargetSpec, TokenSpec } from "./effects.js";
+import type { Amount, CardFilter, CountSpec, Effect, PendingPick, Ref, RunContext, SourceQuality, StackItem, StaticEffect, TargetChoice, TargetSpec, TokenSpec, TriggeredAbility } from "./effects.js";
 import { isBasicLand } from "./deck.js";
 import { parseManaCost, payMana } from "./mana.js";
 import { hasKeyword } from "./keywords.js";
 import type { Keyword } from "./keywords.js";
 import { parseCard } from "./oracle.js";
-import { shuffle } from "./state.js";
+import { nextRandom, shuffle } from "./state.js";
 import { OPPONENT } from "./types.js";
 import type { CardDef, CardInstance, GameState, Permanent, PlayerId, PlayerState } from "./types.js";
 
@@ -47,6 +47,9 @@ export function cardMatches(def: CardDef, filter: CardFilter): boolean {
   return filter.subtypes?.some((s) => (line.split("—")[1] ?? "").split(/\s+/).includes(s)) ?? false;
 }
 
+/** "Another target creature": fill in which permanent that means (the one the ability belongs to). */
+export const bindSpecs = (specs: TargetSpec[], sourceIid: string): TargetSpec[] => (specs.some((x) => x.other) ? specs.map((x) => (x.other ? { ...x, except: sourceIid } : x)) : specs);
+
 export const isArtifactDef = (def: CardDef) => def.type === "artifact" || (def.typeLine ?? "").split("—")[0].includes("Artifact");
 
 /** Cards that are put onto the battlefield when they resolve, instead of doing something and going to the graveyard. */
@@ -77,7 +80,14 @@ export function staticEffectsOn(s: GameState, target: Permanent): StaticEffect[]
   for (const owner of Object.values(s.players)) {
     for (const source of owner.battlefield) {
       for (const st of parseCard(getCard(s, source.card.defId)).statics ?? []) {
-        if (st.cond && (s.players[owner.id].drawnThisTurn ?? 0) < st.cond.drawnAtLeast) continue;
+        if (st.cond?.yourTurn && s.active !== owner.id) continue;
+        if (st.attackingOnly && !s.combat?.attackers.some((a) => a.attacker === target.card.iid)) continue;
+        if (st.cond?.drawnAtLeast !== undefined && (s.players[owner.id].drawnThisTurn ?? 0) < st.cond.drawnAtLeast) continue;
+        if (st.cond?.lifeAtLeast !== undefined && s.players[owner.id].life < st.cond.lifeAtLeast) continue;
+        if (st.subtypes) {
+          const line = (getCard(s, target.card.defId).typeLine ?? "").split("—")[1]?.toLowerCase().split(/\s+/) ?? [];
+          if (!st.subtypes.some((t) => line.includes(t))) continue;
+        }
         if (st.scope === "self") {
           if (source === target) out.push(st);
           continue;
@@ -108,15 +118,36 @@ export function dynamicCount(s: GameState, p: Permanent, spec: CountSpec): numbe
 }
 
 /** The count for a player: "the number of Mountains you control". */
-export function countFor(s: GameState, me: PlayerId, spec: CountSpec): number {
+export function countFor(s: GameState, me: PlayerId, spec: CountSpec, sourceIid?: string): number {
   if (spec.kind === "hand") return s.players[me].hand.length;
-  if (spec.kind === "graveyard") return s.players[me].graveyard.filter((c) => !spec.creaturesOnly || getCard(s, c.defId).type === "creature").length;
+  if (spec.kind === "graveyard") {
+    return s.players[me].graveyard.filter((c) => {
+      const type = getCard(s, c.defId).type;
+      return spec.spellsOnly ? type === "instant" || type === "sorcery" : !spec.creaturesOnly || type === "creature";
+    }).length;
+  }
+  if (spec.kind === "attackers") {
+    return (s.combat?.attackers ?? []).filter((a) => {
+      const perm = s.players[me].battlefield.find((p) => p.card.iid === a.attacker);
+      if (!perm || (spec.other && perm.card.iid === sourceIid)) return false;
+      return !spec.subtype || ((getCard(s, perm.card.defId).typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/).includes(spec.subtype);
+    }).length;
+  }
+  if (spec.kind === "opponents") return 1;
+  if (spec.kind === "toughnessGtPower") return s.players[me].battlefield.filter((p) => isCreature(s, p) && toughnessOf(s, p) > powerOf(s, p)).length;
+  if (spec.kind !== "permanents") return 0; // the other kinds need the context of the effect (see runEffects)
   let n = 0;
   for (const owner of Object.values(s.players)) {
     if (spec.scope === "you" && owner.id !== me) continue;
     if (spec.scope === "opponents" && owner.id === me) continue;
     for (const perm of owner.battlefield) {
       const def = getCard(s, perm.card.defId);
+      if (spec.other && perm.card.iid === sourceIid) continue;
+      if (spec.nontoken && isToken(perm.card)) continue;
+      if (spec.what === "subtype") {
+        if ((def.typeLine ?? "").split("—")[1]?.toLowerCase().split(/\s+/).includes(spec.subtype ?? "?")) n++;
+        continue;
+      }
       if (spec.what === "creature" ? def.type === "creature" : spec.what === "land" ? def.type === "land" : spec.what === "artifact" ? isArtifactDef(def) : spec.what === "enchantment" ? isEnchantmentDef(def) : def.type === "land" && (def.typeLine ?? "").includes(spec.landType ?? "?")) n++;
     }
   }
@@ -125,6 +156,7 @@ export function countFor(s: GameState, me: PlayerId, spec: CountSpec): number {
 
 /** Printed power or toughness; a "*" is worked out from the board. */
 function basePT(s: GameState, p: Permanent, which: "power" | "toughness"): number {
+  if (p.tempBase) return p.tempBase[which]; // "becomes a 4/4 until end of turn"
   const def = getCard(s, p.card.defId);
   const printed = def[which];
   if (printed !== undefined) return printed;
@@ -140,7 +172,8 @@ export const toughnessOf = (s: GameState, p: Permanent) =>
 
 /** Printed keywords plus ones granted until end of turn. */
 export const kw = (s: GameState, p: Permanent, keyword: Keyword) =>
-  hasKeyword(getCard(s, p.card.defId), keyword) || (p.tempKeywords ?? []).includes(keyword) || staticEffectsOn(s, p).some((st) => st.keywords.includes(keyword));
+  !(keyword === "defender" && p.tempNoDefender) && (
+  hasKeyword(getCard(s, p.card.defId), keyword) || (p.tempKeywords ?? []).includes(keyword) || staticEffectsOn(s, p).some((st) => st.keywords.includes(keyword)));
 
 export function findPermanentOrNull(state: GameState, iid: string): { owner: PlayerState; perm: Permanent } | null {
   for (const owner of Object.values(state.players)) {
@@ -183,6 +216,21 @@ export function playerToAct(state: GameState): PlayerId {
 
 export function changeLife(state: GameState, player: PlayerId, delta: number, events: GameEvent[]): void {
   if (delta === 0) return;
+  if (delta > 0) {
+    // "If you would gain life, you gain that much life plus 1" / "twice that much": the player's permanents change the amount.
+    for (const perm of state.players[player].battlefield) {
+      const parsed = parseCard(getCard(state, perm.card.defId));
+      if (parsed.lifeGainDouble) delta *= 2;
+    }
+    for (const perm of state.players[player].battlefield) delta += parseCard(getCard(state, perm.card.defId)).lifeGainPlus ?? 0;
+    state.players[player].lifeGainedThisTurn = (state.players[player].lifeGainedThisTurn ?? 0) + delta;
+    // "Enchanted creature has 'Whenever you gain life, put that many +1/+1 counters on this creature'" (Light of Promise)
+    for (const aura of [...state.players.p1.battlefield, ...state.players.p2.battlefield]) {
+      if (!aura.attachedTo || !parseCard(getCard(state, aura.card.defId)).hostGainLifeCounters) continue;
+      const host = state.players[player].battlefield.find((p) => p.card.iid === aura.attachedTo);
+      if (host) host.counters = (host.counters ?? 0) + delta;
+    }
+  }
   state.players[player].life += delta;
   events.push(delta > 0 ? { type: "lifeGained", player, amount: delta } : { type: "lifeLost", player, amount: -delta });
   if (delta > 0) onLifeGained(state, player);
@@ -193,8 +241,17 @@ export function onLifeGained(state: GameState, player: PlayerId): void {
   for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "lifeGained");
 }
 
-export function drawCards(state: GameState, player: PlayerId, count: number, events: GameEvent[]): void {
+/** A random number from 0 up to (not including) 1, taken from the game's seeded generator. */
+function rngNext(state: GameState): number {
+  const [r, next] = nextRandom(state.rng);
+  state.rng = next;
+  return r;
+}
+
+export function drawCards(state: GameState, player: PlayerId, count: number, events: GameEvent[], drawStep = false): void {
   const p = state.players[player];
+  // "If you would draw a card except the first one you draw in each of your draw steps, draw two cards instead."
+  if (!drawStep && p.battlefield.some((perm) => parseCard(getCard(state, perm.card.defId)).drawDouble)) count *= 2;
   for (let i = 0; i < count; i++) {
     const card = p.library.shift();
     if (!card) {
@@ -207,6 +264,7 @@ export function drawCards(state: GameState, player: PlayerId, count: number, eve
     for (const perm of p.battlefield) {
       queueTriggers(state, perm.card, player, "drawCard");
       if (p.drawnThisTurn === 2) queueTriggers(state, perm.card, player, "drawSecond");
+      if (p.drawnThisTurn === 5) queueTriggers(state, perm.card, player, "drawFifth");
     }
   }
 }
@@ -237,6 +295,7 @@ export function putIntoGraveyard(state: GameState, perm: Permanent, controller: 
   if (at < 0) return;
   battlefield.splice(at, 1);
   leaveCombat(state, perm);
+  creatureMoved(state, perm, controller, "leaves");
   releaseHeld(state, perm);
   if (!isToken(perm.card)) state.players[perm.card.owner].graveyard.push(perm.card);
   events.push({ type: "creatureDied", player: controller, iid: perm.card.iid });
@@ -256,6 +315,16 @@ function leaveCombat(state: GameState, perm: Permanent): void {
   if (state.combat) state.combat.attackers = state.combat.attackers.filter((a) => a.attacker !== perm.card.iid);
 }
 
+/** Cards in exile the player may play right now ("During any turn you attacked with ~, you may play that card"). */
+export function exilePlayable(state: GameState, player: PlayerId): CardInstance[] {
+  const me = state.players[player];
+  return (me.mayPlay ?? []).flatMap((entry) => {
+    const source = findPermanentOrNull(state, entry.source)?.perm;
+    const card = me.exile.find((c) => c.iid === entry.iid);
+    return source?.attackedThisTurn && card ? [card] : [];
+  });
+}
+
 /** "Until this leaves the battlefield": what it was keeping in exile comes back under its owner's control. */
 function releaseHeld(state: GameState, perm: Permanent): void {
   for (const card of perm.held ?? []) {
@@ -271,12 +340,13 @@ function releaseHeld(state: GameState, perm: Permanent): void {
 }
 
 /** Takes a permanent off the battlefield. Returns its card, or null for a token (which simply vanishes) or if it was gone. */
-function removeFromBattlefield(state: GameState, perm: Permanent, controller: PlayerId): CardInstance | null {
+export function removeFromBattlefield(state: GameState, perm: Permanent, controller: PlayerId): CardInstance | null {
   const battlefield = state.players[controller].battlefield;
   const at = battlefield.indexOf(perm);
   if (at < 0) return null;
   battlefield.splice(at, 1);
   leaveCombat(state, perm);
+  creatureMoved(state, perm, controller, "leaves");
   releaseHeld(state, perm);
   return isToken(perm.card) ? null : perm.card;
 }
@@ -300,34 +370,84 @@ export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerI
   const card: CardInstance = { iid: `tok${state.nextId++}`, defId, owner: controller };
   state.players[controller].battlefield.push({ card, tapped: false, summoningSick: spec.type === "creature", damage: 0 });
   events.push({ type: "permanentEntered", player: controller, iid: card.iid });
+  // "...tapped and attacking": the token joins the attack that is going on.
+  if (spec.tappedAttacking && state.combat && spec.type === "creature") {
+    const perm = state.players[controller].battlefield[state.players[controller].battlefield.length - 1];
+    perm.tapped = true;
+    state.combat.attackers.push({ attacker: card.iid, blockers: [] });
+  }
   if (spec.type === "creature") creatureEntered(state, card, controller);
+}
+
+/** Does an "intervening if" (and a spell-cast trigger's timing rules) hold right now? */
+function triggerCondHolds(state: GameState, controller: PlayerId, trigger: TriggeredAbility, extra?: { castCount?: number; byOpponent?: boolean; attackers?: string[] }, sourceIid?: string): boolean {
+  const p = state.players[controller];
+  const c = trigger.cond;
+  if (c?.lifeGainedAtLeast !== undefined && (p.lifeGainedThisTurn ?? 0) < c.lifeGainedAtLeast) return false;
+  if (c?.lifeAtLeast !== undefined && p.life < c.lifeAtLeast) return false;
+  if (c?.enchantedUntapped) {
+    const host = sourceIid ? findPermanentOrNull(state, sourceIid)?.perm.attachedTo : undefined;
+    const hostPerm = host ? findPermanentOrNull(state, host)?.perm : undefined;
+    if (!hostPerm || hostPerm.tapped) return false;
+  }
+  if (c?.controlsTypes && !p.battlefield.some((perm) => c.controlsTypes!.some((t) => (t === "artifact" ? isArtifactDef(getCard(state, perm.card.defId)) : t === "enchantment" ? isEnchantmentDef(getCard(state, perm.card.defId)) : getCard(state, perm.card.defId).type === t)))) return false;
+  if (trigger.opponentTurnOnly && state.active === controller) return false;
+  if (trigger.firstOnly && (extra?.castCount ?? 1) !== 1) return false;
+  if (trigger.byOpponent && !extra?.byOpponent) return false;
+  if (c?.attackPowerAtLeast !== undefined && (extra?.attackers ?? []).reduce((n, iid) => n + Math.max(0, (() => { const p = findPermanentOrNull(state, iid)?.perm; return p ? powerOf(state, p) : 0; })()), 0) < c.attackPowerAtLeast) return false;
+  if (trigger.attackerSubtypes) {
+    const line = (iid: string): string[] => {
+      const perm = findPermanentOrNull(state, iid)?.perm;
+      return perm ? ((getCard(state, perm.card.defId).typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/) : [];
+    };
+    if (!(extra?.attackers ?? []).some((iid) => trigger.attackerSubtypes!.some((t) => line(iid).includes(t)))) return false;
+  }
+  return true;
 }
 
 /** "Whenever another creature you control enters": the controller's other permanents with such a trigger. */
 export function creatureEntered(state: GameState, card: CardInstance, controller: PlayerId): void {
   const entering = state.players[controller].battlefield.find((p) => p.card.iid === card.iid);
+  if (entering) creatureMoved(state, entering, controller, "enters");
   for (const perm of state.players[controller].battlefield) {
     const def = getCard(state, perm.card.defId);
     for (const trigger of parseCard(def).triggers) {
       if (trigger.event !== "allyEnters") continue;
       if (trigger.other && perm.card.iid === card.iid) continue;
+      if (!trigger.subtypes && !(entering && isCreature(state, entering))) continue; // plain "another creature enters" is about creatures
+      if (trigger.nontoken && isToken(card)) continue;
+      if (trigger.subtypes && !trigger.subtypes.some((t) => ((getCard(state, card.defId).typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/).includes(t))) continue;
       if (trigger.maxPower !== undefined && entering && powerOf(state, entering) > trigger.maxPower) continue;
       state.triggerQueue.push({
-        specs: trigger.targets,
-        item: { kind: "ability", id: newId(state), controller, source: perm.card.iid, sourceName: def.name, effects: trigger.effects, targets: [], specs: trigger.targets, text: trigger.text },
+        specs: bindSpecs(trigger.targets, perm.card.iid),
+        item: { kind: "ability", id: newId(state), controller, source: perm.card.iid, sourceName: def.name, effects: trigger.effects, targets: [], specs: bindSpecs(trigger.targets, perm.card.iid), text: trigger.text, other: card.iid },
       });
     }
   }
 }
 
+/** "Whenever another creature enters" (any controller) and "whenever another creature you control leaves the battlefield". */
+function creatureMoved(state: GameState, perm: Permanent, controller: PlayerId, kind: "enters" | "leaves"): void {
+  if (!isCreature(state, perm)) return;
+  if (kind === "enters") {
+    for (const owner of Object.values(state.players)) {
+      for (const other of owner.battlefield) if (other.card.iid !== perm.card.iid) queueTriggers(state, other.card, owner.id, "anyCreatureEnters");
+    }
+  } else {
+    for (const other of state.players[controller].battlefield) if (other.card.iid !== perm.card.iid) queueTriggers(state, other.card, controller, "allyLeaves");
+  }
+}
+
 /** Queues the card's triggered abilities for `event`. They go on the stack when the game next settles. */
-export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"): void {
+export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; attackers?: string[] }): void {
   const def = getCard(state, card.defId);
   const triggers = parseCard(def).triggers;
   for (let n = 0; n < triggers.length; n++) {
     const trigger = triggers[n];
     if (trigger.event !== event) continue;
     if (trigger.ifKicked && !findPermanentOrNull(state, card.iid)?.perm.kicked) continue;
+    if (!triggerCondHolds(state, controller, trigger, extra, card.iid)) continue;
+    if (extra?.onlyOther && !trigger.usesOther) continue;
     if (trigger.oncePerTurn) {
       // "This ability triggers only once each turn": remembered like an ability used this turn (keys above 1000 are triggers).
       const perm = findPermanentOrNull(state, card.iid)?.perm;
@@ -335,7 +455,7 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
       if (perm) perm.usedAbilities = [...(perm.usedAbilities ?? []), 1000 + n];
     }
     state.triggerQueue.push({
-      specs: trigger.targets,
+      specs: bindSpecs(trigger.targets, card.iid),
       ...(trigger.modes ? { modes: trigger.modes } : {}),
       item: {
         kind: "ability",
@@ -345,8 +465,9 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
         sourceName: def.name,
         effects: trigger.effects,
         targets: [],
-        specs: trigger.targets,
+        specs: bindSpecs(trigger.targets, card.iid),
         text: trigger.text,
+        ...(extra?.other ? { other: extra.other } : {}),
       },
     });
   }
@@ -385,7 +506,7 @@ export function queueWard(state: GameState, item: StackItem): void {
     if (target.kind !== "permanent") return;
     const found = findPermanentOrNull(state, target.iid);
     // "When this becomes the target of a spell or ability, ...": a trigger for the permanent's controller.
-    if (found) queueTriggers(state, found.perm.card, found.owner.id, "becomesTarget");
+    if (found) queueTriggers(state, found.perm.card, found.owner.id, "becomesTarget", { byOpponent: item.controller !== found.owner.id });
     const ward = found ? parseCard(getCard(state, found.perm.card.defId)).ward : undefined;
     if (!found || !ward || found.owner.id === item.controller) return;
     const name = getCard(state, found.perm.card.defId).name;
@@ -420,9 +541,14 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (spec.source && isProtectedFrom(state, found.perm, spec.source)) return false;
       // Hexproof: only its controller can target it.
       if (found.owner.id !== controller && kw(state, found.perm, "hexproof")) return false;
+      if (spec.except && spec.except === choice.iid) return false; // "another target creature"
+      if (spec.subtype && !((def.typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/).includes(spec.subtype)) return false;
+      if (spec.notSubtype && ((def.typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/).includes(spec.notSubtype)) return false;
+      if (spec.mv && (spec.mv.op === "min" ? def.cost < spec.mv.n : def.cost > spec.mv.n)) return false;
       if (spec.kind === "permanent") {
-        // "enchant permanent", or "target nonland permanent an opponent controls"
+        // "enchant permanent", or "target nonland permanent an opponent controls", or "target creature or enchantment"
         if (spec.nonland && def.type === "land") return false;
+        if (spec.types && !spec.types.some((t) => (t === "creature" ? def.type === "creature" || found.perm.crewed === true : t === "artifact" ? isArtifactDef(def) : t === "enchantment" ? isEnchantmentDef(def) : def.type === t))) return false;
         if (spec.controller === "you" && found.owner.id !== controller) return false;
         if (spec.controller === "opponent" && found.owner.id === controller) return false;
         return true;
@@ -441,13 +567,14 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (spec.controller === "you" && found.owner.id !== controller) return false;
       if (spec.controller === "opponent" && found.owner.id === controller) return false;
       if (spec.filter === "tapped" && !found.perm.tapped) return false;
+      if (spec.toughness && (spec.toughness.op === "min" ? toughnessOf(state, found.perm) < spec.toughness.n : toughnessOf(state, found.perm) > spec.toughness.n)) return false;
       if (spec.notArtifact && isArtifactDef(def)) return false;
       if (spec.power && (spec.power.op === "min" ? powerOf(state, found.perm) < spec.power.n : powerOf(state, found.perm) > spec.power.n)) return false;
       if (spec.keyword && kw(state, found.perm, spec.keyword.name) !== spec.keyword.has) return false;
       if (spec.filter && spec.filter !== "tapped") {
         const attacking = state.combat?.attackers.some((a) => a.attacker === choice.iid) ?? false;
         const blocking = state.combat?.attackers.some((a) => a.blockers.includes(choice.iid)) ?? false;
-        if (spec.filter === "attacking" ? !attacking : !(attacking || blocking)) return false;
+        if (spec.filter === "attacking" ? !attacking : spec.filter === "blocking" ? !blocking : !(attacking || blocking)) return false;
       }
       return !spec.notColors?.some((c) => (def.colors ?? []).includes(c));
     }
@@ -459,9 +586,13 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (!owner || !card || (spec.kind === "graveyardCreature" ? type !== "creature" : type !== "instant" && type !== "sorcery")) return false;
       return spec.controller !== "you" || owner.id === controller;
     }
+    case "none":
+      return spec.optional === true;
     case "stack": {
       const item = state.stack.find((i) => i.id === choice.id && i.kind === "spell" && i.id !== ignoreStackId);
-      if (spec.kind !== "spell" || !item || item.kind !== "spell") return false;
+      if (!item || item.kind !== "spell") return false;
+      if (spec.orSpell) return true; // "target spell or permanent": any spell on the stack
+      if (spec.kind !== "spell") return false;
       if (!spec.spellKind) return true;
       const def = getCard(state, item.card.defId);
       const creature = def.type === "creature";
@@ -491,6 +622,7 @@ export function legalTargets(state: GameState, spec: TargetSpec, controller: Pla
     const choice: TargetChoice = { kind: "stack", id: item.id };
     if (isLegalTarget(state, spec, choice, controller, ignoreStackId)) out.push(choice);
   }
+  if (spec.optional) out.push({ kind: "none" }); // "up to one": choosing nothing is always possible
   return out;
 }
 
@@ -519,10 +651,14 @@ function subjectsOf(state: GameState, ref: Ref, ctx: RunContext): Subject[] {
       const found = findPermanentOrNull(state, ctx.sourceId);
       return found ? [{ k: "perm", perm: found.perm, owner: found.owner.id }] : [];
     }
-    case "allCreatures":
+    case "allCreatures": {
+      const skip = ref.except !== undefined && ctx.targets[ref.except]?.kind === "permanent" ? (ctx.targets[ref.except] as { iid: string }).iid : undefined;
       return Object.values(state.players)
         .filter((p) => ref.scope === "all" || (ref.scope === "yours") === (p.id === ctx.controller))
-        .flatMap((p) => p.battlefield.filter((perm) => isCreature(state, perm)).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
+        .flatMap((p) => p.battlefield.filter((perm) => isCreature(state, perm) && perm.card.iid !== skip && !(ref.noFlying && kw(state, perm, "flying")) && (!ref.subtype || ((getCard(state, perm.card.defId).typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/).includes(ref.subtype))).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
+    }
+    case "allPlaneswalkers":
+      return Object.values(state.players).flatMap((p) => p.battlefield.filter((perm) => isPlaneswalker(state, perm)).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
     case "ownerOf":
     case "controllerOf": {
       const choice = ctx.targets[ref.i];
@@ -539,8 +675,12 @@ function subjectsOf(state: GameState, ref: Ref, ctx: RunContext): Subject[] {
       const host = source?.attachedTo ? findPermanentOrNull(state, source.attachedTo) : null;
       return host ? [{ k: "perm", perm: host.perm, owner: host.owner.id }] : [];
     }
+    case "other": {
+      const found = ctx.other ? findPermanentOrNull(state, ctx.other) : null;
+      return found ? [{ k: "perm", perm: found.perm, owner: found.owner.id }] : [];
+    }
     case "attackingCreatures":
-      return (state.combat?.attackers ?? []).flatMap((a) => {
+      return (state.combat?.attackers ?? []).filter((a) => !(ref.other && a.attacker === ctx.sourceId)).flatMap((a) => {
         const found = findPermanentOrNull(state, a.attacker);
         return found ? [{ k: "perm", perm: found.perm, owner: found.owner.id } as Subject] : [];
       });
@@ -554,7 +694,7 @@ function subjectsOf(state: GameState, ref: Ref, ctx: RunContext): Subject[] {
       const choice = ctx.targets[ref.i];
       const spec = ctx.specs[ref.i];
       // A target that is no longer legal (it died, left, or was countered) is simply skipped.
-      if (!choice || !spec || !isLegalTarget(state, spec, choice, ctx.controller, ctx.stackId)) return [];
+      if (!choice || !spec || choice.kind === "none" || !isLegalTarget(state, spec, choice, ctx.controller, ctx.stackId)) return [];
       if (choice.kind === "player") return [{ k: "player", id: choice.id }];
       if (choice.kind === "card") {
         const owner = Object.values(state.players).find((p) => p.graveyard.some((c) => c.iid === choice.iid));
@@ -580,7 +720,14 @@ export function dealDamage(
   events: GameEvent[],
 ): void {
   if (amount <= 0) return;
+  // "Prevent all noncombat damage that would be dealt to you and creatures you control."
+  const victim = target.k === "player" ? target.id : isPlaneswalker(state, target.perm) ? undefined : findPermanentOrNull(state, target.perm.card.iid)?.owner.id;
+  if (victim && state.players[victim].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).preventNoncombat)) {
+    events.push({ type: "effect", text: `The damage to ${target.k === "player" ? playerLabel(target.id) : nameOf(state, target.perm)} is prevented.` });
+    return;
+  }
   if (target.k === "player") {
+    if (state.players[source.controller].doubleDamage && target.id !== source.controller) amount *= 2; // "it deals double that damage instead"
     changeLife(state, target.id, -amount, events);
   } else if (isPlaneswalker(state, target.perm)) {
     target.perm.loyalty = (target.perm.loyalty ?? 0) - amount; // damage to a planeswalker removes that much loyalty
@@ -599,7 +746,36 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
   const source = findPermanentOrNull(state, ctx.sourceId)?.perm;
   const trait = { name: ctx.sourceName, controller: ctx.controller, deathtouch: source ? kw(state, source, "deathtouch") : false, lifelink: source ? kw(state, source, "lifelink") : false };
   const say = (text: string) => events.push({ type: "effect", text });
-  const value = (amount: Amount): number => (amount === "X" ? (ctx.x ?? 0) : typeof amount === "object" ? countFor(state, ctx.controller, amount.count) : amount);
+  const value = (amount: Amount): number => {
+    if (amount === "X") return ctx.x ?? 0;
+    if (typeof amount !== "object") return amount;
+    const c = amount.count;
+    const self = findPermanentOrNull(state, ctx.sourceId)?.perm;
+    const chosen = (iid?: string) => (iid ? findPermanentOrNull(state, iid)?.perm : undefined);
+    const n =
+      c.kind === "selfPower" ? (self ? Math.max(0, powerOf(state, self)) : 0)
+      : c.kind === "selfCounters" ? (self?.counters ?? 0)
+      : c.kind === "targetPower" ? (() => {
+          const t = ctx.targets[c.i];
+          const p = t?.kind === "permanent" ? chosen(t.iid) : undefined;
+          return p ? Math.max(0, powerOf(state, p)) : 0;
+        })()
+      : c.kind === "otherToughness" ? (() => {
+          const p = chosen(ctx.other);
+          return p ? Math.max(0, toughnessOf(state, p)) : 0;
+        })()
+      : c.kind === "ifOtherSubtype" ? (() => {
+          const p = chosen(ctx.other);
+          const types = p ? ((getCard(state, p.card.defId).typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/) : [];
+          return types.includes(c.subtype) ? c.yes : c.no;
+        })()
+      : c.kind === "otherPower" ? (() => {
+          const p = chosen(ctx.other);
+          return p ? Math.max(0, powerOf(state, p)) : 0;
+        })()
+      : countFor(state, ctx.controller, c, ctx.sourceId);
+    return n * (amount.times ?? 1);
+  };
   const preventRegen = effects.some((e) => e.type === "noRegen"); // "It can't be regenerated" is part of this spell
   // Remember who controls each target now, so "its controller" still works once it has been destroyed.
   if (!ctx.lki) {
@@ -670,6 +846,13 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
 
       case "bounce":
         for (const s of subjectsOf(state, effect.what, ctx)) {
+          if (s.k === "stack" && s.item.kind === "spell") {
+            // "Return target spell to its owner's hand": it leaves the stack without resolving.
+            state.stack.splice(state.stack.indexOf(s.item), 1);
+            state.players[s.item.card.owner].hand.push(s.item.card);
+            say(`${getCard(state, s.item.card.defId).name} returns to its owner's hand.`);
+            continue;
+          }
           if (s.k !== "perm") continue;
           const card = removeFromBattlefield(state, s.perm, s.owner);
           if (card) {
@@ -773,6 +956,191 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
         break;
       }
 
+      case "sacOnDamage":
+        for (const s of subjectsOf(state, effect.what, ctx)) {
+          if (s.k === "perm") s.perm.sacOnDamage = true;
+        }
+        break;
+
+      case "revealPut": {
+        const library = state.players[ctx.controller].library;
+        const top = library.splice(0, effect.n);
+        const keep = top.filter((c) => cardMatches(getCard(state, c.defId), effect.filter) && getCard(state, c.defId).cost <= effect.maxMV);
+        const rest = top.filter((c) => !keep.includes(c));
+        for (const card of keep) {
+          state.players[ctx.controller].battlefield.push({ card, tapped: false, summoningSick: true, damage: 0 });
+          events.push({ type: "permanentEntered", player: ctx.controller, iid: card.iid });
+          queueTriggers(state, card, ctx.controller, "enters");
+          creatureEntered(state, card, ctx.controller);
+        }
+        const [ordered, rng] = shuffle(rest, state.rng);
+        state.rng = rng;
+        library.push(...ordered);
+        say(`${playerLabel(ctx.controller)} reveals the top ${effect.n} cards and puts ${keep.length} onto the battlefield.`);
+        break;
+      }
+
+      case "grantIfPowerBelow":
+        for (const perm of state.players[ctx.controller].battlefield) {
+          if (!isCreature(state, perm) || powerOf(state, perm) >= (ctx.x ?? 0)) continue;
+          perm.tempKeywords = [...(perm.tempKeywords ?? []), effect.keyword];
+        }
+        say(`Creatures with power less than ${ctx.x ?? 0} gain ${effect.keyword} until end of turn.`);
+        break;
+
+      case "doubleDamage":
+        state.players[ctx.controller].doubleDamage = true;
+        say(`Damage ${playerLabel(ctx.controller)}'s sources deal to an opponent is doubled this turn.`);
+        break;
+
+      case "exileTop": {
+        const library = state.players[ctx.controller].library;
+        const card = library.shift();
+        if (!card) break;
+        state.players[ctx.controller].exile.push(card);
+        if (effect.playIfAttacked) (state.players[ctx.controller].mayPlay ??= []).push({ iid: card.iid, source: ctx.sourceId });
+        say(`${playerLabel(ctx.controller)} exiles the top card of their library.`);
+        break;
+      }
+
+      case "blink":
+        for (const s of subjectsOf(state, effect.what, ctx)) {
+          if (s.k !== "perm") continue;
+          const card = removeFromBattlefield(state, s.perm, s.owner);
+          if (!card) continue;
+          // It comes back as a new object: no counters, damage or attachments, and its "enters" abilities trigger again.
+          state.players[card.owner].battlefield.push({ card, tapped: false, summoningSick: true, damage: 0 });
+          events.push({ type: "permanentEntered", player: card.owner, iid: card.iid });
+          queueTriggers(state, card, card.owner, "enters");
+          if (getCard(state, card.defId).type === "creature") creatureEntered(state, card, card.owner);
+          say(`${getCard(state, card.defId).name} is exiled and returns to the battlefield.`);
+        }
+        break;
+
+      case "scryIfMV": {
+        const t = ctx.targets[effect.what.t === "target" ? effect.what.i : 0];
+        const iid = t?.kind === "permanent" ? t.iid : undefined;
+        const card = iid ? Object.values(state.players).flatMap((p) => [...p.hand, ...p.graveyard, ...p.library, ...p.exile]).find((c) => c.iid === iid) : undefined;
+        if (!card || getCard(state, card.defId).cost > effect.max || state.pendingPick) break;
+        const top = state.players[ctx.controller].library.slice(0, effect.n);
+        if (top.length === 0) break;
+        startPick({
+          player: ctx.controller,
+          prompt: `Scry ${top.length}: choose a card to put on the bottom of your library, or keep it on top`,
+          kind: "scry",
+          options: top.map((c) => c.iid),
+          optional: true,
+          owner: ctx.controller,
+          remaining: top.length,
+          ordered: [],
+        });
+        break;
+      }
+
+      case "noGroundBlock":
+        state.noGroundBlock = true;
+        say("Creatures without flying can't block this turn.");
+        break;
+
+      case "setBase":
+        for (const s of subjectsOf(state, effect.what, ctx)) {
+          if (s.k !== "perm") continue;
+          s.perm.tempBase = { power: effect.power, toughness: effect.toughness };
+          say(`${nameOf(state, s.perm)} becomes ${effect.power}/${effect.toughness} until end of turn.`);
+        }
+        break;
+
+      case "loseDefender":
+        for (const s of subjectsOf(state, effect.what, ctx)) {
+          if (s.k === "perm") s.perm.tempNoDefender = true;
+        }
+        break;
+
+      case "winGame":
+        state.winner = ctx.controller;
+        events.push({ type: "gameWon", player: ctx.controller });
+        break;
+
+      case "bounceOwn": {
+        const mine = state.players[ctx.controller].battlefield.filter((p) => isCreature(state, p) && !(effect.other && p.card.iid === ctx.sourceId));
+        if (mine.length === 0 || state.pendingPick) break;
+        startPick({
+          player: ctx.controller,
+          prompt: `${ctx.sourceName}: choose ${effect.other ? "another creature" : "a creature"} you control to return to its owner's hand`,
+          kind: "bounceOwn",
+          options: mine.map((p) => p.card.iid),
+          optional: false,
+          owner: ctx.controller,
+          remaining: 1,
+          ordered: [],
+        });
+        break;
+      }
+
+      case "mayPay": {
+        // "You may pay {1}. If you do, ...": nothing to ask when the cost can't be paid.
+        const cost = parseManaCost(effect.cost);
+        if (!cost || state.pendingPick || !payMana(state, ctx.controller, cost).ok) break;
+        startPick({
+          player: ctx.controller,
+          prompt: `${ctx.sourceName}: pay ${effect.cost}?`,
+          kind: "mayPay",
+          options: ["pay"],
+          optional: true,
+          owner: ctx.controller,
+          remaining: 1,
+          ordered: [],
+          wardCost: effect.cost,
+          thenEffects: effect.then,
+          thenCtx: ctx,
+          ...(effect.thenSpecs ? { thenSpecs: effect.thenSpecs } : {}),
+        });
+        break;
+      }
+
+      case "drawUnlessPay": {
+        // The opponent who cast the spell may pay; otherwise the controller draws.
+        const payer = OPPONENT[ctx.controller];
+        const cost = parseManaCost(effect.cost);
+        if (!cost || state.pendingPick) break;
+        if (!payMana(state, payer, cost).ok) {
+          drawCards(state, ctx.controller, 1, events);
+          say(`${playerLabel(payer)} can't pay ${effect.cost}: ${playerLabel(ctx.controller)} draws a card.`);
+          break;
+        }
+        startPick({
+          player: payer,
+          prompt: `${ctx.sourceName}: pay ${effect.cost}, or ${playerLabel(ctx.controller)} draws a card`,
+          kind: "tax",
+          options: ["pay"],
+          optional: true,
+          owner: payer,
+          remaining: 1,
+          ordered: [],
+          wardCost: effect.cost,
+          taxFor: ctx.controller,
+        });
+        break;
+      }
+
+      case "tapOrUntap": {
+        for (const s of subjectsOf(state, effect.what, ctx)) {
+          if (s.k !== "perm" || state.pendingPick) continue;
+          startPick({
+            player: ctx.controller,
+            prompt: `${nameOf(state, s.perm)}: tap it or untap it?`,
+            kind: "toggle",
+            options: ["tap", "untap"],
+            optional: true,
+            owner: ctx.controller,
+            remaining: 1,
+            ordered: [],
+            toggleIid: s.perm.card.iid,
+          });
+        }
+        break;
+      }
+
       case "sacrifice":
         for (const s of subjectsOf(state, effect.what, ctx)) {
           if (s.k !== "perm") continue;
@@ -821,13 +1189,14 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
         if (hand.length === 0 || state.pendingPick) break;
         startPick({
           player: ctx.controller,
-          prompt: "You may discard a card. If you do, draw a card.",
+          prompt: effect.toBottom ? "You may put a card from your hand on the bottom of your library. If you do, draw a card." : "You may discard a card. If you do, draw a card.",
           kind: "rummage",
           options: hand.map((c) => c.iid),
           optional: true,
           owner: ctx.controller,
           remaining: 1,
           ordered: [],
+          ...(effect.toBottom ? { restToGraveyard: false, randomBottom: false, bottomIids: ["bottom"] } : {}),
         });
         break;
       }
@@ -900,8 +1269,11 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
 
       case "createToken": {
         const n = value(effect.amount);
-        for (let i = 0; i < n; i++) makeToken(state, effect.token, ctx.controller, events);
-        if (n > 0) say(`${playerLabel(ctx.controller)} creates ${plural(n, `${effect.token.name} token`)}.`);
+        // "Its controller creates a 1/1 token": the player is not always the one who cast the spell.
+        const who = effect.who ? (subjectsOf(state, effect.who, ctx).find((s) => s.k === "player") as { k: "player"; id: PlayerId } | undefined)?.id : ctx.controller;
+        if (!who) break;
+        for (let i = 0; i < n; i++) makeToken(state, effect.token, who, events);
+        if (n > 0) say(`${playerLabel(who)} creates ${plural(n, `${effect.token.name} token`)}.`);
         break;
       }
 
@@ -937,6 +1309,17 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
           const hand = state.players[s.id].hand;
           const count = Math.min(effect.amount, hand.length);
           if (count === 0) continue;
+          if (effect.chooser === "random") {
+            // "Discard three cards at random": no choice to make.
+            const iids: string[] = [];
+            for (let i = 0; i < count; i++) {
+              const at = Math.floor(rngNext(state) * hand.length);
+              iids.push(hand[at].iid);
+              state.players[s.id].graveyard.push(...hand.splice(at, 1));
+            }
+            events.push({ type: "cardsDiscarded", player: s.id, iids });
+            continue;
+          }
           if (effect.chooser === "victim" && count >= hand.length) {
             // Nothing to choose: the whole hand goes.
             const iids = hand.map((c) => c.iid);
@@ -1019,23 +1402,25 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
 
       case "search": {
         if (state.pendingPick) break;
-        const library = state.players[ctx.controller].library;
+        // "Its controller may search": usually the player of the effect, sometimes another one (Path to Exile).
+        const searcher = effect.who ? ((subjectsOf(state, effect.who, ctx).find((s) => s.k === "player") as { k: "player"; id: PlayerId } | undefined)?.id ?? ctx.controller) : ctx.controller;
+        const library = state.players[searcher].library;
         const any = effect.for === "any";
         const seen = new Set<string>();
         const options = library.filter((c) => (any || isBasicLand(getCard(state, c.defId))) && (any || (!seen.has(c.defId) && seen.add(c.defId)))).map((c) => c.iid);
         if (options.length === 0) {
-          [state.players[ctx.controller].library, state.rng] = shuffle(library, state.rng);
+          [state.players[searcher].library, state.rng] = shuffle(library, state.rng);
           break;
         }
         const toHand = effect.to === "hand";
         startPick({
-          player: ctx.controller,
+          player: searcher,
           prompt: toHand ? `Search your library: choose a ${any ? "card" : "basic land"} to put into your hand` : `Search your library: choose a basic land to put onto the battlefield${effect.tapped === false ? "" : " tapped"}`,
           kind: toHand ? "searchAny" : "searchLand",
           entersTapped: effect.tapped !== false,
           options,
           optional: true,
-          owner: ctx.controller,
+          owner: searcher,
           remaining: 1,
           ordered: [],
         });
@@ -1077,14 +1462,72 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
         for (const s of subjectsOf(state, effect.what, ctx)) if (s.k === "perm") s.perm.tapped = effect.type === "tap";
         break;
 
-      case "pump":
+      case "pump": {
+        // "gets +1/+0 for each other attacking Goblin": the amount is multiplied by a count
+        const times = effect.per ? value({ count: effect.per }) : 1;
+        const dp = effect.power * times;
+        const dt = effect.toughness * times;
         for (const s of subjectsOf(state, effect.what, ctx)) {
           if (s.k !== "perm") continue;
           noteTempSource(s.perm, ctx);
-          s.perm.powerBonus = (s.perm.powerBonus ?? 0) + effect.power;
-          s.perm.toughnessBonus = (s.perm.toughnessBonus ?? 0) + effect.toughness;
+          s.perm.powerBonus = (s.perm.powerBonus ?? 0) + dp;
+          s.perm.toughnessBonus = (s.perm.toughnessBonus ?? 0) + dt;
           const sign = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
-          say(`${nameOf(state, s.perm)} gets ${sign(effect.power)}/${sign(effect.toughness)} until end of turn.`);
+          say(`${nameOf(state, s.perm)} gets ${sign(dp)}/${sign(dt)} until end of turn.`);
+        }
+        break;
+      }
+
+      case "assignByToughness":
+        for (const s of subjectsOf(state, effect.what, ctx)) {
+          if (s.k !== "perm") continue;
+          s.perm.damageByToughness = true;
+          say(`${nameOf(state, s.perm)} assigns combat damage equal to its toughness this turn.`);
+        }
+        break;
+
+      case "ifSubtypeGrant":
+        for (const s of subjectsOf(state, effect.what, ctx)) {
+          if (s.k !== "perm") continue;
+          const types = ((getCard(state, s.perm.card.defId).typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/);
+          if (!types.includes(effect.subtype)) continue;
+          s.perm.tempKeywords = [...(s.perm.tempKeywords ?? []), effect.keyword];
+          say(`${nameOf(state, s.perm)} gains ${effect.keyword} until end of turn.`);
+        }
+        break;
+
+      case "tapForBonus": {
+        const source = findPermanentOrNull(state, ctx.sourceId);
+        const options = state.players[ctx.controller].battlefield.filter((p) => isCreature(state, p) && !p.tapped && p.card.iid !== ctx.sourceId).map((p) => p.card.iid);
+        if (!source || options.length === 0 || state.pendingPick) break;
+        startPick({
+          player: ctx.controller,
+          prompt: `${ctx.sourceName}: tap any number of your untapped creatures. It gets +1/+1 for each one (click "Done" when you have enough).`,
+          kind: "tapSome",
+          options,
+          optional: true,
+          owner: ctx.controller,
+          remaining: options.length,
+          ordered: [],
+          toggleIid: ctx.sourceId,
+        });
+        break;
+      }
+
+      case "libraryChoice":
+        for (const s of subjectsOf(state, effect.what, ctx)) {
+          if (s.k !== "perm" || state.pendingPick) continue;
+          startPick({
+            player: s.owner,
+            prompt: `${nameOf(state, s.perm)}: put it on the top or the bottom of its owner's library?`,
+            kind: "topBottom",
+            options: ["top", "bottom"],
+            optional: false,
+            owner: s.owner,
+            remaining: 1,
+            ordered: [],
+            toggleIid: s.perm.card.iid,
+          });
         }
         break;
 
@@ -1100,7 +1543,11 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
       case "counter":
         for (const s of subjectsOf(state, effect.what, ctx)) {
           if (s.k !== "stack") continue;
-          if (s.item.kind === "spell" && parseCard(getCard(state, s.item.card.defId)).cantBeCountered) {
+          const shielded = s.item.kind === "spell" && state.players[s.item.controller].battlefield.some((p) => {
+            const min = parseCard(getCard(state, p.card.defId)).uncounterableMinMV;
+            return min !== undefined && getCard(state, (s.item as { card: CardInstance }).card.defId).cost >= min;
+          });
+          if (s.item.kind === "spell" && (shielded || parseCard(getCard(state, s.item.card.defId)).cantBeCountered)) {
             say(`${getCard(state, s.item.card.defId).name} can't be countered.`);
             continue;
           }

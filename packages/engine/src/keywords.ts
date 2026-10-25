@@ -52,7 +52,7 @@ export const hasKeyword = (def: CardDef, keyword: Keyword): boolean =>
 /** Keywords that are just labels for a line the text reader handles itself ("Enchant creature"). */
 const LABELS = new Set([
   "enchant", "cycling", "regenerate", "scry", "mill", "surveil", "devoid", "partner", "changeling", "landwalk",
-  "treasure", "battalion", "food", "investigate", "equip", "landcycling", "typecycling", "basic landcycling", "kicker", "flashback", "protection", "landfall", "ward", "crew",
+  "treasure", "battalion", "pack tactics", "double", "food", "investigate", "equip", "landcycling", "typecycling", "basic landcycling", "kicker", "flashback", "protection", "landfall", "ward", "crew",
   "heal", "fight", "swampwalk", "islandwalk", "forestwalk", "mountainwalk", "plainswalk",
 ]);
 

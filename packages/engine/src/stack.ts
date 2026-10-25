@@ -25,6 +25,9 @@ import {
   findPermanentOrNull,
   creatureEntered,
   cardMatches,
+  bindSpecs,
+  removeFromBattlefield,
+  exilePlayable,
 } from "./core.js";
 import type { CardFilter, StackItem, TargetChoice, TargetSpec } from "./effects.js";
 import { hasKeyword } from "./keywords.js";
@@ -131,20 +134,39 @@ function shiftTargets<T>(value: T, offset: number): T {
   return value;
 }
 
-/** What a card costs to cast right now: the printed cost, less any reduction its text gives ("costs {1} less if you control a Wizard"). */
+/**
+ * What a card costs to cast right now: the printed cost, less what its own text gives ("costs {1} less if you control a Wizard",
+ * "for each spell your opponents have cast this turn") and what the caster's permanents give ("Goblin spells you cast cost {1} less").
+ */
 export function castCostOf(state: GameState, player: PlayerId, def: CardDef): ReturnType<typeof manaCostOf> {
   const base = manaCostOf(def);
-  const cut = base ? parseCard(def).costReduction : undefined;
-  if (!base || !cut) return base;
-  const has = state.players[player].battlefield.some((p) => (getCard(state, p.card.defId).typeLine ?? "").split("—")[1]?.toLowerCase().split(/\s+/).includes(cut.ifControl));
-  return has ? { ...base, generic: Math.max(0, base.generic - cut.n) } : base;
+  if (!base) return base;
+  const me = state.players[player];
+  const subtypesOf = (d: CardDef) => ((d.typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/);
+  let less = 0;
+  const own = parseCard(def).costReduction;
+  if (own) {
+    if (own.ifControl && me.battlefield.some((p) => subtypesOf(getCard(state, p.card.defId)).includes(own.ifControl!))) less += own.n;
+    if (own.ifFlyer && me.battlefield.some((p) => isCreature(state, p) && kw(state, p, "flying"))) less += own.n;
+    if (own.perOpponentSpell) less += own.n * (state.players[OPPONENT[player]].spellsCastThisTurn ?? 0);
+  }
+  for (const perm of me.battlefield) {
+    for (const mod of parseCard(getCard(state, perm.card.defId)).costMods ?? []) {
+      if (mod.subtype && !(def.type === "creature" && subtypesOf(def).includes(mod.subtype))) continue;
+      if (mod.minMV !== undefined && def.cost < mod.minMV) continue;
+      if (mod.otherTurn && state.active === player) continue;
+      less += mod.n;
+    }
+  }
+  return less > 0 ? { ...base, generic: Math.max(0, base.generic - less) } : base;
 }
 
-export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" = "hand", modes?: number[], sacrifice?: string): string | null {
+export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" = "hand", modes?: number[], sacrifice?: string): string | null {
   const me = state.players[player];
-  const zone = from === "graveyard" ? me.graveyard : me.hand;
+  const zone = from === "graveyard" ? me.graveyard : from === "exile" ? me.exile : me.hand;
   const idx = zone.findIndex((c) => c.iid === iid);
-  if (idx < 0) return from === "graveyard" ? "That card is not in your graveyard." : "That card is not in your hand.";
+  if (idx < 0) return from === "graveyard" ? "That card is not in your graveyard." : from === "exile" ? "That card is not in exile." : "That card is not in your hand.";
+  if (from === "exile" && !exilePlayable(state, player).some((c) => c.iid === iid)) return "You can't play that exiled card right now: attack with the creature that exiled it first.";
   const def = getCard(state, zone[idx].defId);
   if (def.type === "land") return "Lands are played, not cast.";
   if (!isPermanentCard(def) && def.type !== "instant" && def.type !== "sorcery") return `${def.name} can't be cast yet.`;
@@ -187,11 +209,20 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   let sacrificed: ReturnType<typeof findPermanentOrNull> = null;
   if (parsed.extraSacrifice) {
     sacrificed = sacrifice ? findPermanentOrNull(state, sacrifice) : null;
-    if (!sacrificed || sacrificed.owner.id !== player || !isCreature(state, sacrificed.perm)) return `${def.name}: choose a creature you control to sacrifice.`;
+    const typed = parsed.extraSacrificeType;
+    const fits = (perm: Permanent) => isCreature(state, perm) && (!typed || (((getCard(state, perm.card.defId).typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/).includes(typed)));
+    if (!sacrificed || sacrificed.owner.id !== player || !fits(sacrificed.perm)) return `${def.name}: choose a ${typed ?? "creature"} you control to sacrifice.`;
   } else if (sacrifice) {
     return `${def.name} has no sacrifice cost.`;
   }
-  const paid = payMana(state, player, withX(kicked && kickerCost ? addCosts(cost, kickerCost) : cost, x));
+  // "Spells your opponents cast that target this cost {2} more to cast."
+  let tax = 0;
+  for (const t of targets) {
+    const hit = t.kind === "permanent" ? findPermanentOrNull(state, t.iid) : null;
+    if (hit && hit.owner.id !== player) tax += parseCard(getCard(state, hit.perm.card.defId)).targetTax ?? 0;
+  }
+  const taxed = tax > 0 ? { ...cost, generic: cost.generic + tax } : cost;
+  const paid = payMana(state, player, withX(kicked && kickerCost ? addCosts(taxed, kickerCost) : taxed, x), def);
   if (!paid.ok) {
     const price = from === "graveyard" ? `flashback ${parsed.flashback}` : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "");
     return paid.missing === "life"
@@ -209,6 +240,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   }
 
   const [card] = zone.splice(idx, 1);
+  if (from === "exile") me.mayPlay = (me.mayPlay ?? []).filter((e) => e.iid !== iid);
   state.stack.push({ kind: "spell", id: newId(state), controller: player, card, effects, targets, specs, x: cost.x ? x : (sacrificedPower ?? x), ...(kicked ? { kicked } : {}), ...(from === "graveyard" ? { flashback: true } : {}) });
   events.push(
     def.type === "creature"
@@ -219,7 +251,20 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   // Prowess and friends: "whenever you cast a noncreature spell".
   if (def.type !== "creature") for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "noncreatureSpell");
   if (def.type === "instant" || def.type === "sorcery") for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "instantOrSorcery");
+  me.spellsCastThisTurn = (me.spellsCastThisTurn ?? 0) + 1;
+  for (const perm of me.battlefield) queueTriggers(state, perm.card, player, "youCast", { castCount: me.spellsCastThisTurn });
+  for (const perm of state.players[OPPONENT[player]].battlefield) queueTriggers(state, perm.card, OPPONENT[player], "opponentCasts");
   openRound(state, OPPONENT[player]);
+  return null;
+}
+
+/** Two untapped creatures you control that share a creature type (to pay "Tap two untapped creatures that share a creature type"). */
+function tapPair(state: GameState, player: PlayerId): [Permanent, Permanent] | null {
+  const mine = state.players[player].battlefield.filter((p) => isCreature(state, p) && !p.tapped);
+  const types = (p: Permanent) => ((getCard(state, p.card.defId).typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/).filter(Boolean);
+  for (let i = 0; i < mine.length; i++) {
+    for (let j = i + 1; j < mine.length; j++) if (types(mine[i]).some((t) => types(mine[j]).includes(t))) return [mine[i], mine[j]];
+  }
   return null;
 }
 
@@ -261,6 +306,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
   if (ability.sorceryOnly && !sorceryTiming(state, player)) return `${def.name}'s ability can only be activated as a sorcery: in your main phase with nothing on the stack.`;
   if (ability.oncePerTurn && found.perm.usedAbilities?.includes(index)) return `${def.name}'s ability can only be activated once each turn.`;
   if (ability.yourTurnOnly && state.active !== player) return `${def.name}'s ability can only be activated during your turn.`;
+  if (ability.minLife !== undefined && state.players[player].life < ability.minLife) return `${def.name}'s ability needs you to have at least ${ability.minLife} life.`;
   if (forbidden(state, found.perm, "noActivated")) return `${def.name}'s abilities can't be activated.`;
 
   if (ability.tap) {
@@ -269,7 +315,8 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
       return `${def.name} just arrived and can't use an ability that taps it.`;
     }
   }
-  const targetError = checkTargets(state, ability.targets, targets, player, def.name);
+  const abilitySpecs = bindSpecs(ability.targets, iid);
+  const targetError = checkTargets(state, abilitySpecs, targets, player, def.name);
   if (targetError) return targetError;
 
   if (ability.mana) {
@@ -293,6 +340,17 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
       }
     }
   }
+  if (ability.tapTwoSharing) {
+    const pair = tapPair(state, player);
+    if (!pair) return `${def.name}: you need two untapped creatures that share a creature type.`;
+    pair.forEach((p) => (p.tapped = true));
+  }
+  if (ability.exileFromYard) {
+    // "Exile two cards from your graveyard": the oldest ones go.
+    const yard = state.players[player].graveyard;
+    if (yard.length < ability.exileFromYard) return `${def.name}: you need ${ability.exileFromYard} cards in your graveyard.`;
+    state.players[player].exile.push(...yard.splice(0, ability.exileFromYard));
+  }
   if (ability.payLife) {
     if (state.players[player].life < ability.payLife) return `Not enough life to pay ${ability.payLife}.`;
     changeLife(state, player, -ability.payLife, events);
@@ -309,6 +367,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
   if (ability.tap) found.perm.tapped = true;
   if (ability.oncePerTurn) found.perm.usedAbilities = [...(found.perm.usedAbilities ?? []), index];
   // "Sacrifice this permanent" is part of the cost: it is gone before the ability goes on the stack.
+  const sacrificedPower = ability.sacrifice && onBoard ? Math.max(0, powerOf(state, found.perm)) : undefined;
   if (ability.sacrifice) {
     putIntoGraveyard(state, found.perm, player, events);
     checkStateBasedActions(state, events);
@@ -322,8 +381,9 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     sourceName: def.name,
     effects: ability.effects,
     targets,
-    specs: ability.targets,
+    specs: abilitySpecs,
     text: ability.text,
+    ...(sacrificedPower !== undefined ? { x: sacrificedPower } : {}),
   });
   events.push({ type: "abilityActivated", player, iid, name: def.name, text: ability.text });
   queueWard(state, state.stack[state.stack.length - 1]);
@@ -339,7 +399,7 @@ export interface Castable {
   /** The spell has X in its cost: the most the player can pay for X right now (0 or more). Missing when it has no X. */
   maxX?: number;
   /** Set when the card is in the graveyard and can be cast from there with flashback. */
-  zone?: "graveyard";
+  zone?: "graveyard" | "exile";
   /** "Sacrifice a creature" is an additional cost: the creatures that could be sacrificed. */
   sacrifice?: string[];
   /** A "Choose one —" spell: each mode with what it targets and whether it could be chosen right now. */
@@ -351,32 +411,35 @@ export interface Castable {
 /** Cards in hand the player could cast right now: right timing, enough mana, and a legal target for each need. */
 export function getCastable(state: GameState, player: PlayerId): Castable[] {
   const out: Castable[] = [];
-  for (const card of state.players[player].hand) {
+  const fromExile = new Set(exilePlayable(state, player).map((c) => c.iid)); // "you may play that card" (Goblin Researcher)
+  for (const card of [...state.players[player].hand, ...exilePlayable(state, player)]) {
     const def = getCard(state, card.defId);
     if (!isPermanentCard(def) && def.type !== "instant" && def.type !== "sorcery") continue;
     const parsed = parseCard(def);
     const cost = castCostOf(state, player, def);
     if (!parsed.ok || !cost || !canCastNow(state, player, def)) continue;
-    if (!payMana(state, player, withX(cost, 0)).ok) continue;
+    if (!payMana(state, player, withX(cost, 0), def).ok) continue;
     const specs = parsed.spell?.targets ?? [];
     const modal = parsed.spell?.modal;
     const modeInfo = modal ? modal.modes.map((m) => ({ text: m.text, specs: m.targets, available: m.targets.every((spec) => legalTargets(state, spec, player).length > 0) })) : undefined;
     if (modeInfo ? !modeInfo.some((m) => m.available) : specs.some((spec) => legalTargets(state, spec, player).length === 0)) continue;
     const kickerCost = parsed.kicker ? parseManaCost(parsed.kicker) : null;
-    const kickable = kickerCost !== null && payMana(state, player, addCosts(cost, kickerCost)).ok ? { kicker: parsed.kicker } : {};
+    const kickable = kickerCost !== null && payMana(state, player, addCosts(cost, kickerCost), def).ok ? { kicker: parsed.kicker } : {};
     const modalPart = modal && modeInfo ? { modal: { min: modal.min, max: modal.max, modes: modeInfo } } : {};
     if (parsed.extraSacrifice) {
-      const options = state.players[player].battlefield.filter((p) => isCreature(state, p)).map((p) => p.card.iid);
+      const typed = parsed.extraSacrificeType;
+      const options = state.players[player].battlefield.filter((p) => isCreature(state, p) && (!typed || (((getCard(state, p.card.defId).typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/).includes(typed)))).map((p) => p.card.iid);
       if (options.length === 0) continue;
       Object.assign(modalPart, { sacrifice: options });
     }
+    const zonePart = fromExile.has(card.iid) ? { zone: "exile" as const } : {};
     if (!cost.x) {
-      out.push({ iid: card.iid, specs, ...kickable, ...modalPart });
+      out.push({ iid: card.iid, specs, ...kickable, ...modalPart, ...zonePart });
       continue;
     }
     let maxX = 0;
-    while (maxX < 30 && payMana(state, player, withX(cost, maxX + 1)).ok) maxX++;
-    out.push({ iid: card.iid, specs, maxX, ...kickable, ...modalPart });
+    while (maxX < 30 && payMana(state, player, withX(cost, maxX + 1), def).ok) maxX++;
+    out.push({ iid: card.iid, specs, maxX, ...kickable, ...modalPart, ...zonePart });
   }
   // Flashback: instants and sorceries in the graveyard, for their flashback cost.
   for (const card of state.players[player].graveyard) {
@@ -384,7 +447,7 @@ export function getCastable(state: GameState, player: PlayerId): Castable[] {
     if (def.type !== "instant" && def.type !== "sorcery") continue;
     const parsed = parseCard(def);
     const cost = parsed.flashback ? parseManaCost(parsed.flashback) : null;
-    if (!parsed.ok || !cost || !canCastNow(state, player, def) || !payMana(state, player, cost).ok) continue;
+    if (!parsed.ok || !cost || !canCastNow(state, player, def) || !payMana(state, player, cost, def).ok) continue;
     const specs = parsed.spell?.targets ?? [];
     if (parsed.spell?.modal || specs.some((spec) => legalTargets(state, spec, player).length === 0)) continue;
     out.push({ iid: card.iid, specs, zone: "graveyard" });
@@ -560,7 +623,7 @@ export function getActivatable(state: GameState, player: PlayerId): Activatable[
           if (!cost || !payMana(state, player, cost).ok) return;
         }
         if (ability.payLife && state.players[player].life < ability.payLife) return;
-        if (ability.targets.some((spec) => legalTargets(state, spec, player).length === 0)) return;
+        if (bindSpecs(ability.targets, card.iid).some((spec) => legalTargets(state, spec, player).length === 0)) return;
         if (ability.sorceryOnly && !sorceryTiming(state, player)) return;
         if (ability.yourTurnOnly && state.active !== player) return;
         if (ability.costCard && costChoices(state, player, ability, card.iid).length === 0) return;
@@ -577,13 +640,16 @@ export function getActivatable(state: GameState, player: PlayerId): Activatable[
         const cost = parseManaCost(ability.mana);
         if (!cost || !payMana(state, player, cost).ok) return;
       }
-      if (ability.targets.some((spec) => legalTargets(state, spec, player).length === 0)) return;
+      if (bindSpecs(ability.targets, perm.card.iid).some((spec) => legalTargets(state, spec, player).length === 0)) return;
       if (ability.sorceryOnly && !sorceryTiming(state, player)) return;
       if (ability.oncePerTurn && perm.usedAbilities?.includes(index)) return;
       if (ability.yourTurnOnly && state.active !== player) return;
+      if (ability.minLife !== undefined && state.players[player].life < ability.minLife) return;
+      if (ability.exileFromYard && state.players[player].graveyard.length < ability.exileFromYard) return;
+      if (ability.tapTwoSharing && !tapPair(state, player)) return;
       if (forbidden(state, perm, "noActivated")) return;
       if (ability.costCard && costChoices(state, player, ability, perm.card.iid).length === 0) return;
-      out.push({ iid: perm.card.iid, index, text: ability.text, specs: ability.targets, ...(ability.costCard ? { costChoices: costChoices(state, player, ability, perm.card.iid), costLabel: ability.costCard.label } : {}) });
+      out.push({ iid: perm.card.iid, index, text: ability.text, specs: bindSpecs(ability.targets, perm.card.iid), ...(ability.costCard ? { costChoices: costChoices(state, player, ability, perm.card.iid), costLabel: ability.costCard.label } : {}) });
     });
   }
   return out;
@@ -608,7 +674,7 @@ function enterBattlefield(state: GameState, card: CardInstance, controller: Play
   const entered = state.players[controller].battlefield[state.players[controller].battlefield.length - 1];
   askColor(state, entered, controller);
   queueTriggers(state, card, controller, "enters");
-  if (printed.type === "creature") creatureEntered(state, card, controller);
+  creatureEntered(state, card, controller); // (for other permanents only triggers about their type apply, e.g. "a Cartouche you control enters")
 }
 
 function resolveTop(state: GameState, events: GameEvent[]): void {
@@ -640,7 +706,7 @@ function resolveTop(state: GameState, events: GameEvent[]): void {
   } else {
     const allIllegal = item.specs.length > 0 && item.targets.every((t, i) => !isLegalTarget(state, item.specs[i], t, item.controller));
     if (!allIllegal) {
-      runEffects(state, item.effects, { controller: item.controller, sourceId: item.source, sourceName: item.sourceName, sourceDefId: findPermanentOrNull(state, item.source)?.perm.card.defId, targets: item.targets, specs: item.specs, stackId: item.id }, events);
+      runEffects(state, item.effects, { controller: item.controller, sourceId: item.source, sourceName: item.sourceName, sourceDefId: findPermanentOrNull(state, item.source)?.perm.card.defId, targets: item.targets, specs: item.specs, stackId: item.id, ...(item.other ? { other: item.other } : {}), ...(item.x !== undefined ? { x: item.x } : {}) }, events);
     }
   }
   checkStateBasedActions(state, events);
@@ -780,6 +846,94 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     return null;
   }
 
+  if (pick.kind === "mayPay") {
+    // "You may pay {1}. If you do, ...": paying runs the rest.
+    const cost = pick.wardCost ? parseManaCost(pick.wardCost) : null;
+    if (iid === "pay" && cost && pick.thenEffects && pick.thenCtx) {
+      const paid = payMana(state, player, cost);
+      if (paid.ok) {
+        applyPayment(state, player, paid, events);
+        state.pendingPick = null;
+        if (pick.thenSpecs) {
+          // "When you do, ... target ...": a new ability goes on the stack, and its target is chosen now.
+          state.triggerQueue.push({
+            specs: pick.thenSpecs,
+            item: { kind: "ability", id: newId(state), controller: player, source: pick.thenCtx.sourceId, sourceName: pick.thenCtx.sourceName, effects: pick.thenEffects, targets: [], specs: pick.thenSpecs, text: `${pick.thenCtx.sourceName}: when you paid`, ...(pick.thenCtx.other ? { other: pick.thenCtx.other } : {}) },
+          });
+        } else {
+          runEffects(state, pick.thenEffects, pick.thenCtx, events);
+          checkStateBasedActions(state, events);
+        }
+        finish();
+        return null;
+      }
+    }
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "tax") {
+    const cost = pick.wardCost ? parseManaCost(pick.wardCost) : null;
+    const paid = iid === "pay" && cost ? payMana(state, player, cost) : null;
+    if (paid?.ok) applyPayment(state, player, paid, events);
+    else if (pick.taxFor) drawCards(state, pick.taxFor, 1, events);
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "tapSome") {
+    // Each click taps one more creature and makes the source 1/1 bigger; "Done" (no card) ends it.
+    if (iid === undefined) {
+      finish();
+      return null;
+    }
+    const creature = owner.battlefield.find((p) => p.card.iid === iid);
+    const source = findPermanentOrNull(state, pick.toggleIid ?? "");
+    if (!creature || !pick.options.includes(iid)) return "Choose one of your untapped creatures.";
+    creature.tapped = true;
+    if (source) {
+      source.perm.powerBonus = (source.perm.powerBonus ?? 0) + 1;
+      source.perm.toughnessBonus = (source.perm.toughnessBonus ?? 0) + 1;
+    }
+    pick.options = pick.options.filter((o) => o !== iid);
+    if (pick.options.length > 0) return null;
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "topBottom") {
+    const found = findPermanentOrNull(state, pick.toggleIid ?? "");
+    if (!found || (iid !== "top" && iid !== "bottom")) return "Choose the top or the bottom.";
+    const card = removeFromBattlefield(state, found.perm, found.owner.id);
+    if (card) {
+      const library = state.players[card.owner].library;
+      if (iid === "top") library.unshift(card);
+      else library.push(card);
+      events.push({ type: "effect", text: `${getCard(state, card.defId).name} is put on the ${iid} of its owner's library.` });
+    }
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "bounceOwn") {
+    const found = iid ? findPermanentOrNull(state, iid) : null;
+    if (!found || !pick.options.includes(iid!)) return "Choose one of your creatures.";
+    removeFromBattlefield(state, found.perm, found.owner.id);
+    found.owner.hand.push(found.perm.card);
+    events.push({ type: "effect", text: `${getCard(state, found.perm.card.defId).name} returns to its owner's hand.` });
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "toggle") {
+    if (iid === "tap" || iid === "untap") {
+      const target = findPermanentOrNull(state, pick.toggleIid ?? "");
+      if (target) target.perm.tapped = iid === "tap";
+    }
+    finish();
+    return null;
+  }
+
   if (pick.kind === "revealToHand") {
     // Take the chosen card (or none), then every other card that was looked at goes to the bottom.
     if (iid !== undefined) {
@@ -817,8 +971,12 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       break;
     }
     case "rummage": {
-      owner.graveyard.push(take(owner.hand, iid));
-      events.push({ type: "cardsDiscarded", player: pick.owner, iids: [iid] });
+      if (pick.bottomIids?.[0] === "bottom") {
+        owner.library.push(take(owner.hand, iid)); // "put a card from your hand on the bottom of your library"
+      } else {
+        owner.graveyard.push(take(owner.hand, iid));
+        events.push({ type: "cardsDiscarded", player: pick.owner, iids: [iid] });
+      }
       drawCards(state, pick.owner, 1, events);
       break;
     }

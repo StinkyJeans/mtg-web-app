@@ -277,7 +277,7 @@ function invariants(s: GameState, initial: Record<PlayerId, number>): string[] {
     const p = s.pendingPick;
     const where = new Set([...s.players[p.owner].hand, ...s.players[p.owner].library, ...s.players[p.owner].battlefield.map((x) => x.card)].map((c) => c.iid));
     // ward ("pay") and mode (an index) picks aren't cards
-    if (p.kind !== "ward" && p.kind !== "mode" && p.kind !== "color") for (const o of p.options) if (!where.has(o)) problems.push(`a pick offers ${o}, which is not in the hand, library or battlefield`);
+    if (!["ward", "mode", "color", "mayPay", "tax", "toggle", "topBottom"].includes(p.kind)) for (const o of p.options) if (!where.has(o)) problems.push(`a pick offers ${o}, which is not in the hand, library or battlefield`);
   }
   if (s.priority && s.stack.length === 0 && !s.priority.then && !s.pendingPick && !s.pendingChoice) problems.push("priority is open with an empty stack and nothing to do next");
   return problems;
