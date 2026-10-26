@@ -143,7 +143,7 @@ test("Act of Treason: you gain control, untap it, it has haste, and it goes back
   // it can attack right away
   g.phase = "attackers";
   const attack = act(g, "p1", { type: "declareAttackers", attackers: ["t0"] });
-  assert.equal(attack.phase, "blockers");
+  assert.equal(attack.players.p2.life, 18);
   // at the end of the turn it returns
   const back = { ...g, phase: "end" as const };
   const next = act(back, "p1", { type: "passPhase" });

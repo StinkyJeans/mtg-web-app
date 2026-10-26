@@ -105,10 +105,10 @@ test("prevent all combat damage", () => {
   g.phase = "attackers";
   g.players.p1.hand = [];
   g.players.p2.hand = [{ iid: "o0", defId: "fog", owner: "p2" }];
-  g = settle(act(g, "p1", { type: "declareAttackers", attackers: ["m0"] }));
+  g = act(g, "p1", { type: "declareAttackers", attackers: ["m0"] });
+  assert.equal(g.priority?.holder, "p2", "the defender can respond to the attack");
   g = act(g, "p2", { type: "castSpell", iid: "o0", targets: [] });
   g = settle(g);
-  g = settle(act(g, "p2", { type: "declareBlockers", blocks: [] }));
   assert.equal(g.players.p2.life, 20);
 });
 
@@ -131,11 +131,10 @@ test("can't be blocked by creatures with power 2 or less", () => {
   let g = setup([], [], ["mist"]);
   g.phase = "attackers";
   g.active = "p2";
-  g = settle(act(g, "p2", { type: "declareAttackers", attackers: ["t0"] }));
-  g.players.p1.battlefield.push(perm("bb", "bear"));
-  assert.equal(applyAction(g, "p1", { type: "declareBlockers", blocks: [{ blocker: "bb", attacker: "t0" }] }).ok, false);
   g.cards.bigbear = creature("bigbear", 3, 3);
-  g.players.p1.battlefield.push(perm("big", "bigbear"));
+  g.players.p1.battlefield.push(perm("bb", "bear"), perm("big", "bigbear"));
+  g = settle(act(g, "p2", { type: "declareAttackers", attackers: ["t0"] }));
+  assert.equal(applyAction(g, "p1", { type: "declareBlockers", blocks: [{ blocker: "bb", attacker: "t0" }] }).ok, false);
   assert.equal(applyAction(g, "p1", { type: "declareBlockers", blocks: [{ blocker: "big", attacker: "t0" }] }).ok, true);
 });
 
@@ -151,8 +150,6 @@ test("combat damage to a player trigger", () => {
   let g = setup([], ["tosk"]);
   g.phase = "attackers";
   g = settle(act(g, "p1", { type: "declareAttackers", attackers: ["m0"] }));
-  g = settle(act(g, "p2", { type: "declareBlockers", blocks: [] }));
-  g = settle(g);
   assert.equal(g.players.p2.life, 18);
   assert.equal(find(g, "m0")?.counters, 1);
 });
@@ -213,8 +210,8 @@ test("all creatures able to block it do so", () => {
   let g = setup([], [], ["lure"]);
   g.phase = "attackers";
   g.active = "p2";
-  g = settle(act(g, "p2", { type: "declareAttackers", attackers: ["t0"] }));
   g.players.p1.battlefield.push(perm("b1", "bear"), perm("b2", "bear"));
+  g = settle(act(g, "p2", { type: "declareAttackers", attackers: ["t0"] }));
   assert.equal(applyAction(g, "p1", { type: "declareBlockers", blocks: [] }).ok, false, "nobody blocks: not allowed");
   assert.equal(applyAction(g, "p1", { type: "declareBlockers", blocks: [{ blocker: "b1", attacker: "t0" }] }).ok, false, "one is still free");
   assert.equal(applyAction(g, "p1", { type: "declareBlockers", blocks: [{ blocker: "b1", attacker: "t0" }, { blocker: "b2", attacker: "t0" }] }).ok, true);

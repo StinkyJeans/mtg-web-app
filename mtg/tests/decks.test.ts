@@ -1,11 +1,23 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { deckColors, deckStatus, expandDeck, mixEntries, setName } from "@/lib/decks";
+import { countIds, deckColors, deckStatus, expandDeck, mixEntries, setName } from "@/lib/decks";
+import { isRandomDeck, keptDeckName } from "@/lib/randomDeck";
 import { DEFS } from "./fixtures";
 
 test("a deck becomes one card id per copy", () => {
   assert.deepEqual(expandDeck({ bears: 2, mountain: 1 }), ["bears", "bears", "mountain"]);
   assert.deepEqual(expandDeck({}), []);
+});
+
+test("one card id per copy counts back into a deck", () => {
+  assert.deepEqual(countIds(["bears", "mountain", "bears"]), { bears: 2, mountain: 1 });
+  assert.deepEqual(countIds(expandDeck({ shock: 3, forest: 2 })), { shock: 3, forest: 2 });
+});
+
+test("a random deck is recognised by its name, and kept without the word Random", () => {
+  assert.equal(isRandomDeck("Random Red/Green deck"), true);
+  assert.equal(isRandomDeck("Angels"), false);
+  assert.equal(keptDeckName("Random Red/Green deck"), "Red/Green deck");
 });
 
 test("a legal deck of playable cards is ready", () => {

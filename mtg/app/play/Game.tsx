@@ -25,7 +25,7 @@ import { leaveRoom, send as netSend, useOnline } from "@/lib/online/session";
 import CardDetail, { CardImage, Lightbox } from "./CardDetail";
 import type { Inspected } from "./CardDetail";
 import CoinFlip from "./CoinFlip";
-import { isCombatPlaying, playCombat } from "./combatFx";
+import { attackersIn, isCombatPlaying, playCombat } from "./combatFx";
 import { ResignDialog, VictoryDialog } from "./EndDialogs";
 import { GraveyardDialog, Pile } from "./Piles";
 import { handDraws, hideDrawn, isPileBusy, playDeal, playDraws, playToGraveyard } from "./pileFx";
@@ -58,7 +58,11 @@ import CommandBar, { primaryAction } from "./CommandBar";
 import HandRow from "./HandRow";
 import HotSeatSetup, { useHotSeatDecks } from "./HotSeatSetup";
 import type { DeckPair } from "./HotSeatSetup";
+import { KeepRandomDecks } from "./SaveDeck";
+import type { PlayedDeck } from "./SaveDeck";
 import StepBanner from "./StepBanner";
+import { playGameSounds } from "./gameSounds";
+import { unlockSound } from "@/lib/sound";
 import { useOnlineMatch } from "./useOnlineMatch";
 
 const newSeed = () => Date.now() % 2_147_483_647;
@@ -151,7 +155,11 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [pending, setPending] = useState<DeckPair | null>(null);
   const [localDeckNames, setDeckNames] = useState<Record<PlayerId, string>>({ p1: "", p2: "" });
   const deckNames = online && net.game ? net.game.deckNames : localDeckNames; // shown on each library
+  const [localDecks, setLocalDecks] = useState<Partial<Record<PlayerId, PlayedDeck>>>({});
+  const [savedDecks, setSavedDecks] = useState<Partial<Record<PlayerId, string>>>({}); // random decks kept in My decks: the copy's id
   const hotSeat = useHotSeatDecks(!online);
+
+  useEffect(() => unlockSound(), []);
 
   useEffect(() => {
     gameRef.current = game;
@@ -238,6 +246,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             resetSelection();
             setPending(null);
             setDeckNames(pending.names);
+            setLocalDecks({ p1: { name: pending.names.p1, ids: pending.decks.p1 }, p2: { name: pending.names.p2, ids: pending.decks.p2 } });
+            setSavedDecks({});
             setHistory([]);
             setAnnouncements([]);
           });
@@ -257,6 +267,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   /** Hot-seat: always true. Online: only while the game is waiting for this player. */
   const mine = !online || playerToAct(state) === actor;
   const other = OPPONENT[actor];
+  // Online the server only tells each player their own deck.
+  const playedDecks: Partial<Record<PlayerId, PlayedDeck>> = online ? (net.game?.deck ? { [actor]: net.game.deck } : {}) : localDecks;
+  const keepDeck = (who: PlayerId, id: string) => setSavedDecks((s) => ({ ...s, [who]: id }));
   const legal = getLegalActions(state, actor);
   const playable = new Set(legal.flatMap((a) => (a.type === "playLand" || a.type === "castCreature" || a.type === "castSpell" ? [a.iid] : [])));
   const possibleAttackers = getPossibleAttackers(state);
@@ -331,9 +344,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     }
     r.state.players[as].spareMana = undefined;
     // Combat damage: play the attack on the board as it is now, then show the result.
-    if (state.combat && r.events.some((e) => e.type === "combatDamage")) {
-      await playCombat(r.events, state.combat.attackers.map((a) => a.attacker));
-    }
+    const fought = attackersIn(state, r.events);
+    if (fought.length > 0) await playCombat(r.events, fought);
     await commit(r);
     setError(null);
   }
@@ -343,9 +355,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    * the cards that were drawn fly out of the library, turn over in the middle and land in the hand.
    */
   async function commit(r: { state: GameState; events: GameEvent[] }) {
+    const viewer = seat ?? playerToAct(r.state);
+    playGameSounds(r.events, online ? viewer : null);
     const gone = r.events.flatMap((e) => (e.type === "creatureDied" ? [e.iid] : e.type === "cardsDiscarded" ? e.iids : []));
     await playToGraveyard(gone);
-    const viewer = seat ?? playerToAct(r.state);
     // Only the viewer's own cards are animated: the opponent's hand is just a count, so their draw or mulligan
     // would fly across this screen as if it were the viewer's.
     const draws: Draw[] = state.phase === "mulligan" ? [] : r.events.flatMap((e) => {
@@ -639,6 +652,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         {/* You: bottom left */}
         <div className="shrink-0">
           <PlayersPanel state={state} order={[actor]} actor={actor} onResign={setResigning} heading="You" />
+          <KeepRandomDecks className="mt-2" decks={{ [actor]: playedDecks[actor] }} saved={savedDecks} onSaved={keepDeck} label={() => "Save my random deck"} />
         </div>
       </aside>
 
@@ -841,6 +855,16 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           reason={endNote ?? (online ? net.snapshot?.endReason ?? null : null)}
           onPlayAgain={startGame}
           you={online ? actor : undefined}
+          keep={
+            <KeepRandomDecks
+              className="mt-4"
+              decks={playedDecks}
+              saved={savedDecks}
+              onSaved={keepDeck}
+              label={(who) => (online ? "Save my random deck" : `Save ${playerName(who)}'s deck`)}
+              note={online ? "Liked your random cards?" : "Liked the random cards?"}
+            />
+          }
           onLeave={
             online
               ? () => {

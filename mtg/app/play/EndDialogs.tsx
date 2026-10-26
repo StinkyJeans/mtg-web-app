@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import type { ReactNode } from "react";
 import Link from "next/link";
 import type { PlayerId } from "@mtg/engine";
 import { OPPONENT } from "@mtg/engine";
@@ -44,7 +45,23 @@ export function ResignDialog({ player, onConfirm, onCancel }: { player: PlayerId
 }
 
 /** Shown when the game ends: "You win!" for the winner, with confetti. */
-export function VictoryDialog({ winner, reason, onPlayAgain, you, onLeave }: { winner: PlayerId | "draw"; reason: string | null; onPlayAgain: () => void; /** Online: which player is looking at the screen. */ you?: PlayerId; onLeave?: () => void }) {
+export function VictoryDialog({
+  winner,
+  reason,
+  onPlayAgain,
+  you,
+  onLeave,
+  keep,
+}: {
+  winner: PlayerId | "draw";
+  reason: string | null;
+  onPlayAgain: () => void;
+  /** Online: which player is looking at the screen. */
+  you?: PlayerId;
+  onLeave?: () => void;
+  /** Buttons to keep the random decks that were played. */
+  keep?: ReactNode;
+}) {
   const lost = you !== undefined && winner !== "draw" && winner !== you;
   return (
     <>
@@ -56,6 +73,7 @@ export function VictoryDialog({ winner, reason, onPlayAgain, you, onLeave }: { w
           <h2 className="mt-2 text-5xl font-extrabold text-amber-600">{winner === "draw" ? "Draw!" : lost ? "You lost" : "You win!"}</h2>
           <p className="mt-2 text-lg font-semibold text-zinc-900">{winner === "draw" ? "It's a draw" : lost ? `${playerName(winner)} wins this one` : `Congratulations, ${playerName(winner)}`}</p>
           {reason && <p className="mt-1 text-zinc-600">{reason}</p>}
+          {keep}
           <div className="mt-6 flex justify-center gap-3">
             {onLeave ? (
               <button onClick={onLeave} className="rounded-lg bg-amber-500 px-6 py-3 font-semibold text-black hover:bg-amber-400">

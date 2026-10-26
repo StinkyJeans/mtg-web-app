@@ -1,5 +1,6 @@
-import type { GameEvent } from "@mtg/engine";
+import type { GameEvent, GameState } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
+import { playSound } from "@/lib/sound";
 
 // Combat animation. Attackers lunge at what they are hitting: a blocking creature (it recoils) or the
 // defending player's life total (it flashes). It works on the page itself, using two markers:
@@ -211,7 +212,9 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
     { duration: LUNGE_MS, easing: "linear" },
   );
 
+  playSound("charge", (LUNGE_MS * 0.16) / 1000); // as it leaves the wind-up
   await waitUntil(motion, LUNGE_MS * IMPACT_AT);
+  playSound(targetIsPlayer ? "hit" : "clash");
   impactBurst(contact.x, contact.y);
   const attackerNow = new DOMRect(end.x - width / 2, end.y - height / 2, width, height);
   for (const hit of hits) {
@@ -237,13 +240,23 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
   attacker.style.visibility = "";
 }
 
+/** The creatures that fought in this update: the combat on the board, or one declared and fought at once because nothing could block. */
+export function attackersIn(before: GameState | null | undefined, events: GameEvent[]): string[] {
+  if (!events.some((e) => e.type === "combatDamage")) return [];
+  if (before?.combat) return before.combat.attackers.map((a) => a.attacker);
+  return events.flatMap((e) => (e.type === "attackersDeclared" ? e.attackers : []));
+}
+
 /**
  * Plays the animation for the combat damage in `events`, then resolves. `attackerIds` are the creatures that
  * attacked. Resolves immediately if the player turned animations off, or if the cards can't be found.
  */
 export async function playCombat(events: GameEvent[], attackerIds: string[]): Promise<void> {
-  if (!animationsEnabled()) return;
   const hits = events.filter((e): e is Hit => e.type === "combatDamage");
+  if (!animationsEnabled()) {
+    if (hits.length > 0) playSound(hits.some((h) => isPlayer(h.target)) ? "hit" : "clash");
+    return;
+  }
 
   // One charge per attacker: at the creature blocking it, or (when nobody blocked it) at the player's life total.
   type Charge = { run: () => Promise<void>; unblocked: boolean };

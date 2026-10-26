@@ -485,7 +485,10 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
   // (power and toughness equal to the cards in your hand) dies as soon as that count drops, not at some later point.
   if (!next.winner) checkStateBasedActions(next, events);
   settle(next, events, onContinue);
-  return { ok: true, state: next, events };
+  if (lureProbe || !nothingCanBlock(next)) return { ok: true, state: next, events };
+  // The defending player has no block to make, so the blockers step is declared for them and combat carries on to damage.
+  const skipped = applyAction(next, OPPONENT[next.active], { type: "declareBlockers", blocks: [] });
+  return skipped.ok ? { ok: true, state: skipped.state, events: [...events, ...skipped.events] } : { ok: true, state: next, events };
 }
 
 /** iids of creatures the active player could attack with right now. */
@@ -519,14 +522,33 @@ export function getForcedBlocks(state: GameState): { blocker: string; attacker: 
   return out;
 }
 
-/** Can this creature block that attacker by itself? (A one-block trial of the declare-blockers rules.) */
-function ableToBlock(state: GameState, defender: PlayerId, blocker: string, attacker: string): boolean {
+/** Are these blocks legal by themselves? (A trial of the declare-blockers rules that doesn't demand lure or must-be-blocked blocks.) */
+function legalBlocks(state: GameState, defender: PlayerId, blocks: Block[]): boolean {
   lureProbe = true;
   try {
-    return applyAction(state, defender, { type: "declareBlockers", blocks: [{ blocker, attacker }] }).ok;
+    return applyAction(state, defender, { type: "declareBlockers", blocks }).ok;
   } finally {
     lureProbe = false;
   }
+}
+
+/** Can this creature block that attacker by itself? */
+const ableToBlock = (state: GameState, defender: PlayerId, blocker: string, attacker: string): boolean => legalBlocks(state, defender, [{ blocker, attacker }]);
+
+/** The blockers step is waiting on the defending player, and no creature of theirs could block any attacker. */
+function nothingCanBlock(state: GameState): boolean {
+  if (state.winner || state.phase !== "blockers" || !state.combat || state.priority || state.pendingChoice || state.pendingPick) return false;
+  const defender = OPPONENT[state.active];
+  const blockers = getPossibleBlockers(state);
+  if (blockers.length === 0) return true;
+  // "Can't block alone" only blocks alongside another creature: too many combinations to try, so the player decides.
+  if (blockers.length >= 2 && blockers.some((b) => parseCard(getCard(state, findPermanent(state, b).perm.card.defId)).cantAttackAlone)) return false;
+  const pairs = blockers.flatMap((b, i) => blockers.slice(i + 1).map((c) => [b, c]));
+  return !state.combat.attackers.some(({ attacker }) => {
+    if (blockers.some((b) => ableToBlock(state, defender, b, attacker))) return true;
+    // Menace: one blocker alone is refused, two together may not be.
+    return kw(state, findPermanent(state, attacker).perm, "menace") && pairs.some(([b, c]) => legalBlocks(state, defender, [{ blocker: b, attacker }, { blocker: c, attacker }]));
+  });
 }
 
 /**

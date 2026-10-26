@@ -167,7 +167,7 @@ test("'Activate only as a sorcery' and 'only once each turn'", () => {
 // ───────── attacking and blocking rules ─────────
 
 test("'Attacks each combat if able': you can't skip the attack or leave it out", () => {
-  const g = setup([], ["rager", "bear"]);
+  const g = setup([], ["rager", "bear"], ["bear"]);
   g.phase = "attackers";
   assert.match(refuses(g, "p1", { type: "passPhase" }), /attacks each combat/);
   assert.match(refuses(g, "p1", { type: "declareAttackers", attackers: ["m1"] }), /attacks each combat/);

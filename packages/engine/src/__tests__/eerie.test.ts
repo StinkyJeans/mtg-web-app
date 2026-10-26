@@ -182,8 +182,7 @@ test("Silent Hallcreeper: each mode once, and it can become a copy that keeps it
   let g = setup([], ["creeper", "ogre"]);
   const attack = (s: GameState) => {
     s.phase = "attackers";
-    s = act(s, "p1", { type: "declareAttackers", attackers: ["m0"] });
-    return settle(act(s, "p2", { type: "declareBlockers", blocks: [] }));
+    return settle(act(s, "p1", { type: "declareAttackers", attackers: ["m0"] }));
   };
   g = attack(g);
   assert.equal(g.pendingPick?.kind, "mode");

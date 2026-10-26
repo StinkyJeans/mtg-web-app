@@ -118,7 +118,5 @@ test("a creature that can't be blocked can't be blocked", () => {
   if (!r.ok) return;
   const blocked = applyAction(r.state, "p2", { type: "declareBlockers", blocks: [{ blocker: "b", attacker: "a" }] });
   assert.equal(blocked.ok, false);
-  r = applyAction(r.state, "p2", { type: "declareBlockers", blocks: [] });
-  assert.ok(r.ok);
-  if (r.ok) assert.equal(r.state.players.p2.life, 18);
+  assert.equal(r.state.players.p2.life, 18, "nothing could block it, so it went straight to damage");
 });

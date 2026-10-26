@@ -4,6 +4,7 @@ import { useEffect, useState, useSyncExternalStore } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { animationsEnabled, setAnimationsEnabled } from "@/lib/motion";
+import { playSound, setSoundEnabled, soundEnabled } from "@/lib/sound";
 import { setTheme } from "@/lib/theme";
 import type { Theme } from "@/lib/theme";
 
@@ -12,6 +13,7 @@ export default function UserBar() {
   const router = useRouter();
   const [username, setUsername] = useState<string | null>(null);
   const [animations, setAnimations] = useState(animationsEnabled);
+  const [sound, setSound] = useState(soundEnabled);
   // The page already carries its theme (set before it was drawn); this just follows it.
   const theme = useSyncExternalStore(
     (cb) => {
@@ -49,6 +51,18 @@ export default function UserBar() {
         className="rounded-md border border-white/20 bg-white/10 px-2 py-1 transition hover:bg-white/20"
       >
         Animations: <span className={animations ? "font-semibold text-[#6ee7b7]" : "font-semibold text-slate-400"}>{animations ? "On" : "Off"}</span>
+      </button>
+      <button
+        onClick={() => {
+          setSoundEnabled(!sound);
+          setSound(!sound);
+          if (!sound) playSound("draw"); // a sample, so the player hears it is on
+        }}
+        aria-pressed={sound}
+        title="Turn the game's sound effects on or off"
+        className="rounded-md border border-white/20 bg-white/10 px-2 py-1 transition hover:bg-white/20"
+      >
+        Sound: <span className={sound ? "font-semibold text-[#6ee7b7]" : "font-semibold text-slate-400"}>{sound ? "On" : "Off"}</span>
       </button>
       <button
         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}

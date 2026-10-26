@@ -90,9 +90,7 @@ test("creatures can attack a planeswalker: unblocked damage removes loyalty", ()
   let g = setup([], ["bear"], ["scorcher"]);
   find(g, "t0")!.loyalty = 3;
   g.phase = "attackers";
-  g = act(g, "p1", { type: "declareAttackers", attackers: ["m0"], targets: { m0: "t0" } });
-  g = act(g, "p2", { type: "declareBlockers", blocks: [] });
-  g = settle(g);
+  g = settle(act(g, "p1", { type: "declareAttackers", attackers: ["m0"], targets: { m0: "t0" } }));
   assert.equal(find(g, "t0")!.loyalty, 1);
   assert.equal(g.players.p2.life, 20); // the player took nothing
 });

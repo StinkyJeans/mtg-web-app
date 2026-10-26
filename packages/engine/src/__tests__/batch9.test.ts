@@ -64,7 +64,6 @@ test("exile the top card; play it on a turn you attacked with the creature", () 
   g.phase = "attackers";
   g = act(g, "p1", { type: "declareAttackers", attackers: ["h0"] });
   g = settle(g);
-  g = settle(act(g, "p2", { type: "declareBlockers", blocks: [] }));
   assert.equal(g.phase, "main2");
   const c = getCastable(g, "p1").find((x) => x.iid === "c0");
   assert.ok(c, "castable from exile after attacking");
@@ -78,7 +77,6 @@ test("exile the top card; play it on a turn you attacked with the creature", () 
   l.players.p1.battlefield.find((p) => p.card.iid === "h0")!.summoningSick = false;
   l.phase = "attackers";
   l = settle(act(l, "p1", { type: "declareAttackers", attackers: ["h0"] }));
-  l = settle(act(l, "p2", { type: "declareBlockers", blocks: [] }));
   assert.ok(getLegalActions(l, "p1").some((a) => a.type === "playLand" && a.iid === "c0"));
   l = act(l, "p1", { type: "playLand", iid: "c0" });
   assert.ok(find(l, "c0"));

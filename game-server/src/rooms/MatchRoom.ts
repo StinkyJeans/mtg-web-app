@@ -573,6 +573,7 @@ if (this.password && !member) {
       you: m.seat,
       names: Object.fromEntries(this.members.map((x) => [x.seat, x.account.username])),
       deckNames: this.deckNames,
+      ...(m.deck ? { deck: m.deck } : {}),
       summary: this.coin ? `${callerName} called ${this.coin.call}; it landed ${this.coin.result}. ${winnerName} won the flip and chose to go ${this.coin.chose}.` : "",
       fresh,
     });

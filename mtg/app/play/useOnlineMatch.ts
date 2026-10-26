@@ -5,7 +5,7 @@ import type { RefObject } from "react";
 import { useRouter } from "next/navigation";
 import type { GameEvent, GameState, PlayerId } from "@mtg/engine";
 import { onGameUpdate, tryReconnect, useOnline } from "@/lib/online/session";
-import { playCombat } from "./combatFx";
+import { attackersIn, playCombat } from "./combatFx";
 import { handDraws, hideDrawn, playDeal } from "./pileFx";
 
 type Commit = (r: { state: GameState; events: GameEvent[] }) => Promise<void>;
@@ -36,9 +36,9 @@ export function useOnlineMatch(online: boolean, game: GameState | null, seat: Pl
     const off = onGameUpdate((u) => {
       chain = chain.then(async () => {
         for (let i = 0; i < 100 && !gameRef.current; i++) await new Promise((r) => setTimeout(r, 50)); // the opening deal comes first
-        const before = gameRef.current;
         // Combat damage: play the attack on the board as it is now, then show the result.
-        if (before?.combat && u.events.some((e) => e.type === "combatDamage")) await playCombat(u.events, before.combat.attackers.map((a) => a.attacker));
+        const fought = attackersIn(gameRef.current, u.events);
+        if (fought.length > 0) await playCombat(u.events, fought);
         await commitRef.current({ state: u.view, events: u.events });
       });
     });

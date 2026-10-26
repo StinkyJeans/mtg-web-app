@@ -31,10 +31,8 @@ function setup(p1: ReturnType<typeof creature>[], p2: ReturnType<typeof creature
 test("unblocked attacker hits the player", () => {
   let g = setup([creature("a", "hill-giant", "p1")], []);
   g = act(g, "p1", { type: "declareAttackers", attackers: ["a"] });
-  assert.equal(g.phase, "blockers");
   assert.equal(g.players.p1.battlefield[0].tapped, true);
-  g = act(g, "p2", { type: "declareBlockers", blocks: [] });
-  assert.equal(g.players.p2.life, 17);
+  assert.equal(g.players.p2.life, 17, "nothing could block, so it went straight to damage");
   assert.equal(g.phase, "main2");
   assert.equal(g.combat, null);
 });
@@ -100,7 +98,6 @@ test("lethal damage ends the game", () => {
   let g = setup([creature("a", "rumbling-baloth", "p1")], []);
   g.players.p2.life = 4;
   g = act(g, "p1", { type: "declareAttackers", attackers: ["a"] });
-  g = act(g, "p2", { type: "declareBlockers", blocks: [] });
   assert.equal(g.winner, "p1");
   assert.equal(applyAction(g, "p1", { type: "passPhase" }).ok, false);
 });

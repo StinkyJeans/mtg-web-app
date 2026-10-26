@@ -1,6 +1,7 @@
 import { playerToAct } from "@mtg/engine";
 import type { CardDef, GameState, PlayerId } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
+import { playSound } from "@/lib/sound";
 import { cardDetailImageUrl, cardImageUrl } from "@/lib/cards";
 import { sleeveOf } from "@/lib/playmat";
 
@@ -269,7 +270,10 @@ async function dealOne(d: Draw, delay: number) {
 
 /** The opening hand (or a mulligan's new one): the cards are dealt from the library straight into the hand, one after another. */
 export async function playDeal(draws: Draw[]): Promise<void> {
-  if (!animationsEnabled() || draws.length === 0) return;
+  if (draws.length === 0) return;
+  playSound("shuffle");
+  if (!animationsEnabled()) return;
+  draws.forEach((_, i) => playSound("draw", 0.35 + i * 0.11));
   busy = true;
   try {
     await Promise.all(draws.map((d, i) => dealOne(d, i * 110)));

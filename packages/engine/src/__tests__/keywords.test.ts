@@ -70,6 +70,7 @@ const error = (state: GameState, player: PlayerId, action: Action) => {
 /** p1 attacks with `attackers`, p2 blocks as given. */
 function fight(state: GameState, attackers: string[], blocks: [attacker: string, blocker: string][]): GameState {
   let g = act(state, "p1", { type: "declareAttackers", attackers });
+  if (blocks.length === 0 && g.phase !== "blockers") return g; // nothing could block
   g = act(g, "p2", { type: "declareBlockers", blocks: blocks.map(([attacker, blocker]) => ({ attacker, blocker })) });
   return g;
 }
@@ -115,6 +116,30 @@ test("menace: one blocker is not enough, two or none are fine", () => {
   assert.match(error(attacked, "p2", { type: "declareBlockers", blocks: [{ attacker: "m", blocker: "a" }] }), /menace/);
   assert.ok(applyAction(attacked, "p2", { type: "declareBlockers", blocks: [{ attacker: "m", blocker: "a" }, { attacker: "m", blocker: "b" }] }).ok);
   assert.ok(applyAction(attacked, "p2", { type: "declareBlockers", blocks: [] }).ok);
+});
+
+// ───────── nothing can block: combat goes on by itself ─────────
+
+test("the defender isn't asked for blocks when none of their creatures could block", () => {
+  const tapped = board([["a", "vanilla22"]], [["b", "vanilla22"]]);
+  tapped.players.p2.battlefield[0].tapped = true;
+  const hit = act(tapped, "p1", { type: "declareAttackers", attackers: ["a"] });
+  assert.equal(hit.phase, "main2");
+  assert.equal(hit.players.p2.life, 18);
+
+  const flier = act(board([["f", "flier22"]], [["v", "vanilla22"]]), "p1", { type: "declareAttackers", attackers: ["f"] });
+  assert.equal(flier.players.p2.life, 18, "a ground creature can't block a flier");
+
+  const menace = act(board([["m", "menace22"]], [["a", "vanilla22"]]), "p1", { type: "declareAttackers", attackers: ["m"] });
+  assert.equal(menace.players.p2.life, 18, "one creature can't block menace");
+});
+
+test("the defender still decides when a block is possible", () => {
+  const reach = act(board([["f", "flier22"]], [["r", "reach13"]]), "p1", { type: "declareAttackers", attackers: ["f"] });
+  assert.equal(reach.phase, "blockers");
+  assert.equal(playerToAct(reach), "p2");
+  const menace = act(board([["m", "menace22"]], [["a", "vanilla22"], ["b", "vanilla22"]]), "p1", { type: "declareAttackers", attackers: ["m"] });
+  assert.equal(menace.phase, "blockers", "two creatures can block menace together");
 });
 
 // ───────── first strike and double strike ─────────

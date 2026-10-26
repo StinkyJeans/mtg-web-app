@@ -110,6 +110,7 @@ const answer = (g: GameState, targets: Target[]) => settle(act(g, "p1", { type: 
 const attack = (g: GameState, attackers: string[], blocks: { blocker: string; attacker: string }[] = []) => {
   g.phase = "attackers";
   g = settle(act(g, "p1", { type: "declareAttackers", attackers }));
+  if (blocks.length === 0 && g.phase !== "blockers") return g; // nothing could block
   return settle(act(g, "p2", { type: "declareBlockers", blocks }));
 };
 

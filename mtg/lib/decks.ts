@@ -37,6 +37,13 @@ export function expandDeck(entries: DeckEntries): string[] {
   return Object.entries(entries).flatMap(([id, qty]) => Array<string>(qty).fill(id));
 }
 
+/** The other way round: one id per copy back to {"mountain": 2}. */
+export function countIds(ids: string[]): DeckEntries {
+  const entries: DeckEntries = {};
+  for (const id of ids) entries[id] = (entries[id] ?? 0) + 1;
+  return entries;
+}
+
 export interface DeckStatus {
   count: number;
   errors: string[];
