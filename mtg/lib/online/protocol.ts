@@ -42,7 +42,7 @@ export interface RoomSnapshot {
   locked: boolean;
   size: number | null;
   mismatch: boolean;
-  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; bot?: boolean; look?: Look }[];
+  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; avatar?: string; bot?: boolean; look?: Look }[];
   /** `call`, `result` and `winner` stay null until the caller has called heads or tails. */
   coin: { caller: PlayerId; call: "heads" | "tails" | null; result: "heads" | "tails" | null; winner: PlayerId | null; chose: "first" | "second" | null } | null;
   winner: PlayerId | "draw" | null;

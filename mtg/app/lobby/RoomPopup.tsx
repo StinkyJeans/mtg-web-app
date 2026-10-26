@@ -45,8 +45,12 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
             const p = room.players.find((x) => x.seat === seat);
             return (
               <div key={seat} className={`flex items-center gap-3 rounded-2xl border px-4 py-3 ${p ? "border-white/25 bg-white/10" : "border-dashed border-white/25 bg-white/5"}`}>
-                <div className={`flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-xl font-extrabold text-white shadow-lg ${p ? `bg-gradient-to-br ${SEAT_COLOR[seat]}` : "bg-white/10"}`}>
+                <div className={`relative flex h-12 w-12 shrink-0 items-center justify-center overflow-hidden rounded-full text-xl font-extrabold text-white shadow-lg ${p ? `bg-gradient-to-br ${SEAT_COLOR[seat]}` : "bg-white/10"}`}>
                   {p ? (p.bot ? "🤖" : p.name.charAt(0).toUpperCase()) : "?"}
+                  {p?.avatar && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={p.avatar} alt="" className="absolute inset-0 h-full w-full object-cover" onError={(e) => (e.currentTarget.style.display = "none")} />
+                  )}
                 </div>
                 <div className="min-w-0">
                   {p ? (

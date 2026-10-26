@@ -72,7 +72,7 @@ export interface RoomSnapshot {
   size: number | null;
   /** "The votes differ" so the pop-up can say so. */
   mismatch: boolean;
-  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; bot?: boolean; look?: Look }[];
+  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; avatar?: string; bot?: boolean; look?: Look }[];
   /** `call`, `result` and `winner` stay null until the caller has called heads or tails. */
   coin: { caller: PlayerId; call: Side | null; result: Side | null; winner: PlayerId | null; chose: "first" | "second" | null } | null;
   winner: PlayerId | "draw" | null;
@@ -557,7 +557,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       locked: this.password !== "",
       size: this.size,
       mismatch: this.mismatch,
-      players: this.members.map((x) => ({ seat: x.seat, name: x.account.username, connected: x.connected, voted: x.vote, deckReady: x.deck !== null, ...(x.isBot ? { bot: true } : {}), ...(x.look ? { look: x.look } : {}) })),
+      players: this.members.map((x) => ({ seat: x.seat, name: x.account.username, connected: x.connected, voted: x.vote, deckReady: x.deck !== null, ...(x.account.avatar ? { avatar: x.account.avatar } : {}), ...(x.isBot ? { bot: true } : {}), ...(x.look ? { look: x.look } : {}) })),
       coin: this.coin,
       winner: this.winner,
       endReason: this.endReason,

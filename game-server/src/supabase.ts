@@ -10,6 +10,8 @@ const SECRET = process.env.SUPABASE_SECRET_KEY ?? "";
 export interface Account {
   id: string;
   username: string;
+  /** The picture's public address, when the player has one. */
+  avatar?: string;
 }
 
 // A token that was just checked is trusted for a minute: joining the lobby and then a room asks twice, and a busy
@@ -43,7 +45,7 @@ async function askSupabase(token: string): Promise<Account | null> {
   if (!URL || !PUBLISHABLE) throw new Error("The server has no Supabase settings (NEXT_PUBLIC_SUPABASE_URL / _PUBLISHABLE_KEY).");
   const res = await fetch(`${URL}/auth/v1/user`, { headers: { apikey: PUBLISHABLE, authorization: `Bearer ${token}` } });
   if (!res.ok) return null;
-  const user = (await res.json()) as { id?: string; user_metadata?: { username?: string }; email?: string };
+  const user = (await res.json()) as { id?: string; user_metadata?: { username?: string; avatar?: string | number | null }; email?: string };
   if (!user.id) return null;
   let username = user.user_metadata?.username ?? user.email?.split("@")[0] ?? "player";
   // a player's nickname (if they chose one) is the name shown in rooms and matches; the login name still identifies the account
@@ -56,7 +58,10 @@ async function askSupabase(token: string): Promise<Account | null> {
   } catch {
     // no nickname available: the login name is used
   }
-  const account = { id: user.id, username };
+  // the picture: a version number in the profile points at the file in storage (older accounts kept the picture itself, too big to pass around)
+  const stored = user.user_metadata?.avatar;
+  const avatar = stored !== undefined && stored !== null && !String(stored).startsWith("data:") ? `${URL}/storage/v1/object/public/avatars/${user.id}.jpg?v=${stored}` : undefined;
+  const account: Account = { id: user.id, username, ...(avatar ? { avatar } : {}) };
   if (trusted.size >= MAX_TRUSTED) for (const [k, v] of trusted) if (v.until < Date.now()) trusted.delete(k);
   if (trusted.size >= MAX_TRUSTED) trusted.clear();
   trusted.set(token, { account, until: Date.now() + TOKEN_TRUST_MS });
