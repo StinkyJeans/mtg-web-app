@@ -1,15 +1,15 @@
 // Keeps what never changes on the device, so a return visit does not wait for the network.
 //   - card pictures (Scryfall and our own storage): kept until the cache is full
 //   - the app's built scripts and styles (/_next/static, named by content): kept for good
-//   - the card catalogue and the official decks from the database: fresh for 12 hours
+//   - the card catalogue and the official decks from the database: fresh for 30 minutes (which cards the game can play changes as the rules engine learns more cards)
 // Pages themselves, your own decks, matches and logins are never touched here.
 
-const VERSION = "v2";
+const VERSION = "v3"; // changing this makes every browser drop what an older version kept
 const IMAGES = `mtg-images-${VERSION}`;
 const STATIC = `mtg-static-${VERSION}`;
 const DATA = `mtg-data-${VERSION}`;
 const MAX_IMAGES = 900;
-const DATA_FRESH_MS = 12 * 60 * 60 * 1000;
+const DATA_FRESH_MS = 30 * 60 * 1000;
 
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (event) => {

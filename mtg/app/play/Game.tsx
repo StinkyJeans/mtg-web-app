@@ -64,6 +64,7 @@ import { KeepRandomDecks } from "./SaveDeck";
 import type { PlayedDeck } from "./SaveDeck";
 import StepBanner from "./StepBanner";
 import { playGameSounds } from "./gameSounds";
+import { useBattleFullscreen, useFullscreen } from "./useBattleFullscreen";
 import { useOnlineMatch } from "./useOnlineMatch";
 
 const newSeed = () => Date.now() % 2_147_483_647;
@@ -125,6 +126,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const look = useAppearance(online ? (net.game?.looks ?? null) : null); // each player's card sleeves and playmat (online: what each chose before the match)
   const [lookOpen, setLookOpen] = useState(false);
   const [cursorOn, setCursorOn] = useCustomCursor();
+  useBattleFullscreen(game !== null); // the battle fills the whole screen, whatever its size
+  const fullscreen = useFullscreen();
   // The Magic cursor is for the play screen only: the page gets a class while this screen is open.
   useEffect(() => {
     document.body.classList.toggle("mtg-cursor", cursorOn);
@@ -688,6 +691,14 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             ))}
           </span>
         </button>
+        {fullscreen.available && (
+          <button
+            onClick={fullscreen.toggle}
+            className="flex w-full items-center justify-between rounded-xl border border-white/40 bg-slate-950/55 px-3 py-2 text-left font-display text-xs font-bold uppercase tracking-wide text-white shadow-sm hover:bg-slate-900/70"
+          >
+            <span>⛶ {fullscreen.on ? "Leave full screen" : "Full screen"}</span>
+          </button>
+        )}
         <BackgroundPicker bg={background} />
         <PlayedThisTurn items={history.filter((h) => h.turn === state.turn)} state={state} onZoom={(defId) => setZoomed(state.cards[defId])} />
         {!watching && (
