@@ -2,10 +2,11 @@
 //
 //   node scripts/import.mjs cards   [--limit N] [--dry-run]   cards from Scryfall
 //   node scripts/import.mjs images  [--limit N] [--dry-run]   small card images -> Storage bucket "card-art"
-//   node scripts/import.mjs decks   [--limit N] [--dry-run]   official decks from MTGJSON
+//   node scripts/import.mjs decks   [--dry-run] [--hide-stale] official decks from MTGJSON (see KEEP_DECKS)
 //
 // Order matters: cards, then images, then decks. Every phase can be re-run safely and
 // `images` resumes where it stopped. --dry-run needs no Supabase key and writes nothing.
+// --hide-stale unlists the other official decks instead of deleting them (setting official back to true restores one).
 // Needs SUPABASE_SECRET_KEY in mtg/.env.local (server-only: no NEXT_PUBLIC_ prefix!).
 import fs from "node:fs";
 import path from "node:path";
@@ -21,6 +22,7 @@ const BUCKET = "card-art";
 const args = process.argv.slice(2);
 const phase = args[0];
 const dryRun = args.includes("--dry-run");
+const hideStale = args.includes("--hide-stale");
 const limit = args.includes("--limit") ? Number(args[args.indexOf("--limit") + 1]) : Infinity;
 
 if (fs.existsSync(".env.local")) process.loadEnvFile(".env.local");
@@ -129,7 +131,9 @@ async function loadOracle() {
  * only accepts a card when every line of it is understood (see packages/engine/src/oracle.ts).
  */
 function isPlayable(c, type) {
-  if (c.multiFace || c.layout !== "normal") return false;
+  // A prepare card is one creature card with a spell beside it: the engine reads both halves from the joined text.
+  // A Case is one face; its "To solve" and "Solved" lines are read like any other.
+  if (c.layout !== "normal" && c.layout !== "prepare" && c.layout !== "case") return false;
   if (!["land", "creature", "artifact", "enchantment", "planeswalker", "instant", "sorcery"].includes(type)) return false;
   return isSupportedCard({
     id: "check",
@@ -279,26 +283,44 @@ async function importImages() {
   if (failed) console.log(`${failed} failed. Run the same command again to retry them.`);
 }
 
-// Not playable decks: art drops, land bundles, toolkits, and card piles handed out as prizes.
-const EXCLUDED_DECK_TYPES = new Set(["Secret Lair Drop", "Bundle Land Pack", "Deck Builder's Toolkit", "MTGO Redemption", "Box Set"]);
+// The official decks players pick from: theme decks, and ready-made Foundations Jumpstart pairs (two 20-card packs make
+// a 40-card deck; the packs themselves aren't offered). Any other official deck in the database is removed by `decks`.
+const KEEP_DECKS = new Set(["Eerie_SOS", "Lifegain_SOS", "Angels_ECL", "Pirates_ECL"]);
+const FOUNDATIONS_PAIRS = [
+  ["Vampires", "Healing"],
+  ["Cats", "Healing"],
+  ["Cats", "Inferno"],
+  ["Elves", "Primal"],
+  ["Pirates", "Undead"],
+  ["Wizards", "Inferno"],
+  ["Goblins", "Inferno"],
+  ["Vampires", "Undead"],
+];
+const isFoundationsPack = (meta) => meta.code === "FDN" && meta.type === "Jumpstart";
+// The single packs are kept too, so players can mix any two of them (lib/decks.ts PACK_TYPE).
+const PACK_TYPE = "Foundations pack";
 
-/**
- * A real deck has at least 19 cards (a Jumpstart pack: 20, or 19 for the Dominaria United ones) and at
- * most 100 (Commander). Anything bigger is a collection, and anything smaller is a booster-sized pack.
- */
-function isRealDeck(type, size) {
-  return size >= 19 && (size <= 100 || /commander|brawl/i.test(type));
+/** The Foundations pairs, each as one deck: the cards of both packs added up. */
+function foundationsPairs(packs) {
+  const byName = new Map(packs.map((p) => [p.meta.name, p]));
+  return FOUNDATIONS_PAIRS.flatMap(([a, b]) => {
+    const [first, second] = [byName.get(a), byName.get(b)];
+    if (!first || !second) {
+      console.warn(`  no ${a} + ${b}: the ${first ? b : a} pack is missing`);
+      return [];
+    }
+    const counts = new Map(first.counts);
+    for (const [key, qty] of second.counts) counts.set(key, (counts.get(key) ?? 0) + qty);
+    return [{ meta: { name: `${a} + ${b}`, type: "Foundations", code: "FDN", releaseDate: first.meta.releaseDate, fileName: `${a}+${b}_FDN` }, counts }];
+  });
 }
 
 async function importDecks() {
   const oracleToId = new Map(buildRows(await loadOracle(), dryRun ? new Map() : await loadExistingIds()).map((r) => [r.oracle_id, r.id]));
-  const list = (await getJson("https://mtgjson.com/api/v5/DeckList.json")).data
-    .filter((d) => !EXCLUDED_DECK_TYPES.has(d.type))
-    .slice(0, limit);
+  const list = (await getJson("https://mtgjson.com/api/v5/DeckList.json")).data.filter((d) => KEEP_DECKS.has(d.fileName) || isFoundationsPack(d));
   console.log(`${list.length} decks to download.`);
 
-  const decks = [];
-  const rejected = new Map(); // deck type -> how many were left out for their size
+  const downloaded = [];
   let missing = 0;
   let done = 0;
   await pool(list, 8, async (meta) => {
@@ -312,11 +334,6 @@ async function importDecks() {
         fs.mkdirSync(path.dirname(cached), { recursive: true });
         fs.writeFileSync(cached, JSON.stringify(deck));
       }
-      const size = [...(deck.mainBoard ?? []), ...(deck.commander ?? [])].reduce((n, c) => n + c.count, 0);
-      if (!isRealDeck(meta.type, size)) {
-        rejected.set(meta.type, (rejected.get(meta.type) ?? 0) + 1);
-        return;
-      }
       const counts = new Map();
       const sections = [["main", deck.mainBoard], ["side", deck.sideBoard], ["commander", deck.commander]];
       for (const [board, cards] of sections) {
@@ -329,23 +346,23 @@ async function importDecks() {
           counts.set(`${id}|${board}`, (counts.get(`${id}|${board}`) ?? 0) + card.count);
         }
       }
-      if (counts.size) decks.push({ meta, counts });
+      if (counts.size) downloaded.push({ meta, counts });
     } catch (e) {
       console.warn(`  skipped ${meta.fileName}: ${e.message}`);
     }
     if (++done % 100 === 0) console.log(`downloaded ${done}/${list.length}`);
   });
 
+  const packs = downloaded.filter((d) => isFoundationsPack(d.meta));
+  const decks = [
+    ...downloaded.filter((d) => !isFoundationsPack(d.meta)),
+    ...packs.map((p) => ({ ...p, meta: { ...p.meta, type: PACK_TYPE } })),
+    ...foundationsPairs(packs),
+  ];
   const total = decks.reduce((n, d) => n + d.counts.size, 0);
   console.log(`${decks.length} decks, ${total} deck-card rows, ${missing} cards skipped (tokens etc.).`);
-  const byType = Object.entries(Object.groupBy(decks, (d) => d.meta.type)).map(([t, v]) => `${t} ${v.length}`);
-  console.log("kept:", byType.join(", "));
-  if (rejected.size) console.log("left out for size:", [...rejected].map(([t, n]) => `${t} ${n}`).join(", "));
-  if (dryRun) {
-    const d = decks[0];
-    console.log("sample:", d.meta.name, `(${d.meta.type})`, [...d.counts].slice(0, 4));
-    return;
-  }
+  console.log("decks:", decks.map((d) => d.meta.name).join(", "));
+  if (dryRun) return;
 
   const supabase = db();
   const ids = new Map(); // fileName -> deck id
@@ -364,8 +381,8 @@ async function importDecks() {
     data.forEach((d) => ids.set(d.file_name, d.id));
   }
 
-  // Replace the cards of every imported deck, so re-running never duplicates.
-  for (const batch of chunks([...ids.values()], 200)) {
+  // Replace the cards of every imported deck, so re-running never duplicates (--hide-stale updates them in place instead).
+  for (const batch of hideStale ? [] : chunks([...ids.values()], 200)) {
     const { error } = await withRetry(() => supabase.from("deck_cards").delete().in("deck_id", batch));
     if (error) throw new Error(error.message);
   }
@@ -377,29 +394,32 @@ async function importDecks() {
   );
   let done2 = 0;
   for (const batch of chunks(cardRows, 1000)) {
-    const { error } = await withRetry(() => supabase.from("deck_cards").insert(batch));
+    const { error } = await withRetry(() =>
+      hideStale ? supabase.from("deck_cards").upsert(batch, { onConflict: "deck_id,card_id,board" }) : supabase.from("deck_cards").insert(batch),
+    );
     if (error) throw new Error(error.message);
     done2 += batch.length;
     console.log(`deck cards ${done2}/${cardRows.length}`);
   }
 
-  // Remove official decks imported earlier that no longer qualify (bundles, piles, ...). Skipped for
-  // --limit runs, which only see part of the list and would otherwise delete the rest.
-  if (limit === Infinity) {
-    const existing = [];
-    for (let from = 0; ; from += 1000) {
-      const { data, error } = await supabase.from("decks").select("id, file_name").eq("official", true).order("id").range(from, from + 999);
-      if (error) throw new Error(error.message);
-      existing.push(...data);
-      if (data.length < 1000) break;
-    }
-    const stale = existing.filter((d) => !ids.has(d.file_name)).map((d) => d.id);
-    for (const batch of chunks(stale, 100)) {
-      const { error } = await withRetry(() => supabase.from("decks").delete().in("id", batch)); // deck_cards go with them
-      if (error) throw new Error(error.message);
-    }
-    console.log(`Removed ${stale.length} official decks that aren't real decks.`);
+  // Remove every other official deck imported earlier (starter decks, Jumpstart packs, ...). Players' own decks,
+  // including copies they made of official ones, are separate decks and stay.
+  const existing = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await supabase.from("decks").select("id, file_name").eq("official", true).order("id").range(from, from + 999);
+    if (error) throw new Error(error.message);
+    existing.push(...data);
+    if (data.length < 1000) break;
   }
+  const stale = existing.filter((d) => !ids.has(d.file_name)).map((d) => d.id);
+  for (const batch of chunks(stale, 100)) {
+    // An unlisted deck has no owner and isn't official, so no player can read it.
+    const { error } = await withRetry(() =>
+      hideStale ? supabase.from("decks").update({ official: false }).in("id", batch) : supabase.from("decks").delete().in("id", batch), // deck_cards go with them
+    );
+    if (error) throw new Error(error.message);
+  }
+  console.log(`${hideStale ? "Unlisted" : "Removed"} ${stale.length} other official decks.`);
 }
 
 const phases = { cards: importCards, images: importImages, decks: importDecks };

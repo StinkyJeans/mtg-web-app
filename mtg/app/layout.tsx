@@ -4,6 +4,7 @@ import "mana-font/css/mana.css";
 import "./globals.css";
 import UserBar from "./UserBar";
 import RegisterSW from "./RegisterSW";
+import Music from "./Music";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 
 // Inter: made for reading text on screens, clear at small sizes.
@@ -61,6 +62,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full flex flex-col">
         <RegisterSW />
+        <Music />
         <UserBar />
         {children}
       </body>

@@ -1,5 +1,7 @@
-import type { CardDef, PlayerId } from "@mtg/engine";
+import { playerToAct } from "@mtg/engine";
+import type { CardDef, GameState, PlayerId } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
+import { playSound } from "@/lib/sound";
 import { cardDetailImageUrl, cardImageUrl } from "@/lib/cards";
 import { sleeveOf } from "@/lib/playmat";
 
@@ -299,7 +301,10 @@ export async function untilBattlefieldShown(): Promise<void> {
 
 /** The opening hand (or a mulligan's new one): the cards are dealt from the library straight into the hand, one after another. */
 export async function playDeal(draws: Draw[]): Promise<void> {
-  if (!animationsEnabled() || draws.length === 0) return;
+  if (draws.length === 0) return;
+  playSound("shuffle");
+  if (!animationsEnabled()) return;
+  draws.forEach((_, i) => playSound("draw", 0.35 + i * 0.11));
   busy = true;
   try {
     await untilBattlefieldShown();
@@ -308,4 +313,10 @@ export async function playDeal(draws: Draw[]): Promise<void> {
     busy = false;
     for (const d of draws) showCard(d.iid);
   }
+}
+
+/** The hand of the player looking at the screen (`seat`, or in hot-seat the player to act), as cards to animate. */
+export function handDraws(s: GameState, seat: PlayerId | null): Draw[] {
+  const viewer = seat ?? playerToAct(s);
+  return s.players[viewer].hand.map((c) => ({ iid: c.iid, owner: viewer, faceUp: true, def: s.cards[c.defId] }));
 }

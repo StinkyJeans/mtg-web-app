@@ -1,4 +1,4 @@
-import { applyAction, getDamageAssignments, getForcedBlocks, getPossibleAttackers, getPossibleBlockers, MAX_HAND_SIZE, suggestDamageAssignment } from "./actions.js";
+import { applyAction, getDamageAssignments, getForcedBlocks, getPossibleAttackers, getPossibleBlockers, getRequiredBlocks, MAX_HAND_SIZE, suggestDamageAssignment } from "./actions.js";
 import type { Action, Block } from "./actions.js";
 import { getActivatable, getCastable, getLoyaltyAbilities } from "./stack.js";
 import { legalTargets, playerToAct, powerOf, staticEffectsOn, toughnessOf } from "./core.js";
@@ -147,7 +147,8 @@ const find = (s: GameState, iid: string): Permanent | undefined => [...s.players
 /** Which of the attackers each creature should block. */
 function chooseBlocks(s: GameState, who: PlayerId): Block[] {
   if (!s.combat) return [];
-  const forced = getForcedBlocks(s);
+  const lured = getForcedBlocks(s);
+  const forced = [...lured, ...getRequiredBlocks(s, lured.map((f) => f.blocker))]; // "must be blocked if able" too
   const used = new Set(forced.map((f) => f.blocker));
   const blocks: Block[] = [...forced];
   const attackers = s.combat.attackers.map((a) => find(s, a.attacker)).filter((p): p is Permanent => !!p);
@@ -224,16 +225,19 @@ function targetScore(s: GameState, t: TargetChoice, me: PlayerId, harmful: boole
 
 function targetCombos(s: GameState, specs: TargetSpec[], me: PlayerId, text: string): TargetChoice[][] {
   const harmful = isHarmful(text);
+  const distinct = specs.filter((spec) => spec.distinct).length;
   const lists = specs.map((spec) => {
     const opts = legalTargets(s, spec, me);
     // the best few for the intended use, and the best few for the opposite use (the lookahead decides between them)
-    const byUse = [...opts].sort((a, b) => targetScore(s, b, me, harmful) - targetScore(s, a, me, harmful)).slice(0, 3);
+    const byUse = [...opts].sort((a, b) => targetScore(s, b, me, harmful) - targetScore(s, a, me, harmful)).slice(0, spec.distinct ? 3 + distinct : 3);
     const other = [...opts].sort((a, b) => targetScore(s, b, me, !harmful) - targetScore(s, a, me, !harmful))[0];
     return [...new Set(other ? [...byUse, other] : byUse)];
   });
   if (lists.some((l) => l.length === 0)) return [];
+  // "X target creatures": a different one for each
+  const taken = (c: TargetChoice[], t: TargetChoice) => c.some((u, j) => specs[j].distinct && JSON.stringify(u) === JSON.stringify(t));
   let combos: TargetChoice[][] = [[]];
-  for (const list of lists) combos = combos.flatMap((c) => list.map((t) => [...c, t])).slice(0, 10);
+  for (const [i, list] of lists.entries()) combos = combos.flatMap((c) => list.filter((t) => !specs[i].distinct || !taken(c, t)).map((t) => [...c, t])).slice(0, 10);
   return combos;
 }
 
@@ -245,7 +249,12 @@ function plainAction(s: GameState): Action | null {
     return p.optional || p.options.length === 0 ? { type: "pick" } : { type: "pick", iid: p.options[0] };
   }
   if (s.pendingChoice) {
-    const targets = s.pendingChoice.specs.flatMap((spec) => legalTargets(s, spec, s.pendingChoice!.item.controller).slice(0, 1));
+    const { specs, item } = s.pendingChoice;
+    const targets: TargetChoice[] = [];
+    for (const spec of specs) {
+      const t = legalTargets(s, spec, item.controller).find((o) => !spec.distinct || !targets.some((u, j) => specs[j].distinct && JSON.stringify(u) === JSON.stringify(o)));
+      if (t) targets.push(t);
+    }
     return { type: "chooseTargets", targets };
   }
   if (s.priority) return { type: "passPriority" };
@@ -272,7 +281,10 @@ function rollout(start: GameState, stop: (s: GameState) => boolean, maxSteps = 6
     const who = playerToAct(s);
     let action = plainAction(s);
     let r = action ? applyAction(s, who, action) : null;
-    if (!r?.ok && s.phase === "blockers") r = applyAction(s, who, { type: "declareBlockers", blocks: getForcedBlocks(s) });
+    if (!r?.ok && s.phase === "blockers") {
+      const lured = getForcedBlocks(s);
+      r = applyAction(s, who, { type: "declareBlockers", blocks: [...lured, ...getRequiredBlocks(s, lured.map((f) => f.blocker))] });
+    }
     if (!r?.ok) r = applyAction(s, who, s.priority ? { type: "passPriority" } : { type: "passPhase" });
     if (!r?.ok) break;
     s = r.state;
@@ -359,6 +371,8 @@ function candidates(s: GameState, me: PlayerId): Action[] {
   const pl = s.players[me];
   const cardText = (iid: string) => {
     const c = [...pl.hand, ...pl.graveyard, ...pl.exile].find((x) => x.iid === iid);
+    const prepared = pl.battlefield.find((p) => p.card.iid === iid)?.prepared;
+    if (prepared) return s.cards[prepared]?.text ?? "";
     return c ? (s.cards[c.defId]?.text ?? "") : "";
   };
   const cheapestCreature = (iids: string[]) =>
@@ -368,24 +382,40 @@ function candidates(s: GameState, me: PlayerId): Action[] {
       return (pa ? permValue(s, pa) : 0) - (pb ? permValue(s, pb) : 0);
     })[0];
 
+  const worstCard = (iids: string[]) => {
+    const hand = s.players[me].hand;
+    return [...iids].sort((a, b) => keepValue(s, me, hand.find((c) => c.iid === a)?.defId ?? "") - keepValue(s, me, hand.find((c) => c.iid === b)?.defId ?? ""))[0];
+  };
+
   for (const c of getCastable(s, me)) {
     const modes = c.modal ? c.modal.modes.flatMap((m, i) => (m.available ? [{ i, specs: m.specs }] : [])) : [{ i: -1, specs: c.specs }];
     const xs = c.maxX === undefined ? [undefined] : [...new Set([c.maxX, Math.max(1, Math.floor(c.maxX / 2))])];
-    const kicks = c.kicker !== undefined ? [false, true] : [undefined];
+    const kicks = c.kicker !== undefined || c.blight ? [false, true] : [undefined];
+    // An additional cost: the card to discard, or the creature to sacrifice (or "pay" the mana instead).
+    const extras = c.discard ? [worstCard(c.discard)] : c.sacrifice ? [...(c.sacrifice.length > 0 ? [cheapestCreature(c.sacrifice)] : []), ...(c.orPay ? ["pay"] : [])] : [undefined];
+    // Warp: the cheap way that only lasts until the end step, or (when the mana is there) the normal way.
+    const warps = c.warp ? (c.warpOnly ? [true] : [false, true]) : [false];
     for (const m of modes) {
       for (const targets of targetCombos(s, m.specs, me, cardText(c.iid)).length || m.specs.length === 0 ? (m.specs.length === 0 ? [[]] : targetCombos(s, m.specs, me, cardText(c.iid))) : []) {
         for (const x of xs) {
           for (const kicked of kicks) {
-            out.push({
-              type: "castSpell",
-              iid: c.iid,
-              targets,
-              ...(x !== undefined ? { x } : {}),
-              ...(kicked ? { kicked: true } : {}),
-              ...(c.zone ? { from: c.zone } : {}),
-              ...(c.sacrifice ? { sacrifice: cheapestCreature(c.sacrifice) } : {}),
-              ...(m.i >= 0 ? { modes: [m.i] } : {}),
-            });
+            // "You may blight 1": the -1/-1 counter goes on the creature that matters least.
+            const blight = kicked && c.blight ? cheapestCreature(c.blight.options) : undefined;
+            for (const extra of blight ? [blight] : extras) {
+              for (const warp of warps) {
+                out.push({
+                  type: "castSpell",
+                  iid: c.iid,
+                  targets,
+                  ...(x !== undefined ? { x } : {}),
+                  ...(kicked ? { kicked: true } : {}),
+                  ...(c.zone ? { from: c.zone } : {}),
+                  ...(extra ? { sacrifice: extra } : {}),
+                  ...(m.i >= 0 ? { modes: [m.i] } : {}),
+                  ...(warp ? { warp: true } : {}),
+                });
+              }
+            }
           }
         }
       }

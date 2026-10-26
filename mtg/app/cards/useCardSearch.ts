@@ -27,9 +27,14 @@ export function prefetchCardPage(search: CardSearch): Promise<void> {
 /** Debounced, paged card search against the database. `loading` is true while results are stale. */
 export function useCardSearch(search: CardSearch) {
   const { query, type, playableOnly, page } = search;
+  const colors = search.colors?.join("") ?? ""; // a string, so a new array with the same colors doesn't search again
   const [result, setResult] = useState<CardSearchResult | null>(null);
+<<<<<<< HEAD
   const key = JSON.stringify({ query, type, playableOnly, page });
   const lastQuery = useRef(query);
+=======
+  const key = JSON.stringify({ query, type, playableOnly, colors, page });
+>>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
 
   useEffect(() => {
     let cancelled = false;
@@ -37,19 +42,24 @@ export function useCardSearch(search: CardSearch) {
     const typing = lastQuery.current !== query;
     lastQuery.current = query;
     const timer = setTimeout(() => {
+<<<<<<< HEAD
       cachedSearch({ query, type, playableOnly, page })
         .then((r) => {
           if (cancelled) return;
           setResult({ key, ...r });
           if ((page + 1) * CARDS_PAGE_SIZE < r.total) void prefetchCardPage({ query, type, playableOnly, page: page + 1 }); // the likely next click
         })
+=======
+      searchCards({ query, type, playableOnly, colors: [...colors], page })
+        .then((r) => !cancelled && setResult({ key, ...r }))
+>>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
         .catch((e: Error) => !cancelled && setResult({ key, cards: [], total: 0, error: e.message }));
     }, typing ? 250 : 0);
     return () => {
       cancelled = true;
       clearTimeout(timer);
     };
-  }, [key, query, type, playableOnly, page]);
+  }, [key, query, type, playableOnly, colors, page]);
 
   return { result, loading: result?.key !== key };
 }

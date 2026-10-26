@@ -60,6 +60,8 @@ export interface StartPayload {
   you: PlayerId;
   names: Record<PlayerId, string>;
   deckNames: Record<PlayerId, string>;
+  /** This player's own deck, so they can keep a copy of a random one. */
+  deck?: { name: string; ids: string[] };
   summary: string;
   fresh: boolean;
   /** True for someone watching: both hands are face down and nothing can be done. */

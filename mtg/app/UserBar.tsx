@@ -7,7 +7,11 @@ import { createClient } from "@/lib/supabase/client";
 import { animationsEnabled, setAnimationsEnabled } from "@/lib/motion";
 import { connectSocial, disconnectSocial } from "@/lib/online/session";
 import { setTheme } from "@/lib/theme";
+<<<<<<< HEAD
 import MusicControl from "./MusicControl";
+=======
+import AudioMenu from "./AudioMenu";
+>>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
 import type { Theme } from "@/lib/theme";
 
 /** Slim top bar shown only while signed in. */
@@ -61,6 +65,7 @@ export default function UserBar() {
       >
         Animations: <span className={animations ? "font-semibold text-[#6ee7b7]" : "font-semibold text-slate-400"}>{animations ? "On" : "Off"}</span>
       </button>
+      <AudioMenu />
       <button
         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
         aria-pressed={theme === "dark"}

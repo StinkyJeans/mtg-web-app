@@ -127,7 +127,6 @@ test("an aura: whenever enchanted creature deals damage to an opponent, draw", (
   g.phase = "attackers";
   const library = g.players.p1.library.length;
   g = settle(act(g, "p1", { type: "declareAttackers", attackers: ["m0"] }));
-  g = settle(act(g, "p2", { type: "declareBlockers", blocks: [] }));
   assert.equal(g.players.p1.library.length, library - 1);
 });
 

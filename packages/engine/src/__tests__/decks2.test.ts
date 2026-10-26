@@ -67,7 +67,6 @@ test("'Whenever you gain life': any way of gaining life triggers it", () => {
   l.players.p1.battlefield.push(perm("m1", "linker"));
   l.phase = "attackers";
   let c = act(l, "p1", { type: "declareAttackers", attackers: ["m1"] });
-  c = act(c, "p2", { type: "declareBlockers", blocks: [] });
   c = settle(c);
   assert.equal(find(c, "m0")!.counters, 1);
 });

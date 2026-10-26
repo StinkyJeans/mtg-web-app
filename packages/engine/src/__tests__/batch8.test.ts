@@ -132,7 +132,6 @@ test("give another Goblin flying; it is sacrificed when it deals combat damage",
   assert.equal(find(g, "m1")?.tempKeywords?.includes("flying"), true);
   g.phase = "attackers";
   g = settle(act(g, "p1", { type: "declareAttackers", attackers: ["m1"] }));
-  g = settle(act(g, "p2", { type: "declareBlockers", blocks: [] }));
   assert.equal(find(g, "m1"), undefined, "sacrificed after dealing damage");
 });
 

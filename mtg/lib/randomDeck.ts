@@ -47,6 +47,12 @@ async function sampleSpells(): Promise<Candidate[]> {
   return [...seen.values()].filter((c) => defs[c.id] && isSupportedCard(defs[c.id]));
 }
 
+const RANDOM_NAME = /^Random (.+ deck)$/;
+/** Was this deck built by buildRandomDeck? Only those are offered to be kept after a match. */
+export const isRandomDeck = (name: string) => RANDOM_NAME.test(name);
+/** The name a kept random deck gets: "Random Red/Green deck" becomes "Red/Green deck". */
+export const keptDeckName = (name: string) => name.replace(RANDOM_NAME, "$1");
+
 /**
  * A random, legal deck of `size` cards (about 40% basic lands, the rest creatures and spells in one or two colors,
  * at most 3 copies each). Returns one card id per copy, and a name such as "Random Red/Green deck".

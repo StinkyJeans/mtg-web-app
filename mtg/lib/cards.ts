@@ -56,16 +56,18 @@ export interface CardSearch {
   query: string;
   type: "all" | CardType;
   playableOnly: boolean;
+  colors?: string[]; // only cards a deck of these colors can play: no other color (colorless cards fit any deck)
   page: number; // 0-based
 }
 
 /** One page of search results plus the total number of matches. */
-export async function searchCards({ query, type, playableOnly, page }: CardSearch): Promise<{ cards: CardDef[]; total: number }> {
+export async function searchCards({ query, type, playableOnly, colors, page }: CardSearch): Promise<{ cards: CardDef[]; total: number }> {
   let q = createClient().from("cards").select(COLUMNS, { count: "exact" });
   const text = query.trim().replace(/[%_\\]/g, "\\$&");
   if (text) q = q.ilike("name", `%${text}%`);
   if (type !== "all") q = q.eq("type", type);
   if (playableOnly) q = q.eq("playable", true);
+  if (colors?.length) q = q.or(`colors.cd.{${colors.join(",")}},colors.is.null`);
   const from = page * CARDS_PAGE_SIZE;
   const { data, count, error } = await q.order("name").range(from, from + CARDS_PAGE_SIZE - 1);
   if (error) throw new Error(error.message);

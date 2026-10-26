@@ -16,7 +16,12 @@ const HIDDEN_DEF: CardDef = { id: HIDDEN_CARD_ID, name: "Hidden card", type: "ot
 export function viewFor(state: GameState, seat: PlayerId | null): GameState {
   const view = structuredClone(state);
   view.rng = 0;
+<<<<<<< HEAD
   const shown = new Set(seat !== null && view.pendingPick && view.pendingPick.player === seat ? view.pendingPick.options : []);
+=======
+  const pick = view.pendingPick && view.pendingPick.player === seat ? view.pendingPick : null;
+  const shown = new Set(pick ? [...pick.options, ...(pick.seen ?? []), ...(pick.bottomIids ?? [])] : []);
+>>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
   const hide = (zone: { iid: string; defId: string }[]) => {
     for (const card of zone) if (!shown.has(card.iid)) card.defId = HIDDEN_CARD_ID;
   };

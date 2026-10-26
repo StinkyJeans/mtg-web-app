@@ -18,6 +18,7 @@ export function TurnSplash() {
   );
 }
 
+<<<<<<< HEAD
 /** "Welcome to the Battle Field, Now Duel!" over the board when a match begins, for the players. It doesn't block clicks. */
 export function WelcomeSplash() {
   return (
@@ -59,6 +60,8 @@ export default function Announcements({ items, onClose }: { items: Announcement[
   );
 }
 
+=======
+>>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
 /**
  * Everything cast or used this turn, kept on screen until the turn ends: spells go to the graveyard as soon as they
  * resolve, so without this it is hard to follow what has happened and what is still in effect.

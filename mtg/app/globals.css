@@ -326,7 +326,8 @@ body {
 }
 
 /* A drop-down list drawn as frosted glass. Browsers that can restyle the open list (Chrome, Edge, Brave) get the glass; others get a dark list. */
-.glass-select option {
+.glass-select option,
+.glass-select optgroup {
   background: #0f172a;
   color: #f1f5f9;
 }
@@ -367,6 +368,13 @@ body {
   }
   .glass-select option::checkmark {
     color: #fcd34d;
+  }
+  .glass-select optgroup {
+    padding-top: 4px;
+    background: transparent;
+    color: #cbd5e1;
+    font-size: 0.75rem;
+    font-weight: 700;
   }
 }
 

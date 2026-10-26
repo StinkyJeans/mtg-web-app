@@ -111,7 +111,7 @@ test("gain life equal to a power / for each creature", () => {
 });
 
 test("a token that is created tapped and attacking joins the attack", () => {
-  let g = setup([], ["falconer"]);
+  let g = setup([], ["falconer"], ["bear"]);
   g.phase = "attackers";
   g = settle(act(g, "p1", { type: "declareAttackers", attackers: ["m0"] }));
   const bird = named(g, "p1", "Bird")[0];
@@ -208,7 +208,7 @@ test("becomes a 4/4 until end of turn; loses defender", () => {
 });
 
 test("first strike on your turn only; attackers get +1/+0", () => {
-  const g = setup([], ["lynx", "oriflamme", "bear"]);
+  const g = setup([], ["lynx", "oriflamme", "bear"], ["bear"]);
   g.phase = "attackers";
   const keyword = (iid: string) => stat(g, iid);
   assert.deepEqual(keyword("m2"), [2, 2]);

@@ -1,0 +1,210 @@
+import { getCard } from "../../cards.js";
+import type { Permanent, PlayerId } from "../../types.js";
+import { findPermanentOrNull, isCreature, nameOf, playerLabel, powerOf, subtypesOf } from "../permanents.js";
+import { makeTokenCopy, putCounters } from "../zones.js";
+import { subjectsOf } from "../targets.js";
+import { cardAnywhere, plural, noteTempSource, type EffectHandlers, type EffectOf, type EffectRun } from "./shared.js";
+
+function tapOrUntapAll({ state, ctx }: EffectRun, effect: EffectOf<"tap" | "untap">): void {
+  for (const s of subjectsOf(state, effect.what, ctx)) if (s.k === "perm") s.perm.tapped = effect.type === "tap";
+}
+
+/** Changes to permanents: counters, power and toughness, keywords, tapping, control and what they are. */
+export const PERMANENT_EFFECTS = {
+  putSavedCounters({ state, ctx, say }, effect) {
+    const died = ctx.died;
+    if (!died || (died.counters === 0 && died.minusCounters === 0)) return;
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      putCounters(state, s.perm, s.owner, died.counters);
+      if (died.minusCounters) s.perm.minusCounters = (s.perm.minusCounters ?? 0) + died.minusCounters;
+      say(`${ctx.sourceName}'s counters are put on ${nameOf(state, s.perm)}.`);
+    }
+  },
+  offspringCopy({ state, ctx, events, say }) {
+    // A 1/1 token copy (rule 702.175): the card as printed, with base power and toughness 1/1.
+    const card = cardAnywhere(state, ctx.sourceId);
+    if (!card) return;
+    makeTokenCopy(state, getCard(state, card.printed ?? card.defId), ctx.controller, events);
+    say(`${ctx.sourceName}'s offspring: a 1/1 token copy enters.`);
+  },
+  solve({ state, ctx, say }) {
+    const self = findPermanentOrNull(state, ctx.sourceId)?.perm;
+    if (!self || self.solved) return;
+    self.solved = true;
+    say(`${ctx.sourceName} is solved.`);
+  },
+  tap: tapOrUntapAll,
+  untap: tapOrUntapAll,
+  regenerate({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.regenShield = (s.perm.regenShield ?? 0) + 1;
+      say(`${nameOf(state, s.perm)} gets a regeneration shield until end of turn.`);
+    }
+  },
+  noRegen() {},
+  addCounters({ state, ctx, say, value }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      if (effect.kind === "minus") s.perm.minusCounters = (s.perm.minusCounters ?? 0) + value(effect.amount);
+      else putCounters(state, s.perm, s.owner, value(effect.amount));
+      say(`${nameOf(state, s.perm)} gets ${plural(value(effect.amount), effect.kind === "minus" ? "-1/-1 counter" : "+1/+1 counter")}.`);
+    }
+  },
+  gainControl({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm" || s.owner === ctx.controller) continue;
+      const from = state.players[s.owner].battlefield;
+      from.splice(from.indexOf(s.perm), 1);
+      s.perm.controlReturn = s.perm.controlReturn ?? s.owner; // it goes back at the end of the turn
+      s.perm.summoningSick = true;
+      state.players[ctx.controller].battlefield.push(s.perm);
+      say(`${playerLabel(ctx.controller)} gains control of ${nameOf(state, s.perm)} until end of turn.`);
+    }
+  },
+  combatDamageDraw({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.damageDraws = [...(s.perm.damageDraws ?? []), { player: ctx.controller, source: ctx.sourceName }];
+      say(`This turn, whenever ${nameOf(state, s.perm)} deals combat damage to a player, ${playerLabel(ctx.controller)} draws a card.`);
+    }
+  },
+  crewed({ state, ctx, say }) {
+    for (const s of subjectsOf(state, { t: "self" }, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.crewed = true;
+      say(`${nameOf(state, s.perm)} becomes an artifact creature until end of turn.`);
+    }
+  },
+  grantIfPowerBelow({ state, ctx, say }, effect) {
+    for (const perm of state.players[ctx.controller].battlefield) {
+      if (!isCreature(state, perm) || powerOf(state, perm) >= (ctx.x ?? 0)) continue;
+      perm.tempKeywords = [...(perm.tempKeywords ?? []), effect.keyword];
+    }
+    say(`Creatures with power less than ${ctx.x ?? 0} gain ${effect.keyword} until end of turn.`);
+  },
+  setBase({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.tempBase = { power: effect.power, toughness: effect.toughness };
+      say(`${nameOf(state, s.perm)} becomes ${effect.power}/${effect.toughness} until end of turn.`);
+    }
+  },
+  tapOrUntap({ state, ctx, startPick }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm" || state.pendingPick) continue;
+      startPick({
+        player: ctx.controller,
+        prompt: `${nameOf(state, s.perm)}: tap it or untap it?`,
+        kind: "toggle",
+        options: ["tap", "untap"],
+        optional: true,
+        owner: ctx.controller,
+        remaining: 1,
+        ordered: [],
+        toggleIid: s.perm.card.iid,
+      });
+    }
+  },
+  stun({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm" || (effect.theirsOnly && s.owner === ctx.controller)) continue;
+      s.perm.stun = (s.perm.stun ?? 0) + 1;
+      say(`${nameOf(state, s.perm)} gets a stun counter: its next untap is skipped.`);
+    }
+  },
+  becomeCopy({ state, ctx, say }, effect) {
+    // It keeps its counters, damage and everything else that isn't printed on the card.
+    const self = findPermanentOrNull(state, ctx.sourceId)?.perm;
+    const model = subjectsOf(state, effect.what, ctx).find((x) => x.k === "perm");
+    if (!self || !model || model.k !== "perm") return;
+    self.card = { ...self.card, defId: model.perm.card.defId, printed: self.card.printed ?? self.card.defId };
+    say(`${ctx.sourceName} becomes a copy of ${nameOf(state, model.perm)}.`);
+  },
+  exileIfDies({ state, ctx }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) if (s.k === "perm") s.perm.exileOnDeath = true;
+  },
+  grantDiesReturn({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.diesReturn = true;
+      say(`${nameOf(state, s.perm)} will return to the battlefield if it dies this turn.`);
+    }
+  },
+  becomeSubtype({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.subtypesOverride = [effect.subtype];
+      say(`${nameOf(state, s.perm)} becomes a ${effect.subtype}.`);
+    }
+  },
+  distributeCounters({ state, ctx, say }, effect) {
+    // The split is the one announced with the targets: the first target gets any extra (3 = 3, 2+1, or 1+1+1).
+    const chosen = ctx.targets.filter((t) => t.kind !== "none");
+    const hit: { perm: Permanent; owner: PlayerId }[] = [];
+    chosen.forEach((t, i) => {
+      const found = t.kind === "permanent" ? findPermanentOrNull(state, t.iid) : null;
+      if (!found) return;
+      putCounters(state, found.perm, found.owner.id, Math.floor(effect.total / chosen.length) + (i < effect.total % chosen.length ? 1 : 0));
+      hit.push({ perm: found.perm, owner: found.owner.id });
+    });
+    if (effect.double) for (const h of hit) putCounters(state, h.perm, h.owner, h.perm.counters ?? 0);
+    for (const h of hit) say(`${nameOf(state, h.perm)} now has ${plural(h.perm.counters ?? 0, "+1/+1 counter")}.`);
+  },
+  attach({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      const source = findPermanentOrNull(state, ctx.sourceId)?.perm;
+      if (s.k !== "perm" || !source) continue;
+      source.attachedTo = s.perm.card.iid;
+      say(`${nameOf(state, source)} is attached to ${nameOf(state, s.perm)}.`);
+    }
+  },
+  pump({ state, ctx, say, value }, effect) {
+    // "gets +1/+0 for each other attacking Goblin": the amount is multiplied by a count
+    const times = effect.per ? value({ count: effect.per }) : 1;
+    const dp = effect.power * times;
+    const dt = effect.toughness * times;
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      noteTempSource(s.perm, ctx);
+      s.perm.powerBonus = (s.perm.powerBonus ?? 0) + dp;
+      s.perm.toughnessBonus = (s.perm.toughnessBonus ?? 0) + dt;
+      const sign = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
+      say(`${nameOf(state, s.perm)} gets ${sign(dp)}/${sign(dt)} until end of turn.`);
+    }
+  },
+  ifSubtypeGrant({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      const types = subtypesOf(state, s.perm);
+      if (!types.includes(effect.subtype)) continue;
+      s.perm.tempKeywords = [...(s.perm.tempKeywords ?? []), effect.keyword];
+      say(`${nameOf(state, s.perm)} gains ${effect.keyword} until end of turn.`);
+    }
+  },
+  tapForBonus({ state, ctx, startPick }) {
+    const source = findPermanentOrNull(state, ctx.sourceId);
+    const options = state.players[ctx.controller].battlefield.filter((p) => isCreature(state, p) && !p.tapped && p.card.iid !== ctx.sourceId).map((p) => p.card.iid);
+    if (!source || options.length === 0 || state.pendingPick) return;
+    startPick({
+      player: ctx.controller,
+      prompt: `${ctx.sourceName}: tap any number of your untapped creatures. It gets +1/+1 for each one (click "Done" when you have enough).`,
+      kind: "tapSome",
+      options,
+      optional: true,
+      owner: ctx.controller,
+      remaining: options.length,
+      ordered: [],
+      toggleIid: ctx.sourceId,
+    });
+  },
+  grant({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      noteTempSource(s.perm, ctx);
+      s.perm.tempKeywords = [...(s.perm.tempKeywords ?? []), effect.keyword];
+      say(`${nameOf(state, s.perm)} gains ${effect.keyword} until end of turn.`);
+    }
+  },
+} satisfies EffectHandlers;

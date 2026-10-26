@@ -1,0 +1,88 @@
+"use client";
+
+import { castCostOf, payMana } from "@mtg/engine";
+import type { CardDef, CardInstance, GameState, PlayerId } from "@mtg/engine";
+import CardView from "./CardView";
+
+interface Props {
+  state: GameState;
+  actor: PlayerId;
+  mine: boolean;
+  playable: Set<string>;
+  handPick: string[];
+  onClick: (iid: string, defId: string) => void;
+  onPreview: (def: CardDef, el: HTMLElement) => void;
+  onUnpreview: () => void;
+  onInspect: (def: CardDef) => void;
+  onZoom: (def: CardDef) => void;
+}
+
+/** The player's hand. While choosing cards (mulligan, discard) it stays together; otherwise playable cards come first, apart from the rest. */
+export default function HandRow({ state, actor, mine, playable, handPick, onClick, onPreview, onUnpreview, onInspect, onZoom }: Props) {
+  const hand = state.players[actor].hand;
+  const mulligansTaken = state.opening?.taken[actor] ?? 0;
+  // While deciding whether to keep or mulligan the cards can only be looked at, until a mulligan means choosing cards to bottom.
+  // Online, the player waiting for the other to keep or discard can only look too.
+  const lookOnly = (state.phase === "mulligan" && mulligansTaken === 0) || (!mine && (state.phase === "mulligan" || state.phase === "cleanup"));
+  const choosing = state.phase === "mulligan" || state.phase === "cleanup" || state.pendingPick !== null || state.winner !== null;
+
+  const card = (c: CardInstance) => {
+    const def = state.cards[c.defId];
+    const notes = handNotes(state, actor, c.defId, playable.has(c.iid));
+    return (
+      <div key={c.iid} className="shrink-0" onMouseEnter={(e) => onPreview(def, e.currentTarget)} onMouseLeave={onUnpreview}>
+        <CardView
+          iid={c.iid}
+          def={def}
+          ring={handPick.includes(c.iid) ? "ring-2 ring-red-400" : choosing && !lookOnly && (state.phase === "mulligan" || state.phase === "cleanup") ? "ring-2 ring-emerald-400" : ""}
+          castable={notes.castable}
+          dim={notes.dim}
+          hint={notes.hint}
+          onClick={lookOnly ? undefined : () => onClick(c.iid, c.defId)}
+          onHover={() => onInspect(def)}
+          onZoom={() => onZoom(def)}
+        />
+      </div>
+    );
+  };
+
+  if (choosing) return <div className="flex min-h-[calc(var(--card-h,168px)*0.8)] items-start gap-1.5 overflow-x-auto py-1">{hand.map(card)}</div>;
+  const ready = hand.filter((c) => playable.has(c.iid));
+  const waiting = hand.filter((c) => !playable.has(c.iid));
+  // Playable cards and the rest sit side by side in one row, so the hand takes one card's height.
+  return (
+    <div className="flex items-stretch gap-2 overflow-x-auto py-1">
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h3 className="text-[10px] font-semibold uppercase font-display tracking-wide text-[#a7f3d0]">Can play now ({ready.length})</h3>
+        <div className="flex min-h-[calc(var(--card-h,168px)*0.8+0.5rem)] items-start gap-1.5 rounded-lg border border-[#6ee7b7]/40 bg-[#022c22]/40 p-1">
+          {ready.length > 0 ? ready.map(card) : <p className="self-center px-2 text-xs text-slate-300">Nothing can be played right now.</p>}
+        </div>
+      </div>
+      {waiting.length > 0 && (
+        <div className="flex min-w-0 flex-col gap-0.5">
+          <h3 className="text-[10px] font-semibold uppercase font-display tracking-wide text-slate-300">Can&apos;t play now ({waiting.length})</h3>
+          <div className="flex items-start gap-1.5 rounded-lg border border-white/15 bg-white/10 p-1">{waiting.map(card)}</div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * What the hand should show for a card: castable (green, with a badge), or dimmed with the reason why not.
+ * Only while playing normally: during the mulligan and the discard the hand is for choosing cards, not casting.
+ */
+function handNotes(state: GameState, actor: PlayerId, defId: string, ok: boolean): { castable?: boolean; dim?: boolean; hint?: string } {
+  if (state.phase === "mulligan" || state.phase === "cleanup" || state.pendingPick || state.winner) return {};
+  if (ok) return { castable: true };
+  const def = state.cards[defId];
+  if (def.type === "land") {
+    return { dim: true, hint: state.players[actor].landsPlayedThisTurn >= 1 ? "You already played a land this turn." : "You can only play a land in your own main phase." };
+  }
+  const cost = castCostOf(state, actor, def);
+  const paid = cost ? payMana(state, actor, cost, def) : null;
+  if (cost && paid && !paid.ok) {
+    return { dim: true, hint: paid.missing === "life" ? "Not enough life to pay for this." : paid.missing === "generic" ? `Not enough mana: it costs ${def.manaCost ?? def.cost}.` : `Not enough mana of the right color: it costs ${def.manaCost}.` };
+  }
+  return { dim: true, hint: "You have the mana, but can't cast it right now (wrong phase, something is on the stack, or it has no legal target)." };
+}

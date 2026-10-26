@@ -123,6 +123,8 @@ export interface Announcement {
   defId?: string;
   turn: number;
   kind: "spell" | "ability";
+  /** The spell's card, or the permanent whose ability it was. */
+  iid?: string;
   /** The player who cast the spell or used the ability: it is shown on their side of the board. */
   player: PlayerId;
   title: string;
@@ -146,13 +148,13 @@ function defIdOf(state: GameState, iid: string): string | undefined {
 }
 
 export function announcementsFrom(events: GameEvent[], state: GameState): Announcement[] {
-  const groups: { player: PlayerId; title: string; defId?: string; kind: "spell" | "ability"; events: GameEvent[] }[] = [];
+  const groups: { player: PlayerId; title: string; iid: string; defId?: string; kind: "spell" | "ability"; events: GameEvent[] }[] = [];
   for (const e of events) {
     if (e.type === "spellCast" || e.type === "creatureCast") {
-      groups.push({ player: e.player, title: `${playerName(e.player)} cast ${nameOf(state, e.iid)}`, defId: defIdOf(state, e.iid), kind: "spell", events: [] });
+      groups.push({ player: e.player, title: `${playerName(e.player)} cast ${nameOf(state, e.iid)}`, iid: e.iid, defId: defIdOf(state, e.iid), kind: "spell", events: [] });
     } else if (e.type === "abilityActivated") {
       const text = e.text.replace(/~/g, e.name).replace(/^./, (c) => c.toUpperCase());
-      groups.push({ player: e.player, title: `${playerName(e.player)} used ${e.name}`, defId: defIdOf(state, e.iid), kind: "ability", events: [{ ...e, text }] });
+      groups.push({ player: e.player, title: `${playerName(e.player)} used ${e.name}`, iid: e.iid, defId: defIdOf(state, e.iid), kind: "ability", events: [{ ...e, text }] });
     } else if (groups.length > 0 && e.type !== "phaseChanged" && e.type !== "turnStarted") {
       groups[groups.length - 1].events.push(e);
     }
@@ -163,6 +165,6 @@ export function announcementsFrom(events: GameEvent[], state: GameState): Announ
     // A damage event is followed by the matching "loses N life" event: say it once.
     const rest = g.events.filter((e, i) => !(e.type === "lifeLost" && g.events.slice(0, i).some((p) => p.type === "damage" && p.target === e.player && p.amount === e.amount)));
     const lines = [...detail, ...describeEvents(rest.filter((e) => e.type !== "abilityActivated"), state)];
-    return { id: nextAnnouncement++, player: g.player, title: g.title, lines, defId: g.defId, turn: state.turn, kind: g.kind };
+    return { id: nextAnnouncement++, player: g.player, title: g.title, lines, iid: g.iid, defId: g.defId, turn: state.turn, kind: g.kind };
   });
 }
