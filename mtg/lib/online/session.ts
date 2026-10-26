@@ -253,6 +253,9 @@ let pollTimer: ReturnType<typeof setInterval> | undefined;
 
 const poll = () => socialRoom?.send("statuses", { ids: friendIds });
 
+const OFFLINE_CONFIRM_MS = 2 * 60_000; // offline for this long before the next "is online" counts as new
+const offlineSince: Record<string, number> = {}; // when each friend was first seen offline (cleared when they are seen online)
+
 /** Stays connected on every page while signed in: that is what makes this player show as online to their friends. */
 export async function connectSocial(): Promise<void> {
   wantSocial = true;
@@ -263,11 +266,19 @@ export async function connectSocial(): Promise<void> {
     socialRoom = room;
     room.onMessage("statuses", (list: FriendStatus[]) => {
       // the first answer only says how things are; after that, a friend going from offline to online is news
+      // "Came online" is told once per time online: a friend whose connection blinks (a page reload, a bad network) is not "back"
+      // until they have really been offline for a while. Only then does the next time they appear count as news again.
       const known = Object.keys(state.friends).length > 0;
       const cameOnline = { ...state.cameOnline };
       for (const s of list) {
-        if (!s.online) delete cameOnline[s.id];
-        else if (known && state.friends[s.id] && !state.friends[s.id].online) cameOnline[s.id] = Date.now();
+        if (!s.online) {
+          offlineSince[s.id] ??= known ? Date.now() : 0; // first seen offline when the page opened: that may have been long ago
+          if (Date.now() - offlineSince[s.id] >= OFFLINE_CONFIRM_MS) delete cameOnline[s.id]; // gone for good: an unread message about them is stale
+        } else {
+          const since = offlineSince[s.id];
+          delete offlineSince[s.id];
+          if (known && since !== undefined && Date.now() - since >= OFFLINE_CONFIRM_MS) cameOnline[s.id] = Date.now();
+        }
       }
       set({ friends: Object.fromEntries(list.map((s) => [s.id, s])), cameOnline });
     });
@@ -340,6 +351,7 @@ export function disconnectSocial(): void {
   void socialRoom?.leave(true);
   socialRoom = null;
   friendIds = [];
+  for (const id of Object.keys(offlineSince)) delete offlineSince[id];
   set({ social: "off", friends: {}, invites: [], cameOnline: {} });
 }
 
