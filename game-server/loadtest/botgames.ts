@@ -9,7 +9,7 @@ import type { Action, GameState, PlayerId } from "@mtg/engine";
 const HOST = process.env.HOST ?? "localhost:2567";
 const GAMES = Number(process.argv[2] ?? 20);
 const SECONDS = Number(process.argv[3] ?? 40);
-const deckOf = (land: string, creature: string) => [...Array(8).fill(land), ...Array(12).fill(creature)];
+const deckOf = (land: string, creature: string) => [...Array(24).fill(land), ...Array(36).fill(creature)];
 
 /** A person who plays quickly and simply (nothing here is expensive: the load must come from the server's bot). */
 /** The opening: first each player shuffles the other's library, then they keep their hand. */
@@ -60,7 +60,6 @@ async function play(i: number) {
   room.onMessage("room", (s: { stage: string; you: PlayerId; coin: { winner: PlayerId | null } | null }) => {
     seat = s.you;
     if (s.stage === "waiting") room.send("addBot");
-    if (s.stage === "vote") room.send("vote", { size: 20 });
     if (s.stage === "decks") room.send("deck", { name: "Reds", ids: deckOf("mountain", "agent-of-atlas"), botDeck: { name: "Greens", ids: deckOf("forest", "advance-scout") } });
     if (s.stage === "coin" && s.coin?.winner === "p1") room.send("order", { first: true });
   });

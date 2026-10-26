@@ -8,23 +8,22 @@ import LookPicker from "../play/LookPicker";
 import { myLook, randomLook } from "@/lib/playmat";
 import { listPlayableDecks } from "@/lib/decks";
 import type { DeckChoice } from "@/lib/decks";
-import DeckOptions from "../decks/DeckOptions";
+import DeckPicker from "../decks/DeckPicker";
 import { buildRandomDeck } from "@/lib/randomDeck";
+import { useCached, writeCached } from "@/lib/dashCache";
 import { leaveRoom, send } from "@/lib/online/session";
-import { DECK_SIZES } from "@/lib/online/protocol";
 import type { RoomSnapshot } from "@/lib/online/protocol";
 import { KickButton } from "./RoomPopup";
 
 const RANDOM_ID = "random";
-const STARTER: DeckChoice = { id: "starter", name: "Starter deck", ids: STARTER_DECK, official: true };
+const STARTER: DeckChoice = { id: "starter", name: "Starter deck", ids: STARTER_DECK, official: true, colors: [] };
 const STEPS = [
-  { stage: "vote", label: "Vote" },
   { stage: "decks", label: "Decks" },
   { stage: "coin", label: "Coin toss" },
 ] as const;
 
 /**
- * The pop-up that takes a room from "two players" to "the game starts": both vote for a deck size, both choose a deck,
+ * The pop-up that takes a room from "two players" to "the game starts": both choose a 60-card deck,
  * then the coin is tossed and whoever wins it decides who goes first.
  */
 export default function VotePopup({ room }: { room: RoomSnapshot }) {
@@ -35,7 +34,7 @@ export default function VotePopup({ room }: { room: RoomSnapshot }) {
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Vote" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className="flex w-full max-w-lg flex-col gap-5 rounded-3xl border border-white/25 bg-slate-950/95 p-6 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]">
+      <div className={`flex max-h-[calc(100dvh-2rem)] w-full flex-col gap-5 overflow-y-auto rounded-3xl ${room.stage === "decks" ? "max-w-[88rem] p-7" : "max-w-lg p-6"}  border border-white/25 bg-slate-950/95 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]`}>
         <header className="flex items-center gap-3">
           <ol className="flex flex-1 items-center gap-2" aria-label="Steps">
             {STEPS.map((s, i) => (
@@ -50,7 +49,6 @@ export default function VotePopup({ room }: { room: RoomSnapshot }) {
           </button>
         </header>
 
-        {room.stage === "vote" && <VoteStep room={room} />}
         {room.stage === "decks" && <DeckStep room={room} ready={me?.deckReady ?? false} />}
         {(room.stage === "coin" || room.stage === "playing") && room.coin && <CoinStep room={room} />}
       </div>
@@ -71,34 +69,8 @@ function PlayerChips({ room, show }: { room: RoomSnapshot; show: (p: RoomSnapsho
   );
 }
 
-function VoteStep({ room }: { room: RoomSnapshot }) {
-  const mine = room.players.find((p) => p.seat === room.you)?.voted ?? null;
-  return (
-    <section className="flex flex-col gap-4 text-center">
-      <div>
-        <h2 className="text-2xl font-extrabold">Vote for the deck size</h2>
-        <p className="mt-1 text-[15px] text-slate-200">Both players must choose the same size.</p>
-      </div>
-      <div className="grid grid-cols-3 gap-3">
-        {DECK_SIZES.map((n) => (
-          <button
-            key={n}
-            onClick={() => send("vote", { size: n })}
-            className={`rounded-2xl border-2 px-2 py-5 transition hover:-translate-y-0.5 ${mine === n ? "border-amber-300 bg-amber-400/25 ring-2 ring-amber-300/60" : "border-white/25 bg-white/10 hover:bg-white/20"}`}
-          >
-            <span className="block text-4xl font-extrabold">{n}</span>
-            <span className="text-sm text-slate-200">cards</span>
-          </button>
-        ))}
-      </div>
-      {room.mismatch && <p className="rounded-xl bg-amber-400/20 px-3 py-2 text-[15px] font-semibold text-[#fde68a]">You voted for different sizes. Vote again.</p>}
-      <PlayerChips room={room} show={(p) => (p.voted ? <span className="font-bold text-[#fde68a]">{p.voted}</span> : <span className="text-slate-300">not yet</span>)} />
-    </section>
-  );
-}
-
 function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
-  const size = room.size ?? 40;
+  const size = room.size ?? 60; // every deck is 60 cards
   // The table: the card sleeve and playmat this player wants. The server shows them to both players (and to anyone watching).
   const [sleeve, setSleeve] = useState(() => myLook.read("sleeve"));
   const [mat, setMat] = useState(() => myLook.read("mat"));
@@ -107,7 +79,9 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   useEffect(() => {
     send("look", { sleeve, mat, ...(vsBotRoom ? { bot: botLook } : {}) });
   }, [sleeve, mat, vsBotRoom, botLook]);
-  const [options, setOptions] = useState<DeckChoice[] | null>(null);
+  const cachedChoices = useCached<DeckChoice[]>("playable-decks"); // last time's decks, shown at once while the fresh list loads
+  const [fetchedOptions, setOptions] = useState<DeckChoice[] | null>(null);
+  const options = fetchedOptions ?? (cachedChoices ? [...cachedChoices, STARTER] : null);
   const [choice, setChoice] = useState(RANDOM_ID);
   const [busy, setBusy] = useState(false);
 
@@ -115,7 +89,7 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   useEffect(() => {
     let cancelled = false;
     listPlayableDecks()
-      .then(({ choices }) => [...choices, STARTER])
+      .then(({ choices }) => (writeCached("playable-decks", choices), [...choices, STARTER]))
       .catch(() => [STARTER]) // the starter deck and a random deck still work
       .then((found) => {
         if (!cancelled) setOptions(found);
@@ -140,25 +114,21 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   }
 
   return (
-    <section className="flex flex-col gap-4 text-center">
-      <div>
-        <h2 className="text-2xl font-extrabold">Choose your deck</h2>
-        <p className="mt-1 text-[15px] text-slate-200">
+    <section className="grid gap-x-7 gap-y-4 text-center lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:text-left">
+      <div className="flex flex-col gap-4 lg:col-start-1 lg:row-start-1">
+        <div>
+        <h2 className="text-3xl font-extrabold">Choose your deck</h2>
+        <p className="mt-1 text-lg text-slate-200">
           {size} cards. {room.players.some((p) => p.bot) ? "The bot plays a random deck." : "Your opponent does not see which one you pick."}
         </p>
+        </div>
+        <DeckPicker choices={options ?? []} size={size} randomId={RANDOM_ID} value={choice} onChange={setChoice} disabled={ready} loading={options === null} wide />
       </div>
-      <select
-        value={choice}
-        onChange={(e) => setChoice(e.target.value)}
-        disabled={ready || options === null}
-        aria-label="Deck"
-        className="glass-select rounded-xl border border-white/25 bg-white/10 px-4 py-3 text-base text-slate-100 disabled:opacity-60"
-      >
-        <DeckOptions choices={options ?? []} size={size} randomId={RANDOM_ID} />
-      </select>
-      <div className="rounded-2xl border border-white/20 bg-white/5 p-3">
-        <h3 className="mb-2 text-sm font-bold uppercase tracking-widest text-[#ffe29a]">Choose your table</h3>
+      <div className="flex flex-col gap-4 lg:col-start-2 lg:row-start-1">
+      <div className="rounded-2xl border border-white/20 bg-white/5 p-4 text-center">
+        <h3 className="mb-3 text-base font-bold uppercase tracking-widest text-[#ffe29a]">Choose your table</h3>
         <LookPicker
+          large
           who={room.you}
           sleeve={sleeve}
           mat={mat}
@@ -166,16 +136,17 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
           onSleeve={(v) => (setSleeve(v), myLook.write("sleeve", v))}
           onMat={(v) => (setMat(v), myLook.write("mat", v))}
         />
-        <p className="mt-2 text-xs text-slate-300">{vsBotRoom ? "Your table is shown on your side of the battlefield." : "Your opponent sees your mat and sleeve on their screen, and you see theirs."}</p>
+        <p className="mt-3 text-sm text-slate-300">{vsBotRoom ? "Your table is shown on your side of the battlefield." : "Your opponent sees your mat and sleeve on their screen, and you see theirs."}</p>
       </div>
       <button
         onClick={() => void confirm()}
         disabled={ready || busy || options === null}
-        className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-500 px-8 py-3 text-lg font-extrabold text-black shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-50"
+        className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-500 px-8 py-4 text-xl font-extrabold text-black shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-50"
       >
         {ready ? "Ready ✓" : busy ? "Preparing…" : "Ready"}
       </button>
       <PlayerChips room={room} show={(p) => (p.deckReady ? <span className="font-bold text-[#a7f3d0]">ready ✓</span> : p.bot ? <span className="text-slate-300">waiting for you</span> : <span className="text-slate-300">choosing…</span>)} />
+      </div>
     </section>
   );
 }

@@ -163,6 +163,41 @@ export interface Stats {
   recent: MatchLine[];
 }
 
+export const MATCHES_PER_PAGE = 10;
+
+type MatchRow = { id: string; p1: string; p2: string; winner: string | null; turns: number | null; played_at: string };
+
+/** Turns database rows into lines: the opponent's name, and whether this player won. */
+async function toLines(rows: MatchRow[], me: string): Promise<MatchLine[]> {
+  const supabase = createClient();
+  const others = [...new Set(rows.map((r) => (r.p1 === me ? r.p2 : r.p1)))];
+  const names = new Map<string, string>();
+  if (others.length > 0) {
+    // the name the opponent chose to be shown (their nickname), or their login name
+    const { data: people } = await supabase.from("profiles").select("id, username, nickname").in("id", others);
+    for (const p of (people ?? []) as { id: string; username: string; nickname?: string | null }[]) names.set(p.id, p.nickname || p.username);
+  }
+  return rows.map((r) => ({
+    id: r.id,
+    opponent: names.get(r.p1 === me ? r.p2 : r.p1) ?? "a player",
+    result: r.winner === null ? "draw" : r.winner === me ? "win" : "loss",
+    turns: r.turns,
+    playedAt: r.played_at,
+  }));
+}
+
+/** One page of this account's finished matches, newest first (page 0 is the first), and how many there are in all. */
+export async function loadMatchPage(me: string, page: number): Promise<{ lines: MatchLine[]; total: number }> {
+  const { data, error, count } = await createClient()
+    .from("matches")
+    .select("id, p1, p2, winner, turns, played_at", { count: "exact" })
+    .or(`p1.eq.${me},p2.eq.${me}`)
+    .order("played_at", { ascending: false })
+    .range(page * MATCHES_PER_PAGE, page * MATCHES_PER_PAGE + MATCHES_PER_PAGE - 1);
+  if (error) throw new Error(error.message);
+  return { lines: await toLines((data ?? []) as MatchRow[], me), total: count ?? 0 };
+}
+
 /** The record from the finished matches this account played (games against the bot are not recorded). */
 export async function loadStats(me: string): Promise<Stats> {
   const supabase = createClient();
@@ -187,44 +222,18 @@ export async function loadStats(me: string): Promise<Stats> {
       .select("id, p1, p2, winner, turns, played_at")
       .or(mine)
       .order("played_at", { ascending: false })
-      .limit(6),
+      .limit(3),
   ]);
   for (const r of [total, wins, draws, latest])
     if (r.error) throw new Error(r.error.message);
-  const rows = (latest.data ?? []) as {
-    id: string;
-    p1: string;
-    p2: string;
-    winner: string | null;
-    turns: number | null;
-    played_at: string;
-  }[];
-  const resultOf = (r: (typeof rows)[number]): MatchLine["result"] =>
-    r.winner === null ? "draw" : r.winner === me ? "win" : "loss";
+  const rows = (latest.data ?? []) as MatchRow[];
   const w = wins.count ?? 0;
   const d = draws.count ?? 0;
   const stats: Stats = {
     wins: w,
     draws: d,
     losses: Math.max(0, (total.count ?? 0) - w - d),
-    recent: [],
+    recent: await toLines(rows, me),
   };
-  const others = [...new Set(rows.map((r) => (r.p1 === me ? r.p2 : r.p1)))];
-  const names = new Map<string, string>();
-  if (others.length > 0) {
-    const { data: people } = await supabase
-      .from("profiles")
-      .select("id, username")
-      .in("id", others);
-    for (const p of (people ?? []) as { id: string; username: string }[])
-      names.set(p.id, p.username);
-  }
-  stats.recent = rows.map((r) => ({
-    id: r.id,
-    opponent: names.get(r.p1 === me ? r.p2 : r.p1) ?? "a player",
-    result: resultOf(r),
-    turns: r.turns,
-    playedAt: r.played_at,
-  }));
   return stats;
 }

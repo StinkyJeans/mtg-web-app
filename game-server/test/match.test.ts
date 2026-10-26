@@ -112,24 +112,15 @@ describe("a live match", function () {
     await new Promise((r) => setTimeout(r, 150));
     assert.equal(snap.bob.stage, "waiting", "a guest can't start the vote");
     alice.send("startVote");
-    await until("vote stage", () => snap.alice.stage === "vote");
-
-    // different votes: they have to vote again
-    alice.send("vote", { size: 20 });
-    bob.send("vote", { size: 40 });
-    await until("mismatch", () => snap.alice.mismatch === true);
-    assert.equal(snap.alice.stage, "vote");
-    alice.send("vote", { size: 20 });
-    bob.send("vote", { size: 20 });
-    await until("decks stage", () => snap.alice.stage === "decks");
-    assert.equal(snap.alice.size, 20);
+    await until("decks stage (there is no vote: every deck is 60 cards)", () => snap.alice.stage === "decks");
+    assert.equal(snap.alice.size, 60);
 
     // a deck of the wrong size is refused; right-sized decks are accepted
     alice.send("deck", { name: "Too small", ids: ["mountain"] });
     await new Promise((r) => setTimeout(r, 200));
     assert.equal(snap.alice.stage, "decks");
-    alice.send("deck", { name: "Reds", ids: deckOf(20, "mountain", "agent-of-atlas") });
-    bob.send("deck", { name: "Greens", ids: deckOf(20, "forest", "advance-scout") });
+    alice.send("deck", { name: "Reds", ids: deckOf(60, "mountain", "agent-of-atlas") });
+    bob.send("deck", { name: "Greens", ids: deckOf(60, "forest", "advance-scout") });
     await until("coin stage", () => snap.alice.stage === "coin");
     assert.ok(snap.alice.coin && snap.alice.coin.call === null, "nobody has called yet");
 
@@ -166,7 +157,8 @@ describe("a live match", function () {
     console.log(`   game over after ${end.turn} turns, ${steps} actions; winner: ${end.winner}`);
   });
 
-  it("lets the host play against a computer opponent, which plays a whole game by itself", async () => {
+  it("lets the host play against a computer opponent, which plays a whole game by itself", async function () {
+    this.timeout(240_000); // a 60-card game against a thinking bot takes a while
     const room = await colyseus.createRoom("match", { name: "Versus the bot" });
     const alice = await colyseus.connectTo(room, { token: "dev:erin" });
     let snap: RoomSnapshot | null = null;
@@ -203,10 +195,8 @@ describe("a live match", function () {
     await assert.rejects(colyseus.connectTo(room, { token: "dev:frank" }), "a third person can't join");
 
     alice.send("startVote");
-    await until("vote stage", () => snap?.stage === "vote");
-    alice.send("vote", { size: 20 });
     await until("decks stage (the bot voted with the host)", () => snap?.stage === "decks");
-    alice.send("deck", { name: "Reds", ids: deckOf(20, "mountain", "agent-of-atlas"), botDeck: { name: "Bot deck", ids: deckOf(20, "forest", "advance-scout") } });
+    alice.send("deck", { name: "Reds", ids: deckOf(60, "mountain", "agent-of-atlas"), botDeck: { name: "Bot deck", ids: deckOf(60, "forest", "advance-scout") } });
     await until("coin stage", () => snap?.stage === "coin");
     await until("the bot (the guest) has called the coin", () => snap?.coin?.winner != null);
     if (snap!.coin!.winner === "p1") alice.send("order", { first: true });
@@ -240,11 +230,9 @@ describe("a live match", function () {
     await wait(200);
     alice.send("startVote");
     await wait(100);
-    alice.send("vote", { size: 20 });
-    bob.send("vote", { size: 20 });
     await wait(100);
-    alice.send("deck", { name: "A", ids: deckOf(20, "mountain", "agent-of-atlas") });
-    bob.send("deck", { name: "B", ids: deckOf(20, "forest", "advance-scout") });
+    alice.send("deck", { name: "A", ids: deckOf(60, "mountain", "agent-of-atlas") });
+    bob.send("deck", { name: "B", ids: deckOf(60, "forest", "advance-scout") });
     await wait(1200);
     bob.send("call", { side: "heads" });
     await wait(200);
@@ -389,8 +377,6 @@ describe("a live match", function () {
     for (const c of [tia, uri]) (c.onMessage("room", () => {}), c.onMessage("error", (m: { message: string }) => errors.push(m.message)));
     tia.send("startVote");
     await wait(100);
-    tia.send("vote", { size: 20 });
-    uri.send("vote", { size: 20 });
     await wait(150);
     tia.send("deck", { name: "x", ids: Array(5000).fill("mountain") });
     tia.send("deck", { name: "x", ids: [1, null, { a: 1 }, "x".repeat(500)] });
@@ -444,12 +430,9 @@ describe("a live match", function () {
     };
     await until("both in the room", () => snap.ivy?.players.length === 2);
     ivy.send("startVote");
-    await until("vote", () => snap.ivy.stage === "vote");
-    ivy.send("vote", { size: 20 });
-    jack.send("vote", { size: 20 });
     await until("decks", () => snap.ivy.stage === "decks");
-    ivy.send("deck", { name: "A", ids: deckOf(20, "mountain", "agent-of-atlas") });
-    jack.send("deck", { name: "B", ids: deckOf(20, "forest", "advance-scout") });
+    ivy.send("deck", { name: "A", ids: deckOf(60, "mountain", "agent-of-atlas") });
+    jack.send("deck", { name: "B", ids: deckOf(60, "forest", "advance-scout") });
     await until("coin", () => snap.ivy.stage === "coin");
     jack.send("call", { side: "heads" });
     await until("the flip", () => snap.ivy.coin?.winner != null);
@@ -516,10 +499,8 @@ describe("a live match", function () {
     kim.send("addBot");
     await until("bot added", () => snap?.players.length === 2);
     kim.send("startVote");
-    await until("vote", () => snap?.stage === "vote");
-    kim.send("vote", { size: 20 });
     await until("decks", () => snap?.stage === "decks");
-    kim.send("deck", { name: "Reds", ids: deckOf(20, "mountain", "agent-of-atlas"), botDeck: { name: "Bot deck", ids: deckOf(20, "forest", "advance-scout") } });
+    kim.send("deck", { name: "Reds", ids: deckOf(60, "mountain", "agent-of-atlas"), botDeck: { name: "Bot deck", ids: deckOf(60, "forest", "advance-scout") } });
     await until("the bot called the coin", () => snap?.coin?.winner != null);
     if (snap!.coin!.winner === "p1") kim.send("order", { first: true });
     await until("playing", () => snap?.stage === "playing");
@@ -572,12 +553,9 @@ describe("a live match", function () {
     };
     await until("both in the room", () => snap.lee?.players.length === 2);
     lee.send("startVote");
-    await until("vote", () => snap.lee.stage === "vote");
-    lee.send("vote", { size: 20 });
-    max.send("vote", { size: 20 });
     await until("decks", () => snap.lee.stage === "decks");
-    lee.send("deck", { name: "A", ids: deckOf(20, "swamp", "slimy-dualleech") });
-    max.send("deck", { name: "B", ids: deckOf(20, "swamp", "slimy-dualleech") });
+    lee.send("deck", { name: "A", ids: deckOf(60, "swamp", "slimy-dualleech") });
+    max.send("deck", { name: "B", ids: deckOf(60, "swamp", "slimy-dualleech") });
     await until("coin", () => snap.lee.stage === "coin");
     max.send("call", { side: "heads" });
     await until("the flip", () => snap.lee.coin?.winner != null);
@@ -630,10 +608,8 @@ describe("a live match", function () {
     await until("the bot is in", () => snap?.players.length === 2);
     if (look) client.send("look", look); // the table, chosen before the game
     client.send("startVote");
-    await until("vote", () => snap?.stage === "vote");
-    client.send("vote", { size: 20 });
     await until("decks", () => snap?.stage === "decks");
-    client.send("deck", { name: "Reds", ids: deckOf(20, "mountain", "agent-of-atlas"), botDeck: { name: "Greens", ids: deckOf(20, "forest", "advance-scout") } });
+    client.send("deck", { name: "Reds", ids: deckOf(60, "mountain", "agent-of-atlas"), botDeck: { name: "Greens", ids: deckOf(60, "forest", "advance-scout") } });
     await until("coin", () => snap?.stage === "coin");
     await until("the coin called", () => snap?.coin?.winner != null);
     if (snap!.coin!.winner === "p1") client.send("order", { first: true });

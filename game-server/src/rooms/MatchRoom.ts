@@ -11,7 +11,7 @@ import { LIMITS, passwordGuesses } from "../limits.js";
  * One match, from the moment the host opens the room to the moment someone wins.
  *
  *   waiting  → the host is alone, or the second player has joined (the host then sees "Vote")
- *   vote     → both players vote for a deck size (20, 40 or 60); they must agree
+ *   (vote    → no longer used: every deck is 60 cards, the host's "Vote" button now goes straight to decks)
  *   decks    → both players choose a deck of that size
  *   coin     → the guest calls heads or tails, the server flips the coin; whoever wins it chooses who goes first
  *   playing  → the game runs HERE: the server holds the real game state and the rules; the browsers only send actions
@@ -23,7 +23,8 @@ import { LIMITS, passwordGuesses } from "../limits.js";
  * go; their browsers then ask for it back with `restore`, which brings it back under the same room id.
  */
 export type Stage = "waiting" | "vote" | "decks" | "coin" | "playing" | "over";
-export const DECK_SIZES = [20, 40, 60] as const;
+/** Every deck is this many cards. */
+export const DECK_SIZE = 60;
 /** Close code for a guest the host removed: the browser says so, and doesn't try to reconnect. */
 export const KICKED = 4100;
 /** Error code (sent as the HTTP status, so it must be one) for a restore of a match that has ended or was never saved: the browser stops trying. */
@@ -154,9 +155,11 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     startVote: (client: Client) => {
       const m = this.member(client);
       if (!m || m.seat !== "p1" || this.stage !== "waiting" || this.members.length < 2) return;
-      this.members.forEach((x) => (x.vote = null));
+      // Every deck is 60 cards: there is nothing to vote on, the players go straight to choosing their decks.
+      this.members.forEach((x) => ((x.vote = null), (x.deck = null)));
       this.mismatch = false;
-      this.stage = "vote";
+      this.size = DECK_SIZE;
+      this.stage = "decks";
       this.publish();
     },
 
@@ -178,26 +181,6 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       if (!m || m.seat !== "p1" || this.stage !== "waiting" || !this.bot) return;
       this.members = this.members.filter((x) => !x.isBot);
       MatchRoom.botRooms.delete(this.roomId);
-      this.publish();
-    },
-
-    vote: (client: Client, message: { size?: number }) => {
-      const m = this.member(client);
-      if (!m || this.stage !== "vote" || !(DECK_SIZES as readonly number[]).includes(message?.size as number)) return;
-      m.vote = message.size as number;
-      if (this.bot) this.bot.vote = m.vote; // the bot always agrees with the host
-      this.mismatch = false;
-      const [a, b] = this.members;
-      if (this.members.length === 2 && a.vote !== null && b.vote !== null) {
-        if (a.vote === b.vote) {
-          this.size = a.vote;
-          this.members.forEach((x) => (x.deck = null));
-          this.stage = "decks";
-        } else {
-          this.mismatch = true; // they must choose again
-          this.members.forEach((x) => (x.vote = null));
-        }
-      }
       this.publish();
     },
 
@@ -819,6 +802,9 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
   private finish(winner: PlayerId | "draw", reason: string | null) {
     if (this.stage === "over") return;
+    // A match that never got past the opening (keeping or mulliganing the hand: someone left, or the page was closed) is
+    // not a result: nobody lost a game that did not begin. Only a game that really started is recorded.
+    const began = !!this.game && this.game.phase !== "mulligan" && !this.game.opening;
     if (reason && this.game && !this.game.winner) {
       // someone left: the game state itself records the result
       const r = applyAction(this.game, winner === "p1" ? "p2" : "p1", { type: "concede" });
@@ -835,7 +821,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.forget(); // the result is recorded below; there is nothing left to bring back
     const a = this.members.find((x) => x.seat === "p1");
     const b = this.members.find((x) => x.seat === "p2");
-    if (a && b && !this.bot) void saveMatch({ p1: a.account.id, p2: b.account.id, winner: winner === "draw" ? null : (winner === "p1" ? a : b).account.id, turns: this.game?.turn ?? 0 });
+    if (a && b && !this.bot && began) void saveMatch({ p1: a.account.id, p2: b.account.id, winner: winner === "draw" ? null : (winner === "p1" ? a : b).account.id, turns: this.game?.turn ?? 0 });
     this.publish();
   }
 

@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CardDef } from "@mtg/engine";
-import { copyOfficialDeck, DECK_PAGE_SIZE, deckColors, deckStatus, deleteDeck, listMyDecks, listOfficialDecks, loadDeckPreview, loadDefsFor, isPack, OFFICIAL_SECTIONS, PACK_TYPE, setName } from "@/lib/decks";
+import { copyOfficialDeck, coverOf, DECK_PAGE_SIZE, deckColors, deckStatus, deleteDeck, listMyDecks, listOfficialDecks, loadDeckPreview, loadDefsFor, isPack, OFFICIAL_SECTIONS, PACK_TYPE, setName } from "@/lib/decks";
 import type { Deck, DeckEntries, OfficialDeck } from "@/lib/decks";
 import { cardImageUrl } from "@/lib/cards";
 import { onIntent } from "@/lib/prefetch";
@@ -21,13 +21,6 @@ const iconProps = { fill: "none", stroke: "currentColor", strokeWidth: 2, stroke
 const cardTotal = (entries: DeckEntries) => Object.values(entries).reduce((n, q) => n + q, 0);
 
 /** The card a deck is shown with: its most expensive creature (or spell) that has a picture. */
-function coverOf(defs: Record<string, CardDef>, entries: DeckEntries): CardDef | undefined {
-  const cards = Object.keys(entries)
-    .map((id) => defs[id])
-    .filter((d): d is CardDef => Boolean(d?.image) && d.type !== "land");
-  return cards.sort((a, b) => Number(b.type === "creature") - Number(a.type === "creature") || b.cost - a.cost)[0];
-}
-
 /** Numbered page buttons: first, previous, a window of numbers around the current page, next, last. */
 function Pager({ page, pages, onPage }: { page: number; pages: number; onPage: (page: number) => void }) {
   if (pages <= 1) return null;

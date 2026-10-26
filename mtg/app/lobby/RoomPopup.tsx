@@ -82,7 +82,7 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
           })}
         </section>
 
-        {/* only the host starts the vote */}
+        {/* only the host moves the room on to choosing decks */}
         <footer className="flex flex-col items-center gap-2">
           {iAmHost ? (
             <>
@@ -91,12 +91,12 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
                 disabled={!full}
                 className="w-full rounded-2xl bg-gradient-to-b from-amber-300 to-amber-500 px-8 py-3 text-lg font-extrabold text-black shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40 sm:w-auto"
               >
-                Vote
+                Choose decks
               </button>
-              <p className="text-sm text-slate-300">{full ? "Start the vote for the deck size." : "The Vote button turns on when a second player has joined, or add a bot."}</p>
+              <p className="text-sm text-slate-300">{full ? "Both players choose a 60-card deck." : "This turns on when a second player has joined, or add a bot."}</p>
             </>
           ) : (
-            <p className="rounded-xl bg-white/10 px-4 py-2 text-[15px] text-slate-100">Waiting for {host?.name ?? "the host"} to start the vote…</p>
+            <p className="rounded-xl bg-white/10 px-4 py-2 text-[15px] text-slate-100">Waiting for {host?.name ?? "the host"} to start choosing decks…</p>
           )}
         </footer>
       </div>

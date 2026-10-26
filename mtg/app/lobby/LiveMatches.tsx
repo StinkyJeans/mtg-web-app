@@ -9,7 +9,7 @@ import WatchButton from "./WatchButton";
 
 const STATUS: Record<Stage, { label: string; chip: string }> = {
   waiting: { label: "Waiting for a player", chip: "bg-amber-400/20 text-[#fde68a] ring-amber-300/40" },
-  vote: { label: "Voting", chip: "bg-sky-400/20 text-[#bae6fd] ring-sky-300/40" },
+  vote: { label: "Choosing decks", chip: "bg-sky-400/20 text-[#bae6fd] ring-sky-300/40" },
   decks: { label: "Choosing decks", chip: "bg-sky-400/20 text-[#bae6fd] ring-sky-300/40" },
   coin: { label: "Coin toss", chip: "bg-violet-400/20 text-[#ddd6fe] ring-violet-300/40" },
   playing: { label: "LIVE", chip: "bg-red-500/25 text-[#fecaca] ring-red-400/50" },

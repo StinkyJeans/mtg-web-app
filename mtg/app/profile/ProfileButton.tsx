@@ -9,8 +9,8 @@ import DeckPreview from "../decks/DeckPreview";
 import { deckStatus, listMyDecks, loadDeckPreview, loadDefsFor } from "@/lib/decks";
 import { useCached, writeCached } from "@/lib/dashCache";
 import { onIntent } from "@/lib/prefetch";
-import { cleanNickname, loadMe, loadStats, MAX_NICKNAME, saveAvatar, saveNickname, squarePicture } from "@/lib/profile";
-import type { Me, Stats } from "@/lib/profile";
+import { cleanNickname, loadMatchPage, loadMe, loadStats, MATCHES_PER_PAGE, MAX_NICKNAME, saveAvatar, saveNickname, squarePicture } from "@/lib/profile";
+import type { MatchLine, Me, Stats } from "@/lib/profile";
 
 interface DeckLine {
   id: string;
@@ -18,6 +18,16 @@ interface DeckLine {
   cards: number;
   ready: boolean;
   problems: number;
+}
+
+/** Your saved decks as lines for the profile: name, cards, ready or not. */
+async function loadDeckLines(): Promise<DeckLine[]> {
+  const list = await listMyDecks();
+  const defs = await loadDefsFor(list);
+  return list.map((d): DeckLine => {
+    const st = deckStatus(defs, d.entries);
+    return { id: d.id, name: d.name, cards: st.count, ready: st.ready, problems: st.errors.length + st.unplayable.length };
+  });
 }
 
 /** A round picture, or the first letter of the name on a colored circle. */
@@ -91,6 +101,19 @@ export default function ProfileButton() {
     };
   }, []);
 
+  // Your record, decks and latest matches are fetched in the background and kept, so the profile opens with them already there.
+  const meId = me?.id;
+  useEffect(() => {
+    if (!meId) return;
+    let alive = true;
+    void loadStats(meId).then((s) => alive && writeCached(`stats:${meId}`, s)).catch(() => undefined);
+    void loadDeckLines().then((l) => alive && writeCached(`decks:${meId}`, l)).catch(() => undefined);
+    void loadMatchPage(meId, 0).then((p) => alive && writeCached(`matches:${meId}`, p.lines)).catch(() => undefined);
+    return () => {
+      alive = false;
+    };
+  }, [meId]);
+
   if (signedOut) return null;
   if (!me) return <ProfileSkeleton />;
   return (
@@ -131,8 +154,12 @@ function ProfilePopup({
 }) {
   useEffect(() => holdWallpaper(), []);
   const file = useRef<HTMLInputElement>(null);
-  const [stats, setStats] = useState<Stats | null | "error">(null);
-  const [decks, setDecks] = useState<DeckLine[] | null | "error">(null);
+  const cachedStats = useCached<Stats>(`stats:${me.id}`); // what was here last time: shown at once while the fresh copy loads
+  const cachedDecks = useCached<DeckLine[]>(`decks:${me.id}`);
+  const [freshStats, setStats] = useState<Stats | null | "error">(null);
+  const [freshDecks, setDecks] = useState<DeckLine[] | null | "error">(null);
+  const stats = freshStats === "error" ? (cachedStats ?? "error") : (freshStats ?? cachedStats);
+  const decks = freshDecks === "error" ? (cachedDecks ?? "error") : (freshDecks ?? cachedDecks);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState<string | null>(null);
   const [viewing, setViewing] = useState<DeckLine | null>(null); // the deck open in its own pop-up
@@ -148,23 +175,10 @@ function ProfilePopup({
   useEffect(() => {
     let alive = true;
     loadStats(me.id)
-      .then((s) => alive && setStats(s))
+      .then((s) => alive && (setStats(s), writeCached(`stats:${me.id}`, s)))
       .catch(() => alive && setStats("error"));
-    listMyDecks()
-      .then(async (list) => {
-        const defs = await loadDefsFor(list);
-        return list.map((d): DeckLine => {
-          const st = deckStatus(defs, d.entries);
-          return {
-            id: d.id,
-            name: d.name,
-            cards: st.count,
-            ready: st.ready,
-            problems: st.errors.length + st.unplayable.length,
-          };
-        });
-      })
-      .then((l) => alive && setDecks(l))
+    loadDeckLines()
+      .then((l) => alive && (setDecks(l), writeCached(`decks:${me.id}`, l)))
       .catch(() => alive && setDecks("error"));
     return () => {
       alive = false;
@@ -219,8 +233,17 @@ function ProfilePopup({
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="panel-glass flex max-h-[92dvh] w-full max-w-2xl flex-col gap-6 overflow-y-auto p-6 text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.5)] sm:p-7"
+          className="panel-glass relative grid max-h-[96dvh] w-full max-w-5xl gap-x-7 gap-y-4 overflow-y-auto p-5 text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.5)] sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.35fr)] lg:overflow-visible"
         >
+          <div className="flex min-w-0 flex-col gap-4">
+          {/* close: the top right corner of the pop-up */}
+          <button
+            onClick={onClose}
+            aria-label="Close"
+            className="btn-ghost absolute right-3 top-3 z-10 !px-3 !py-1.5 !text-lg leading-none"
+          >
+            ×
+          </button>
           {/* who you are, and the picture */}
           <header className="flex items-center gap-4">
             <div className="group relative">
@@ -273,20 +296,30 @@ function ProfilePopup({
                 <p className="mt-1 text-sm text-[#fca5a5]">{problem}</p>
               )}
             </div>
-            <button
-              onClick={onClose}
-              aria-label="Close"
-              className="btn-ghost self-start !px-3 !py-1.5 !text-lg leading-none"
-            >
-              ×
-            </button>
           </header>
 
           <NicknameEditor me={me} onMe={onMe} />
 
+          {/* the saved decks, seven to a page */}
+          <section aria-label="Your decks" className="flex flex-col gap-2.5">
+            <div className="flex items-center gap-3">
+              <h3 className="flex flex-1 items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#ffe29a] after:h-px after:flex-1 after:bg-gradient-to-r after:from-[#f4b43d]/50 after:to-transparent after:content-['']">
+                Saved decks
+              </h3>
+              <Link href="/decks" className="btn-ghost !px-3 !py-1.5">
+                Manage
+              </Link>
+              <Link href="/decks/new" className="btn-gold !px-3 !py-1.5">
+                New deck
+              </Link>
+            </div>
+            <DeckPages decks={decks} onOpen={setViewing} />
+          </section>
+          </div>
+          <div className="min-w-0">
           {/* the record */}
           <section aria-label="Your record">
-            <h3 className="mb-2.5 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#ffe29a] after:h-px after:flex-1 after:bg-gradient-to-r after:from-[#f4b43d]/50 after:to-transparent after:content-['']">
+            <h3 className="mb-2.5 lg:pr-12 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#ffe29a] after:h-px after:flex-1 after:bg-gradient-to-r after:from-[#f4b43d]/50 after:to-transparent after:content-['']">
               Record
             </h3>
             {stats === "error" ? (
@@ -305,7 +338,7 @@ function ProfilePopup({
                   ))}
                 </div>
                 <Skeleton className="h-2.5 rounded-full" />
-                <RowSkeletons count={4} className="h-[38px]" gap="gap-1.5" />
+                <RowSkeletons count={3} className="h-[38px]" gap="gap-1.5" />
               </div>
             ) : (
               <>
@@ -347,32 +380,8 @@ function ProfilePopup({
                     />
                   </div>
                 )}
-                {stats.recent.length > 0 ? (
-                  <ul className="mt-3 flex flex-col gap-1.5">
-                    {stats.recent.map((m) => (
-                      <li
-                        key={m.id}
-                        className="deck-row !flex-nowrap !gap-3 !py-2 text-[15px]" style={{ "--accent": m.result === "win" ? "#34d399" : m.result === "loss" ? "#fb7185" : "#94a3b8" } as React.CSSProperties}
-                      >
-                        <span
-                          className={`chip w-16 justify-center ${m.result === "win" ? "chip-ok" : m.result === "loss" ? "!border-rose-400/40 !bg-rose-400/15 !text-[#fecdd3]" : "chip-meta"}`}
-                        >
-                          {m.result === "win"
-                            ? "Win"
-                            : m.result === "loss"
-                              ? "Loss"
-                              : "Draw"}
-                        </span>
-                        <span className="min-w-0 flex-1 truncate">
-                          vs {m.opponent}
-                        </span>
-                        <span className="text-sm text-slate-300">
-                          {m.turns ? `${m.turns} turns · ` : ""}
-                          {new Date(m.playedAt).toLocaleDateString()}
-                        </span>
-                      </li>
-                    ))}
-                  </ul>
+                {total > 0 ? (
+                  <MatchList me={me.id} total={total} />
                 ) : (
                   <p className="mt-3 text-sm text-slate-300">
                     No finished matches yet. Games against the bot are not
@@ -383,81 +392,138 @@ function ProfilePopup({
             )}
           </section>
 
-          {/* the decks */}
-          <section aria-label="Your decks">
-            <div className="mb-2 flex items-center gap-3">
-              <h3 className="flex flex-1 items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#ffe29a] after:h-px after:flex-1 after:bg-gradient-to-r after:from-[#f4b43d]/50 after:to-transparent after:content-['']">
-                Saved decks
-              </h3>
-              <Link
-                href="/decks"
-                className="btn-ghost ml-auto"
-              >
-                Manage decks
-              </Link>
-              <Link
-                href="/decks/new"
-                className="btn-gold"
-              >
-                New deck
-              </Link>
-            </div>
-            {decks === "error" ? (
-              <p className="rounded-xl bg-white/10 px-4 py-3 text-[15px] text-slate-200">
-                The decks could not be loaded.
-              </p>
-            ) : decks === null ? (
-              <RowSkeletons
-                count={3}
-                className="h-[42px]"
-                gap="gap-1.5"
-                label="Loading your decks"
-              />
-            ) : decks.length === 0 ? (
-              <p className="rounded-xl bg-white/10 px-4 py-3 text-[15px] text-slate-200">
-                No saved decks yet. Build one, or copy an official deck from the
-                Decks page.
-              </p>
-            ) : (
-              <ul className="flex max-h-56 flex-col gap-1.5 overflow-y-auto pr-0.5">
-                {decks.map((d) => (
-                  <li key={d.id}>
-                    <button
-                      onClick={() => setViewing(d)}
-                      {...onIntent(() => void loadDeckPreview(d.id).catch(() => undefined))}
-                      className="deck-row w-full !flex-nowrap !gap-3 !py-2.5 text-left"
-                      style={{ "--accent": d.ready ? "#34d399" : "#f4b43d" } as React.CSSProperties}
-                    >
-                      <span className="deck-name min-w-0 flex-1 truncate !text-[15px]">
-                        {d.name}
-                      </span>
-                      <span className="text-sm text-slate-300">
-                        {d.cards} cards
-                      </span>
-                      <span
-                        className={`chip ${d.ready ? "chip-ok" : "chip-warn"}`}
-                      >
-                        {d.ready
-                          ? "Ready to play"
-                          : `${d.problems} problem${d.problems === 1 ? "" : "s"}`}
-                      </span>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+          </div>
         </div>
       </div>
       {viewing && (
         <DeckPreview
           deck={viewing}
           editHref={`/decks/${viewing.id}`}
-          layer="z-[45]"
+          layer="z-[46]"
           onClose={() => setViewing(null)}
         />
       )}
     </>
+  );
+}
+
+const DECKS_PER_PAGE = 7;
+
+/** The saved decks, seven to a page. A deck opens in the viewer (hover a card to see it big, click it to read it large). */
+function DeckPages({ decks, onOpen }: { decks: DeckLine[] | "error" | null; onOpen: (d: DeckLine) => void }) {
+  const [page, setPage] = useState(0);
+  if (decks === "error") return <p className="rounded-xl bg-white/10 px-4 py-3 text-[15px] text-slate-200">The decks could not be loaded.</p>;
+  if (decks === null) return <RowSkeletons count={4} className="h-[42px]" gap="gap-1.5" label="Loading your decks" />;
+  if (decks.length === 0) return <p className="rounded-xl bg-white/10 px-4 py-3 text-[15px] text-slate-200">No saved decks yet. Build one, or copy an official deck from the Decks page.</p>;
+  const pages = Math.ceil(decks.length / DECKS_PER_PAGE);
+  const at = Math.min(page, pages - 1); // a deck deleted elsewhere can leave the page empty
+  const shown = decks.slice(at * DECKS_PER_PAGE, (at + 1) * DECKS_PER_PAGE);
+  return (
+    <>
+      <ul className="flex flex-col gap-1.5">
+        {shown.map((d) => (
+          <li key={d.id}>
+            <button
+              onClick={() => onOpen(d)}
+              {...onIntent(() => void loadDeckPreview(d.id).catch(() => undefined))}
+              title="Look at the cards of this deck"
+              className="deck-row w-full !flex-nowrap !gap-3 !py-2 text-left"
+              style={{ "--accent": d.ready ? "#34d399" : "#f4b43d" } as React.CSSProperties}
+            >
+              <span className="deck-name min-w-0 flex-1 truncate !text-[15px]">{d.name}</span>
+              <span className="text-sm text-slate-300">{d.cards}</span>
+              <span className={`chip ${d.ready ? "chip-ok" : "chip-warn"}`}>{d.ready ? "Ready" : `${d.problems} problem${d.problems === 1 ? "" : "s"}`}</span>
+            </button>
+          </li>
+        ))}
+      </ul>
+      {pages > 1 && (
+        <nav aria-label="Deck pages" className="flex items-center justify-center gap-3">
+          <button onClick={() => setPage(at - 1)} disabled={at === 0} className="btn-ghost !px-3 !py-1.5">
+            ← Previous
+          </button>
+          <span className="text-sm text-slate-200">
+            Page {at + 1} of {pages}
+          </span>
+          <button onClick={() => setPage(at + 1)} disabled={at >= pages - 1} className="btn-ghost !px-3 !py-1.5">
+            Next →
+          </button>
+        </nav>
+      )}
+    </>
+  );
+}
+
+/** One finished match: the result, the opponent, how long it took and when. */
+function MatchRowItem({ m }: { m: MatchLine }) {
+  return (
+    <li
+      className="deck-row !flex-nowrap !gap-3 !py-2 text-[15px]"
+      style={{ "--accent": m.result === "win" ? "#34d399" : m.result === "loss" ? "#fb7185" : "#94a3b8" } as React.CSSProperties}
+    >
+      <span className={`chip w-16 justify-center ${m.result === "win" ? "chip-ok" : m.result === "loss" ? "!border-rose-400/40 !bg-rose-400/15 !text-[#fecdd3]" : "chip-meta"}`}>
+        {m.result === "win" ? "Win" : m.result === "loss" ? "Loss" : "Draw"}
+      </span>
+      <span className="min-w-0 flex-1 truncate">vs {m.opponent}</span>
+      <span className="text-sm text-slate-300">
+        {m.turns ? `${m.turns} turn${m.turns === 1 ? "" : "s"} · ` : ""}
+        {new Date(m.playedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
+      </span>
+    </li>
+  );
+}
+
+/** The finished matches, ten to a page, with the pages to turn below. The list keeps its height so the pop-up does not jump. */
+function MatchList({ me, total }: { me: string; total: number }) {
+  const pages = Math.max(1, Math.ceil(total / MATCHES_PER_PAGE));
+  const [page, setPage] = useState(0);
+  const cachedFirst = useCached<MatchLine[]>(`matches:${me}`); // the first page as it was last time
+  const [fetched, setShown] = useState<{ page: number; lines: MatchLine[] } | "error" | null>(null);
+  const first = cachedFirst ? { page: 0, lines: cachedFirst } : null;
+  const shown = fetched === "error" ? (first ?? "error") : fetched && fetched.page === page ? fetched : page === 0 ? first : null;
+  useEffect(() => {
+    let cancelled = false;
+    loadMatchPage(me, page)
+      .then(({ lines }) => {
+        if (cancelled) return;
+        setShown({ page, lines });
+        if (page === 0) writeCached(`matches:${me}`, lines);
+      })
+      .catch(() => !cancelled && setShown("error"));
+    return () => {
+      cancelled = true;
+    };
+  }, [me, page]);
+  const loading = shown === null;
+  return (
+    <div className="mt-3 flex flex-col gap-2.5">
+      <div className={pages > 1 ? "min-h-[27.5rem]" : ""}>
+        {shown === "error" ? (
+          <p className="rounded-xl bg-white/10 px-4 py-3 text-[15px] text-slate-200">The matches could not be loaded.</p>
+        ) : loading ? (
+          <RowSkeletons count={Math.min(MATCHES_PER_PAGE, total - page * MATCHES_PER_PAGE)} className="h-[38px]" gap="gap-1.5" label="Loading your matches" />
+        ) : (
+          <ul className="flex flex-col gap-1.5">
+            {shown.lines.map((m) => (
+              <MatchRowItem key={m.id} m={m} />
+            ))}
+          </ul>
+        )}
+      </div>
+      {pages > 1 && (
+        <nav aria-label="Match pages" className="flex items-center justify-center gap-3">
+          <button onClick={() => setPage((p) => p - 1)} disabled={page === 0} className="btn-ghost !px-3 !py-1.5">
+            ← Previous
+          </button>
+          <span className="text-sm text-slate-200">
+            Page {page + 1} of {pages}
+          </span>
+          <button onClick={() => setPage((p) => p + 1)} disabled={page >= pages - 1} className="btn-ghost !px-3 !py-1.5">
+            Next →
+          </button>
+        </nav>
+      )}
+    </div>
   );
 }
 

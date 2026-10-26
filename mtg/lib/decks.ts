@@ -139,6 +139,18 @@ export interface DeckChoice {
   name: string;
   ids: string[];
   official: boolean;
+  /** Its colors (W U B R G), a card picture to show as its cover, and the set an official deck is from. */
+  colors: string[];
+  cover?: string;
+  code?: string | null;
+}
+
+/** The card that stands for a deck: a creature with a picture, the most expensive one. */
+export function coverOf(defs: Record<string, CardDef>, entries: DeckEntries): CardDef | undefined {
+  const cards = Object.keys(entries)
+    .map((id) => defs[id])
+    .filter((d): d is CardDef => Boolean(d?.image) && d.type !== "land");
+  return cards.sort((a, b) => Number(b.type === "creature") - Number(a.type === "creature") || b.cost - a.cost)[0];
 }
 
 /**
@@ -149,7 +161,15 @@ export async function listPlayableDecks(): Promise<{ choices: DeckChoice[]; hidd
   const [mine, official] = await Promise.all([listMyDecks(), listOfficialDecks().catch(() => [])]);
   const defs = await loadDefsFor([...mine, ...official]);
   const ready = (d: Deck) => deckStatus(defs, d.entries).ready;
-  const choice = (d: Deck, isOfficial: boolean): DeckChoice => ({ id: d.id, name: d.name, ids: expandDeck(d.entries), official: isOfficial });
+  const choice = (d: Deck & { code?: string | null }, isOfficial: boolean): DeckChoice => ({
+    id: d.id,
+    name: d.name,
+    ids: expandDeck(d.entries),
+    official: isOfficial,
+    colors: deckColors(defs, d.entries),
+    ...(coverOf(defs, d.entries)?.image ? { cover: coverOf(defs, d.entries)!.image } : {}),
+    ...(isOfficial ? { code: d.code ?? null } : {}),
+  });
   return {
     choices: [...mine.filter(ready).map((d) => choice(d, false)), ...official.filter((d) => !isPack(d) && ready(d)).map((d) => choice(d, true))],
     hidden: mine.filter((d) => !ready(d)).length,

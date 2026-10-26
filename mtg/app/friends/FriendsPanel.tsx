@@ -21,7 +21,7 @@ import {
 } from "@/lib/friends";
 import type { Link, Person } from "@/lib/friends";
 import { loadMe } from "@/lib/profile";
-import { useOnline, watchFriends } from "@/lib/online/session";
+import { inviteFriend, useOnline, watchFriends } from "@/lib/online/session";
 import type { FriendStatus } from "@/lib/online/protocol";
 import WatchButton from "../lobby/WatchButton";
 
@@ -95,6 +95,9 @@ function Names({ person, line }: { person: Person; line?: string }) {
 /** Under the profile chip: your friends, the requests waiting for you, and a way to find more people. */
 export default function FriendsPanel() {
   const [me, setMe] = useState<string | null>(null);
+  const [meName, setMeName] = useState("Player"); // names the room an invitation opens
+  const [invited, setInvited] = useState<string[]>([]); // friends invited a moment ago
+  const [inviting, setInviting] = useState<string | null>(null);
   const [links, setLinks] = useState<Link[] | null>(null);
   const cachedLinks = useCached<Link[]>("friends"); // the list as it was last time: shown at once while the fresh one loads
   const shown = links ?? cachedLinks;
@@ -138,6 +141,7 @@ export default function FriendsPanel() {
     void loadMe().then((m) => {
       if (!alive || !m) return;
       setMe(m.id);
+      setMeName(m.nickname ?? m.name);
       void load(m.id);
     });
     return () => {
@@ -169,6 +173,19 @@ export default function FriendsPanel() {
   const friends = (shown ?? []).filter((l) => l.relation === "friend");
   const incoming = (shown ?? []).filter((l) => l.relation === "incoming");
   const outgoing = (shown ?? []).filter((l) => l.relation === "outgoing");
+
+  /** "Invite to match": opens a room (or uses the one this player waits in) and sends the friend an invitation. */
+  async function invite(friendId: string) {
+    setInviting(friendId);
+    try {
+      if (await inviteFriend(friendId, `${meName}'s room`)) {
+        setInvited((list) => [...list, friendId]);
+        setTimeout(() => setInvited((list) => list.filter((id) => id !== friendId)), 6000);
+      }
+    } finally {
+      setInviting(null);
+    }
+  }
 
   async function act(job: () => Promise<void>) {
     if (!me) return; // still finding out who this is
@@ -331,6 +348,17 @@ export default function FriendsPanel() {
                   person={l.person}
                   line={describe(net.friends[l.person.id]).text}
                 />
+                {confirming !== l.rowId && net.friends[l.person.id]?.online && !net.friends[l.person.id]?.match && (
+                  <button
+                    onClick={() => void invite(l.person.id)}
+                    disabled={inviting === l.person.id || invited.includes(l.person.id)}
+                    className="btn-gold !px-3 !py-1 !text-xs"
+                    title={`Invite ${displayName(l.person)} to a match: opens a room and sends the invitation`}
+                    aria-label={`Invite ${displayName(l.person)} to match`}
+                  >
+                    {invited.includes(l.person.id) ? "Invited ✓" : inviting === l.person.id ? "…" : "Invite"}
+                  </button>
+                )}
                 {confirming === l.rowId ? (
                   <>
                     <button
