@@ -4,15 +4,11 @@ import { useCallback, useEffect, useState } from "react";
 import { STARTER_DECK } from "@mtg/engine";
 import { holdWallpaper } from "../LiveWallpaper";
 import { CoinDisplay } from "../play/CoinFlip";
-<<<<<<< HEAD
 import LookPicker from "../play/LookPicker";
 import { myLook, randomLook } from "@/lib/playmat";
-import { deckStatus, expandDeck, listMyDecks, loadDefsFor } from "@/lib/decks";
-=======
 import { listPlayableDecks } from "@/lib/decks";
 import type { DeckChoice } from "@/lib/decks";
 import DeckOptions from "../decks/DeckOptions";
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
 import { buildRandomDeck } from "@/lib/randomDeck";
 import { leaveRoom, send } from "@/lib/online/session";
 import { DECK_SIZES } from "@/lib/online/protocol";
@@ -103,7 +99,6 @@ function VoteStep({ room }: { room: RoomSnapshot }) {
 
 function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   const size = room.size ?? 40;
-<<<<<<< HEAD
   // The table: the card sleeve and playmat this player wants. The server shows them to both players (and to anyone watching).
   const [sleeve, setSleeve] = useState(() => myLook.read("sleeve"));
   const [mat, setMat] = useState(() => myLook.read("mat"));
@@ -112,10 +107,7 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   useEffect(() => {
     send("look", { sleeve, mat, ...(vsBotRoom ? { bot: botLook } : {}) });
   }, [sleeve, mat, vsBotRoom, botLook]);
-  const [options, setOptions] = useState<DeckOption[] | null>(null);
-=======
   const [options, setOptions] = useState<DeckChoice[] | null>(null);
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
   const [choice, setChoice] = useState(RANDOM_ID);
   const [busy, setBusy] = useState(false);
 

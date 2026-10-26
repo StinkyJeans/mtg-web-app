@@ -8,7 +8,9 @@ import { fetchCardsByIds } from "@/lib/cards";
 import { listPlayableDecks } from "@/lib/decks";
 import type { DeckChoice } from "@/lib/decks";
 import { buildRandomDeck } from "@/lib/randomDeck";
+import type { useAppearance } from "@/lib/playmat";
 import DeckOptions from "../decks/DeckOptions";
+import LookPicker from "./LookPicker";
 import { playerName } from "./log";
 
 const STARTER: DeckChoice = { id: "starter", name: "Starter deck", ids: STARTER_DECK, official: true };
@@ -73,59 +75,72 @@ export function useHotSeatDecks(enabled: boolean) {
 
 export type HotSeatDecks = ReturnType<typeof useHotSeatDecks>;
 
-/** The hot-seat start screen: deck size votes, a deck for each player, and the start button. */
-export default function HotSeatSetup({ decks, loading, error, onStart }: { decks: HotSeatDecks; loading: boolean; error: string | null; onStart: () => void }) {
+/** The hot-seat start screen: deck size votes, a deck for each player, their sleeves and mats, and the start button. */
+export default function HotSeatSetup({ decks, loading, error, onStart, look }: { decks: HotSeatDecks; loading: boolean; error: string | null; onStart: () => void; look: ReturnType<typeof useAppearance> }) {
   const { options, votes, hidden, choice, agreedSize } = decks;
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-zinc-900">
-      <h1 className="text-3xl font-bold">Hot-seat duel</h1>
-      <p className="text-zinc-600">Two players, one screen. Heads or tails decides who goes first.</p>
-      <div className="flex flex-wrap justify-center gap-4">
-        {(["p1", "p2"] as const).map((p) => (
-          <div key={p} className="flex flex-col gap-2 text-sm text-zinc-600">
-            <span className="font-semibold text-zinc-800">{playerName(p)}</span>
-            <span>Vote for the deck size</span>
-            <div className="flex gap-2">
-              {DECK_SIZES.map((n) => (
-                <button
-                  key={n}
-                  onClick={() => decks.vote(p, n)}
-                  className={`rounded-lg border px-4 py-2 font-semibold ${votes[p] === n ? "border-amber-500 bg-amber-100 text-black" : "border-zinc-300 bg-zinc-100 text-zinc-700 hover:bg-zinc-200"}`}
-                >
-                  {n} cards
-                </button>
-              ))}
+    <main className="relative flex flex-1 flex-col items-center justify-center gap-5 p-5 text-slate-100 sm:p-8">
+      <div className="page-atmosphere" aria-hidden="true" />
+      <div className="panel-glass flex w-full max-w-3xl flex-col items-center gap-5 p-6 sm:p-8">
+        <div className="flex flex-col items-center gap-2 text-center">
+          <h1 className="page-title !text-3xl sm:!text-4xl">Hot-seat duel</h1>
+          <p className="text-slate-300">Two players, one screen. Heads or tails decides who goes first.</p>
+        </div>
+
+        <div className="flex w-full flex-wrap justify-center gap-4">
+          {(["p1", "p2"] as const).map((p) => (
+            <div key={p} className="seat-card" style={{ "--accent": p === "p1" ? "#f4b43d" : "#38bdf8" } as React.CSSProperties}>
+              <span className="seat-name">
+                <i aria-hidden="true" />
+                {playerName(p)}
+              </span>
+              <span className="field-label">Vote for the deck size</span>
+              <div className="seg seg-wide" role="group" aria-label={`${playerName(p)}: deck size`}>
+                {DECK_SIZES.map((n) => (
+                  <button key={n} aria-pressed={votes[p] === n} onClick={() => decks.vote(p, n)}>
+                    {n} cards
+                  </button>
+                ))}
+              </div>
+              {agreedSize && (
+                <label className="flex flex-col gap-1.5">
+                  <span className="field-label">Deck</span>
+                  <span className="tool-field !py-2">
+                    <select value={choice[p]} onChange={(e) => decks.choose(p, e.target.value)} className="glass-select w-full cursor-pointer">
+                      <DeckOptions choices={options} size={agreedSize} randomId={RANDOM_ID} />
+                    </select>
+                  </span>
+                </label>
+              )}
+              <LookPicker who={p} sleeve={look.storedSleeve[p]} mat={look.storedMat[p]} onSleeve={(v) => look.choose("sleeve", p, v)} onMat={(v) => look.choose("mat", p, v)} />
             </div>
-            {agreedSize && (
-              <label className="flex flex-col gap-1">
-                Deck
-                <select value={choice[p]} onChange={(e) => decks.choose(p, e.target.value)} className="rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-2 text-zinc-900">
-                  <DeckOptions choices={options} size={agreedSize} randomId={RANDOM_ID} />
-                </select>
-              </label>
-            )}
-          </div>
-        ))}
-      </div>
-      <p className="max-w-md text-center text-sm text-zinc-600">
-        {agreedSize
-          ? `Agreed: ${agreedSize}-card decks. A player without a saved deck of that size gets a random one.`
-          : votes.p1 !== null && votes.p2 !== null
-            ? "You voted for different sizes. Both players must agree on the same deck size."
-            : "Each player votes. The game starts when both choose the same size."}
-      </p>
-      {hidden > 0 && (
-        <p className="max-w-md text-center text-xs text-zinc-500">
-          {hidden} saved deck{hidden > 1 ? "s are" : " is"} not offered: not legal (20+ cards, max 4 copies) or containing cards the game can&apos;t play yet. Only decks with exactly the voted size are listed. See the Decks page.
+          ))}
+        </div>
+
+        <p className={`max-w-md text-center text-sm ${!agreedSize && votes.p1 !== null && votes.p2 !== null ? "text-[#fde68a]" : "text-slate-300"}`}>
+          {agreedSize
+            ? `Agreed: ${agreedSize}-card decks. A player without a saved deck of that size gets a random one.`
+            : votes.p1 !== null && votes.p2 !== null
+              ? "You voted for different sizes. Both players must agree on the same deck size."
+              : "Each player votes. The game starts when both choose the same size."}
         </p>
-      )}
-      <button onClick={onStart} disabled={loading || !agreedSize} className="rounded-lg bg-amber-500 px-6 py-3 font-semibold text-black hover:bg-amber-400 disabled:opacity-50">
-        {loading ? "Loading cards…" : "Start game"}
-      </button>
-      <Link href="/" className="rounded-lg border border-zinc-400 px-5 py-2 text-sm font-semibold hover:bg-zinc-200">
-        ← Back to home
-      </Link>
-      {error && <p className="max-w-md text-center text-sm text-red-600">{error}</p>}
+        {hidden > 0 && (
+          <p className="max-w-md text-center text-xs text-slate-400">
+            {hidden} saved deck{hidden > 1 ? "s are" : " is"} not offered: not legal (20+ cards, max 4 copies) or containing cards the game can&apos;t play yet. Only decks with exactly
+            the voted size are listed. See the Decks page.
+          </p>
+        )}
+
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <button onClick={onStart} disabled={loading || !agreedSize} className="btn-gold !px-8 !py-3 !text-base">
+            {loading ? "Loading cards…" : "Start game"}
+          </button>
+          <Link href="/" className="btn-ghost !px-5 !py-3 !text-sm">
+            ← Back to home
+          </Link>
+        </div>
+        {error && <p role="alert" className="max-w-md rounded-xl border border-red-400/40 bg-red-950/50 px-3 py-2 text-center text-sm text-[#fecaca]">{error}</p>}
+      </div>
     </main>
   );
 }

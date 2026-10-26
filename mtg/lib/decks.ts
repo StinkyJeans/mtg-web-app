@@ -239,11 +239,14 @@ export type DeckPreviewData = { contents: DeckContents; defs: Record<string, Car
  * Everything a deck preview shows: the deck's cards by board, and what each card is. Call it when the pointer rests on a
  * "view deck" button and the preview opens with the answer already in hand (the card pictures start downloading too).
  */
-export function loadDeckPreview(id: string): Promise<DeckPreviewData> {
-  return remember(`deck:${id}`, async () => {
-    const contents = await getDeckContents(id);
-    const ids = (["commander", "main", "side"] as const).flatMap((b) => Object.keys(contents.boards[b]));
-    const defs = await fetchCardsByIds(ids);
+export function loadDeckPreview(sources: string): Promise<DeckPreviewData> {
+  // `sources` is one deck's id, or several joined by commas: those decks shown together as one (two packs mixed)
+  return remember(`deck:${sources}`, async () => {
+    const all = await Promise.all(sources.split(",").map((id) => getDeckContents(id)));
+    const contents: DeckContents = { id: sources, name: all[0].name, boards: { commander: {}, main: {}, side: {} } };
+    const boards = ["commander", "main", "side"] as const;
+    for (const b of boards) contents.boards[b] = mixEntries(...all.map((c) => c.boards[b]));
+    const defs = await fetchCardsByIds(boards.flatMap((b) => Object.keys(contents.boards[b])));
     for (const def of Object.values(defs)) if (def.image) preloadImage(cardImageUrl(def.image));
     return { contents, defs };
   });

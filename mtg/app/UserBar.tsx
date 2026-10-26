@@ -7,11 +7,7 @@ import { createClient } from "@/lib/supabase/client";
 import { animationsEnabled, setAnimationsEnabled } from "@/lib/motion";
 import { connectSocial, disconnectSocial } from "@/lib/online/session";
 import { setTheme } from "@/lib/theme";
-<<<<<<< HEAD
-import MusicControl from "./MusicControl";
-=======
 import AudioMenu from "./AudioMenu";
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
 import type { Theme } from "@/lib/theme";
 
 /** Slim top bar shown only while signed in. */
@@ -53,7 +49,6 @@ export default function UserBar() {
         DUELREALM
       </Link>
       <span className="flex-1" />
-      <MusicControl />
       <button
         onClick={() => {
           setAnimationsEnabled(!animations);

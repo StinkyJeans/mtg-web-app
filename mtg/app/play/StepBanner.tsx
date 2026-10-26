@@ -24,13 +24,13 @@ export default function StepBanner({ state, actor, waiting, error, abilityCount,
   if (state.winner) return null;
   const b = BANNER[bannerMode(state)];
   return (
-    <div className={`flex shrink-0 items-center gap-2 rounded-xl border px-3 py-1 shadow-sm ${b.box}`}>
-      <span className="text-lg" aria-hidden="true">
+    <div className={`flex shrink-0 items-center gap-2.5 rounded-xl border px-3.5 py-2 shadow-sm ${b.box}`}>
+      <span className="text-2xl" aria-hidden="true">
         {b.icon}
       </span>
-      <div className="min-w-0 flex-1 text-xs leading-snug">
-        <span className="mr-2 text-[10px] font-extrabold uppercase font-display tracking-widest opacity-70">{b.label}</span>
-        <span className="font-medium">{hintFor(state, actor, waiting)}</span>
+      <div className="min-w-0 flex-1 text-[15px] leading-snug">
+        <span className="mr-2.5 text-xs font-extrabold uppercase font-display tracking-widest">{b.label}</span>
+        <span className="font-semibold">{hintFor(state, actor, waiting)}</span>
       </div>
       {error && (
         <span className="rounded-lg bg-red-600 px-3 py-1 text-sm font-semibold text-white shadow">

@@ -7,18 +7,6 @@ import { animationsEnabled } from "@/lib/motion";
 import { playerName } from "./log";
 import type { Announcement } from "./log";
 
-/** "Your turn" across the top of the screen when the opponent passes the turn. It doesn't block clicks. */
-export function TurnSplash() {
-  return (
-    <div role="status" aria-live="assertive" className="pointer-events-none fixed inset-x-0 top-[14dvh] z-30 flex justify-center px-4">
-      <div className={`${animationsEnabled() ? "turn-splash" : ""} rounded-3xl border-2 border-amber-300/80 bg-slate-950/75 px-10 py-5 text-center shadow-2xl shadow-black/50 backdrop-blur-sm`}>
-        <div className="font-display text-5xl font-extrabold uppercase tracking-[0.2em] text-amber-300 [text-shadow:0_2px_12px_rgba(0,0,0,0.6)] sm:text-6xl">Your turn</div>
-      </div>
-    </div>
-  );
-}
-
-<<<<<<< HEAD
 /** "Welcome to the Battle Field, Now Duel!" over the board when a match begins, for the players. It doesn't block clicks. */
 export function WelcomeSplash() {
   return (
@@ -31,37 +19,17 @@ export function WelcomeSplash() {
   );
 }
 
-/** Cards announcing what a player just cast or used, shown on that player's side of the board. */
-export default function Announcements({ items, onClose }: { items: Announcement[]; onClose: (id: number) => void }) {
-  if (items.length === 0) return null;
+/** "Your turn" across the top of the screen when the opponent passes the turn. It doesn't block clicks. */
+export function TurnSplash() {
   return (
-    <div className="flex flex-col gap-2" aria-live="polite">
-      {items.map((a) => (
-        <div key={a.id} className="announce-in flex items-start gap-3 rounded-lg border border-amber-400 bg-amber-50 p-3 shadow">
-          <div className="text-xl" aria-hidden="true">
-            ✨
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold text-amber-900">{a.title}</div>
-            {a.lines.length > 0 && (
-              <ul className="mt-1 list-disc pl-5 text-sm text-zinc-800">
-                {a.lines.map((l, i) => (
-                  <li key={i}>{l}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <button onClick={() => onClose(a.id)} aria-label="Close" className="rounded px-2 text-zinc-500 hover:bg-amber-100">
-            ×
-          </button>
-        </div>
-      ))}
+    <div role="status" aria-live="assertive" className="pointer-events-none fixed inset-x-0 top-[14dvh] z-30 flex justify-center px-4">
+      <div className={`${animationsEnabled() ? "turn-splash" : ""} rounded-3xl border-2 border-amber-300/80 bg-slate-950/75 px-10 py-5 text-center shadow-2xl shadow-black/50 backdrop-blur-sm`}>
+        <div className="font-display text-5xl font-extrabold uppercase tracking-[0.2em] text-amber-300 [text-shadow:0_2px_12px_rgba(0,0,0,0.6)] sm:text-6xl">Your turn</div>
+      </div>
     </div>
   );
 }
 
-=======
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
 /**
  * Everything cast or used this turn, kept on screen until the turn ends: spells go to the graveyard as soon as they
  * resolve, so without this it is hard to follow what has happened and what is still in effect.

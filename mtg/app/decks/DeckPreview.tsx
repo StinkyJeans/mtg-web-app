@@ -2,12 +2,7 @@
 
 import { useEffect, useState } from "react";
 import type { CardDef } from "@mtg/engine";
-<<<<<<< HEAD
-import { loadDeckPreview } from "@/lib/decks";
-=======
-import { fetchCardsByIds } from "@/lib/cards";
-import { getDeckContents, mixEntries, setName } from "@/lib/decks";
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
+import { loadDeckPreview, setName } from "@/lib/decks";
 import type { DeckBoard, DeckContents, OfficialDeck } from "@/lib/decks";
 import { Lightbox } from "../play/CardDetail";
 import CardView from "../play/CardView";
@@ -56,17 +51,7 @@ export default function DeckPreview({
   const sources = (parts ?? [deck.id]).join(",");
   useEffect(() => {
     let cancelled = false;
-<<<<<<< HEAD
-    loadDeckPreview(deck.id)
-=======
-    Promise.all(sources.split(",").map((id) => getDeckContents(id)))
-      .then(async (all) => {
-        const contents: DeckContents = { id: sources, name: all[0].name, boards: { commander: {}, main: {}, side: {} } };
-        for (const b of BOARDS) contents.boards[b.id] = mixEntries(...all.map((c) => c.boards[b.id]));
-        const ids = BOARDS.flatMap((b) => Object.keys(contents.boards[b.id]));
-        return { contents, defs: await fetchCardsByIds(ids) };
-      })
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
+    loadDeckPreview(sources)
       .then((l) => !cancelled && setLoaded(l))
       .catch((e: Error) => !cancelled && setError(e.message));
     return () => {
@@ -116,47 +101,20 @@ export default function DeckPreview({
         className="panel-glass flex max-h-[92vh] w-full max-w-6xl flex-col gap-4 overflow-hidden p-5 text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.5)] sm:p-6"
       >
         <div className="flex flex-wrap items-center gap-3">
-<<<<<<< HEAD
           <div className="flex min-w-0 flex-col gap-2">
             <h2 className="page-title truncate !text-2xl sm:!text-3xl">{deck.name}</h2>
             <div className="flex flex-wrap items-center gap-2">
-              {deck.deckType && <span className="chip chip-meta">{deck.deckType}</span>}
-              {deck.code && <span className="chip chip-meta font-mono">{deck.code}</span>}
+              {deck.code && <span className="chip chip-meta">{setName(deck.code)}</span>}
               {deck.releaseDate && <span className="chip chip-meta">{deck.releaseDate.slice(0, 4)}</span>}
               {loaded && <span className="chip chip-meta">{allIds.length} cards</span>}
-              {loaded && (playableCopies === allIds.length ? <span className="chip chip-ok">✓ All playable today</span> : <span className="chip chip-warn">⚠ {playableCopies} of {allIds.length} playable today</span>)}
             </div>
-          </div>
-          {onTogglePick && (
-            <button
-              onClick={onTogglePick}
-              disabled={unplayable > 0}
-              title={unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
-              className={`btn-ghost ml-auto !px-4 !py-2 ${picked ? "!border-amber-300 !bg-amber-400/25" : ""}`}
-            >
-              {picked ? "Selected to combine ✓" : "Add to combine"}
-            </button>
-          )}
-          {onCopy && (
-            <button
-              onClick={onCopy}
-              disabled={busy || unplayable > 0}
-              title={unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
-              className="btn-gold !px-4 !py-2"
-=======
-          <div className="min-w-0">
-            <h2 className="truncate text-xl font-bold">{deck.name}</h2>
-            <p className="text-sm text-slate-200">
-              {[setName(deck.code ?? null), deck.releaseDate?.slice(0, 4), loaded && `${allIds.length} cards`].filter(Boolean).join(" · ")}
-            </p>
           </div>
           {onCopy && (
             <button
               onClick={onCopy}
               disabled={busy}
               title="Make your own copy to change its cards"
-              className="ml-auto rounded-lg bg-amber-500 px-4 py-2 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
+              className="btn-gold ml-auto !px-4 !py-2"
             >
               {busy ? "Copying…" : "Copy & edit"}
             </button>
@@ -196,15 +154,6 @@ export default function DeckPreview({
               </div>
             </section>
           ))}
-<<<<<<< HEAD
-          {loaded && (
-            <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs leading-relaxed text-slate-300">
-              A red outline means the game can&apos;t play that card yet. Copying merges the commander into the main deck and leaves out
-              the sideboard.
-            </p>
-          )}
-=======
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
         </div>
       </div>
 

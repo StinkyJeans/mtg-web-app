@@ -6,7 +6,8 @@ import { useRouter } from "next/navigation";
 import type { GameEvent, GameState, PlayerId } from "@mtg/engine";
 import { onGameUpdate, tryReconnect, useOnline } from "@/lib/online/session";
 import { attackersIn, playCombat } from "./combatFx";
-import { handDraws, hideDrawn, playDeal } from "./pileFx";
+import { handDraws } from "./pileFx";
+import type { Draw } from "./pileFx";
 
 type Commit = (r: { state: GameState; events: GameEvent[] }) => Promise<void>;
 
@@ -14,7 +15,7 @@ type Commit = (r: { state: GameState; events: GameEvent[] }) => Promise<void>;
  * Online: keeps the screen in step with the match on the game server. The refs point at the game on screen and at
  * the function that shows a change, both as of the last render.
  */
-export function useOnlineMatch(online: boolean, game: GameState | null, seat: PlayerId | null, gameRef: RefObject<GameState | null>, commitRef: RefObject<Commit>) {
+export function useOnlineMatch(online: boolean, game: GameState | null, seat: PlayerId | null, gameRef: RefObject<GameState | null>, commitRef: RefObject<Commit>, openingDeal: (hand: Draw[], greet: boolean) => void) {
   const net = useOnline();
   const router = useRouter();
   const dealt = useRef(false);
@@ -24,9 +25,7 @@ export function useOnlineMatch(online: boolean, game: GameState | null, seat: Pl
     if (!online || !game || !net.game || dealt.current) return;
     dealt.current = true;
     if (!net.game.fresh) return;
-    const hand = handDraws(game, seat);
-    hideDrawn(hand);
-    void playDeal(hand);
+    openingDeal(handDraws(game, seat), net.game.spectator !== true); // a spectator is not greeted
   });
 
   // Every change to the game arrives from the server, one at a time, in order.

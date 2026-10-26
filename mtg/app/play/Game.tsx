@@ -21,39 +21,20 @@ import {
 } from "@mtg/engine";
 import type { Action, Activatable, CardDef, GameEvent, GameState, Permanent, PlayerId, TargetChoice, TargetSpec } from "@mtg/engine";
 import { useBattlefieldBackground } from "@/lib/background";
-<<<<<<< HEAD
-import { dismissNotice, leaveRoom, onGameUpdate, send as netSend, tryReconnect, useOnline } from "@/lib/online/session";
-import { fetchCardsByIds } from "@/lib/cards";
-import { buildRandomDeck } from "@/lib/randomDeck";
-import { deckStatus, expandDeck, listMyDecks, loadDefsFor } from "@/lib/decks";
-=======
-import { leaveRoom, send as netSend, useOnline } from "@/lib/online/session";
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
+import { dismissNotice, leaveRoom, send as netSend, useOnline } from "@/lib/online/session";
 import CardDetail, { CardImage, Lightbox } from "./CardDetail";
 import type { Inspected } from "./CardDetail";
 import CoinFlip from "./CoinFlip";
-<<<<<<< HEAD
 import EnterBattlefield from "./EnterBattlefield";
-import LookPicker from "./LookPicker";
-import { isCombatPlaying, playCombat } from "./combatFx";
-import { ResignDialog, VictoryDialog } from "./EndDialogs";
-import { GraveyardDialog, Pile } from "./Piles";
-import { hideDrawn, holdPiles, isPileBusy, playDeal, playDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
-import type { Draw } from "./pileFx";
-import { announcementsFrom, describeEvents, endReason, playerName } from "./log";
-import type { Announcement } from "./log";
-import Announcements, { PassReminder, PlayedThisTurn, TurnSplash, WelcomeSplash } from "./Announcements";
-=======
 import { attackersIn, isCombatPlaying, playCombat } from "./combatFx";
 import { ResignDialog, VictoryDialog } from "./EndDialogs";
 import { GraveyardDialog, Pile } from "./Piles";
-import { handDraws, hideDrawn, isPileBusy, playDeal, playDraws, playToGraveyard } from "./pileFx";
+import { handDraws, hideDrawn, holdPiles, isPileBusy, playDeal, playDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
 import type { Draw } from "./pileFx";
 import { announcementsFrom, describeEvents, endReason, playerName } from "./log";
 import type { Announcement } from "./log";
-import { PassReminder, PlayedThisTurn, TurnSplash } from "./Announcements";
+import { PassReminder, PlayedThisTurn, TurnSplash, WelcomeSplash } from "./Announcements";
 import ResolveZone, { holdReveal, isRevealing } from "./ResolveZone";
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
 import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
 import BackgroundPicker from "./BackgroundPicker";
 import AppearanceDialog from "./AppearanceDialog";
@@ -205,65 +186,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     void endTurnRef.current();
   }, [online, game, endingTurn]);
 
-<<<<<<< HEAD
-  // Online: the opening hand is hidden before it is ever painted, then flies in from the library.
-  useLayoutEffect(() => {
-    if (!online || !game || !net.game || dealt.current) return;
-    dealt.current = true;
-    if (!net.game.fresh) return;
-    void openingDeal(handDraws(game), net.game.spectator !== true); // a spectator is not greeted
-  });
-
-  // Online: every change to the game arrives from the server, one at a time, in order.
-  useEffect(() => {
-    if (!online) return;
-    let chain: Promise<void> = Promise.resolve();
-    const off = onGameUpdate((u) => {
-      chain = chain.then(async () => {
-        for (let i = 0; i < 100 && !gameRef.current; i++) await new Promise((r) => setTimeout(r, 50)); // the opening deal comes first
-        const before = gameRef.current;
-        // Combat damage: play the attack on the board as it is now, then show the result.
-        if (before?.combat && u.events.some((e) => e.type === "combatDamage")) await playCombat(u.events, before.combat.attackers.map((a) => a.attacker));
-        await commitRef.current({ state: u.view, events: u.events });
-      });
-    });
-    return off;
-  }, [online]);
-
-  // Online: a page that was just refreshed picks its seat up again.
-  useEffect(() => {
-    if (online) void tryReconnect();
-  }, [online]);
-
-  // Online with no match (the page was opened directly, or the room closed): back to the lobby.
-  useEffect(() => {
-    if (!online || net.snapshot || net.game) return;
-    const timer = setTimeout(() => router.replace("/"), 2500);
-    return () => clearTimeout(timer);
-  }, [online, net.snapshot, net.game, router]);
-
-  // Offer the starter deck plus every saved deck that is legal and fully playable.
-  useEffect(() => {
-    let cancelled = false;
-    listMyDecks()
-      .then(async (decks) => {
-        const defs = await loadDefsFor(decks);
-        const ready = decks.filter((d) => deckStatus(defs, d.entries).ready);
-        return { ready, hidden: decks.length - ready.length };
-      })
-      .then(({ ready, hidden }) => {
-        if (cancelled) return;
-        setOptions([STARTER, ...ready.map((d) => ({ id: d.id, name: d.name, ids: expandDeck(d.entries) }))]);
-        setHidden(hidden);
-      })
-      .catch(() => {}); // the starter deck still works if saved decks can't be loaded
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-=======
-  useOnlineMatch(online, game, seat, gameRef, commitRef);
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
+  useOnlineMatch(online, game, seat, gameRef, commitRef, openingDeal);
 
   async function startGame() {
     setLoading(true);
@@ -351,101 +274,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             setAnnouncements([]);
           });
           // The opening seven are dealt from the library into the hand.
-<<<<<<< HEAD
-          void openingDeal(handDraws(fresh), true);
-=======
-          const dealt = handDraws(fresh, seat);
-          hideDrawn(dealt);
-          void playDeal(dealt);
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
+          void openingDeal(handDraws(fresh, seat), true);
         }}
       />
     );
   }
 
-<<<<<<< HEAD
-  if (!game) {
-    return (
-      <main className="relative flex flex-1 flex-col items-center justify-center gap-5 p-5 text-slate-100 sm:p-8">
-        <div className="page-atmosphere" aria-hidden="true" />
-        <div className="panel-glass flex w-full max-w-3xl flex-col items-center gap-5 p-6 sm:p-8">
-          <div className="flex flex-col items-center gap-2 text-center">
-            <h1 className="page-title !text-3xl sm:!text-4xl">Hot-seat duel</h1>
-            <p className="text-slate-300">Two players, one screen. Heads or tails decides who goes first.</p>
-          </div>
-
-          <div className="flex w-full flex-wrap justify-center gap-4">
-            {(["p1", "p2"] as const).map((p) => (
-              <div key={p} className="seat-card" style={{ "--accent": p === "p1" ? "#f4b43d" : "#38bdf8" } as React.CSSProperties}>
-                <span className="seat-name">
-                  <i aria-hidden="true" />
-                  {playerName(p)}
-                </span>
-                <span className="field-label">Vote for the deck size</span>
-                <div className="seg seg-wide" role="group" aria-label={`${playerName(p)}: deck size`}>
-                  {DECK_SIZES.map((n) => (
-                    <button
-                      key={n}
-                      aria-pressed={votes[p] === n}
-                      onClick={() => {
-                        setVotes((v) => ({ ...v, [p]: n }));
-                        setChoice({ p1: RANDOM_ID, p2: RANDOM_ID }); // decks depend on the size
-                      }}
-                    >
-                      {n} cards
-                    </button>
-                  ))}
-                </div>
-                {agreedSize && (
-                  <label className="flex flex-col gap-1.5">
-                    <span className="field-label">Deck</span>
-                    <span className="tool-field !py-2">
-                      <select value={choice[p]} onChange={(e) => setChoice((c) => ({ ...c, [p]: e.target.value }))} className="glass-select w-full cursor-pointer">
-                        {deckChoices.map((o) => (
-                          <option key={o.id} value={o.id}>
-                            {o.name}
-                          </option>
-                        ))}
-                        <option value={RANDOM_ID}>Random {agreedSize}-card deck</option>
-                      </select>
-                    </span>
-                  </label>
-                )}
-                <LookPicker who={p} sleeve={look.storedSleeve[p]} mat={look.storedMat[p]} onSleeve={(v) => look.choose("sleeve", p, v)} onMat={(v) => look.choose("mat", p, v)} />
-              </div>
-            ))}
-          </div>
-
-          <p className={`max-w-md text-center text-sm ${!agreedSize && votes.p1 !== null && votes.p2 !== null ? "text-[#fde68a]" : "text-slate-300"}`}>
-            {agreedSize
-              ? `Agreed: ${agreedSize}-card decks. A player without a saved deck of that size gets a random one.`
-              : votes.p1 !== null && votes.p2 !== null
-                ? "You voted for different sizes. Both players must agree on the same deck size."
-                : "Each player votes. The game starts when both choose the same size."}
-          </p>
-          {hidden > 0 && (
-            <p className="max-w-md text-center text-xs text-slate-400">
-              {hidden} saved deck{hidden > 1 ? "s are" : " is"} not offered: not legal (20+ cards, max 4 copies) or containing cards the game can&apos;t play yet. Only decks with exactly
-              the voted size are listed. See the Decks page.
-            </p>
-          )}
-
-          <div className="flex flex-wrap items-center justify-center gap-3">
-            <button onClick={startGame} disabled={loading || !agreedSize} className="btn-gold !px-8 !py-3 !text-base">
-              {loading ? "Loading cards…" : "Start game"}
-            </button>
-            <Link href="/" className="btn-ghost !px-5 !py-3 !text-sm">
-              ← Back to home
-            </Link>
-          </div>
-          {error && <p role="alert" className="max-w-md rounded-xl border border-red-400/40 bg-red-950/50 px-3 py-2 text-center text-sm text-[#fecaca]">{error}</p>}
-        </div>
-      </main>
-    );
-  }
-=======
-  if (!game) return <HotSeatSetup decks={hotSeat} loading={loading} error={error} onStart={startGame} />;
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
+  if (!game) return <HotSeatSetup decks={hotSeat} loading={loading} error={error} onStart={startGame} look={look} />;
 
   const state = game;
   const actor = seat ?? playerToAct(state);
@@ -468,11 +303,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    * anything they might not want: life paid for Phyrexian mana, and creatures tapped for mana (which could attack or block instead).
    */
   async function act(action: Action, as: PlayerId = actor, opts: { life?: boolean; mana?: boolean; pointless?: boolean; spare?: string[] } = {}) {
-<<<<<<< HEAD
-    if (watching || isCombatPlaying() || isPileBusy()) return; // a watcher can't act; and ignore clicks while something is being animated
-=======
-    if (isCombatPlaying() || isPileBusy() || isRevealing()) return; // ignore clicks while something is being animated
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
+    if (watching || isCombatPlaying() || isPileBusy() || isRevealing()) return; // a watcher can't act; and ignore clicks while something is being animated
     const spare = opts.spare ?? [];
     const pay = paymentOf(state, action, as, spare);
     if (!pay.ok && spare.length > 0) {
@@ -587,7 +418,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     }
   }
 
-<<<<<<< HEAD
   /**
    * The start of a match: the opening hand stays hidden while the loading screen fades and, for the players, "Welcome to the
    * Battle Field, Now Duel!" shows on the board. Then the cards are dealt from the library.
@@ -608,14 +438,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     await playDeal(hand);
   }
 
-  /** The hand of the player looking at the screen, as cards to animate. */
-  function handDraws(s: GameState): Draw[] {
-    const viewer = seat ?? playerToAct(s);
-    return s.players[viewer].hand.map((c) => ({ iid: c.iid, owner: viewer, faceUp: true, def: s.cards[c.defId] }));
-  }
-
-=======
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
   /**
    * Passes through the rest of the turn in one click (used when there is nothing to attack with).
    * Stops early if the player has to make a choice, such as discarding down to seven cards.
@@ -878,12 +700,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         <LogPanel lines={log} />
         {/* You: bottom left */}
         <div className="shrink-0">
-<<<<<<< HEAD
           <PlayersPanel state={state} order={[actor]} actor={actor} onResign={watching ? undefined : setResigning} heading={watching ? "Player" : "You"} />
-=======
-          <PlayersPanel state={state} order={[actor]} actor={actor} onResign={setResigning} heading="You" />
           <KeepRandomDecks className="mt-2" decks={{ [actor]: playedDecks[actor] }} saved={savedDecks} onSaved={keepDeck} label={() => "Save my random deck"} />
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
         </div>
       </aside>
 
@@ -918,149 +736,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           }
         />
 
-<<<<<<< HEAD
-        {/* The command bar: whose turn, which step, and the one big button to move on. */}
-        <section className={`shrink-0 overflow-hidden rounded-xl border bg-white shadow-md ${PLAYER_STYLE[actor].border}`}>
-          <div className={`h-1 bg-gradient-to-r ${PLAYER_STYLE[actor].gradient}`} />
-          <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-3 py-1.5">
-            <div className="flex items-center gap-2">
-              <div className="rounded-lg bg-slate-900 px-2.5 py-0.5 text-center text-white shadow">
-                <div className="text-[8px] uppercase font-display tracking-widest text-zinc-400">Turn</div>
-                <div className="text-lg font-extrabold leading-none">{state.turn}</div>
-              </div>
-              <div className="leading-tight">
-                <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${PLAYER_STYLE[actor].chip}`}>{playerName(actor)}</span>
-                <div className="mt-0.5 text-xs font-semibold text-zinc-800">{PHASE_TEXT[state.phase] ?? "to act"}</div>
-              </div>
-            </div>
-            <ol className="flex flex-wrap items-center gap-1 text-xs">
-              {(() => {
-                const steps = PHASES.filter(([id]) => id !== "mulligan" || state.phase === "mulligan");
-                const at = steps.findIndex(([id]) => id === state.phase);
-                return steps.map(([id, label], i) => (
-                  <li
-                    key={id}
-                    className={`font-display flex items-center gap-1 rounded-full px-2 py-0.5 text-[12.5px] font-semibold tracking-wide transition ${
-                      i === at ? "bg-amber-400 text-black shadow ring-2 ring-amber-300" : i < at ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-400"
-                    }`}
-                  >
-                    {i < at && <span aria-hidden="true">✓</span>}
-                    {label}
-                  </li>
-                ));
-              })()}
-            </ol>
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-          {primary &&
-            (() => {
-              const blocking = state.phase === "blockers";
-              const skipping = blocking ? Object.keys(blocks).length === 0 && possibleBlockers.length > 0 : state.phase === "attackers" && attacking.length === 0 && possibleAttackers.length > 0;
-              const incoming = (state.combat?.attackers ?? []).reduce((n, a) => {
-                const perm = a.target ? undefined : state.players[other].battlefield.find((x) => x.card.iid === a.attacker);
-                return n + (perm ? Math.max(0, powerOf(state, perm)) : 0);
-              }, 0);
-              if (skipping && confirmSkip)
-                return (
-                  <span role="group" aria-label={blocking ? "No blocks?" : "Skip attack?"} className="flex flex-wrap items-center gap-2 rounded-xl border-2 border-amber-400 bg-amber-50 px-2 py-1 text-sm font-semibold text-amber-900">
-                    {blocking ? `No blocks? You'll take ${incoming} damage.` : "Skip attack? Your creatures won't attack this turn."}
-                    <button onClick={() => act(primary.action)} className="rounded-lg bg-gradient-to-b from-amber-300 to-amber-500 px-3 py-1 font-extrabold text-black">
-                      {blocking ? "Yes, no blocks" : "Yes, skip"}
-                    </button>
-                    <button onClick={() => setConfirmSkip(false)} className="rounded-lg border border-zinc-400 bg-white px-3 py-1 hover:bg-zinc-100">
-                      Back
-                    </button>
-                  </span>
-                );
-              const button = (
-                <button
-                  onClick={() => (skipping ? setConfirmSkip(true) : act(primary.action))}
-                  disabled={noCombatYet}
-                  className="rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-4 py-1.5 text-sm font-extrabold text-black shadow-md shadow-amber-500/40 transition hover:-translate-y-0.5 hover:shadow-lg active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:translate-y-0"
-                >
-                  {primary.label}
-                </button>
-              );
-              if (state.phase === "mulligan") return <Tip text={keepHandTip}>{button}</Tip>;
-              if (noCombatYet) return <Tip text={noCombatTip}>{button}</Tip>;
-              return button;
-            })()}
-          {showEndTurn && !state.winner && (
-            <Tip text={onlyLandsLeft ? "Nothing but lands left to play: skip the rest of this turn and pass it to your opponent." : "Skip the rest of this turn and pass it to your opponent."}>
-              <button onClick={endTurn} className="rounded-xl border-2 border-zinc-300 bg-white px-3 py-1 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50">
-                {onlyLandsLeft ? "Pass turn" : "End turn"}
-              </button>
-            </Tip>
-          )}
-          {mine && state.phase === "mulligan" && (
-            <Tip text={mulliganTip}>
-              <button
-                onClick={() => act({ type: "mulligan" })}
-                disabled={mulligansTaken >= MAX_MULLIGANS}
-                className="rounded-xl border-2 border-indigo-300 bg-white px-3 py-1 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-50 disabled:opacity-40"
-              >
-                Mulligan
-              </button>
-            </Tip>
-          )}
-            </div>
-          </div>
-        </section>
-
-        {/* What to do now, in the color of the step. */}
-        {!state.winner && watching && (
-          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-sky-300/50 bg-sky-950/60 px-3 py-2 text-sm text-sky-100 shadow-sm">
-            <span aria-hidden="true">👁</span>
-            <span className="min-w-0 flex-1">
-              You are watching. It is <b>{playerName(playerToAct(state))}</b>&apos;s turn to act.
-            </span>
-          </div>
-        )}
-        {!state.winner && !watching && (() => {
-          const mode: BannerMode = state.pendingPick || state.pendingChoice ? "choice" : state.priority ? "stack" : state.phase === "attackers" ? "attack" : state.phase === "blockers" ? "block" : state.phase === "damage" ? "damage" : state.phase === "mulligan" ? "mulligan" : state.phase === "cleanup" ? "cleanup" : "main";
-          const b = BANNER[mode];
-          return (
-            <div className={`flex shrink-0 items-center gap-2.5 rounded-xl border px-3.5 py-2 shadow-sm ${b.box}`}>
-              <span className="text-2xl" aria-hidden="true">
-                {b.icon}
-              </span>
-              <div className="min-w-0 flex-1 text-[15px] leading-snug">
-                <span className="mr-2.5 text-xs font-extrabold uppercase font-display tracking-widest">{b.label}</span>
-                <span className="font-semibold">{hint}</span>
-              </div>
-              {error && (
-                <span className="rounded-lg bg-red-600 px-3 py-1 text-sm font-semibold text-white shadow">
-                  <ManaText text={error} />
-                </span>
-              )}
-              <div className="flex shrink-0 items-center gap-2">
-          {state.phase !== "mulligan" && (() => {
-            const played = state.players[actor].landsPlayedThisTurn;
-            const used = played >= MAX_LANDS_PER_TURN;
-            const hasLand = state.players[actor].hand.some((c) => state.cards[c.defId].type === "land");
-            return (
-              <Tip text={used ? `${playerName(actor)} already played a land this turn. Only ${MAX_LANDS_PER_TURN} land can be played per turn.` : `You can still play ${MAX_LANDS_PER_TURN - played} land this turn${hasLand ? "" : " (but there is no land in your hand)"}.`}>
-                <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${used ? "bg-zinc-300 text-zinc-700" : hasLand ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-400" : "bg-zinc-100 text-zinc-500"}`}>
-                  <i className="ms ms-land" aria-hidden="true" />
-                  Land played: {played}/{MAX_LANDS_PER_TURN} {used ? "✓" : ""}
-                </span>
-              </Tip>
-            );
-          })()}
-            {state.phase !== "mulligan" && (abilityCount > 0 || abilityLocked > 0) && (
-              <Tip text={abilityCount > 0 ? "Open the list of abilities you can use right now." : "Abilities that can't be used yet, and why."}>
-                <button
-                  onClick={() => setAbilitiesOpen(true)}
-                  className={`rounded-full px-3 py-1 text-xs font-bold ${abilityCount > 0 ? "bg-emerald-500 text-white shadow ring-2 ring-emerald-300" : "bg-zinc-100 text-zinc-500 ring-1 ring-zinc-300"}`}
-                >
-                  ⚡ Abilities{abilityCount > 0 ? ` (${abilityCount})` : ""}
-                </button>
-              </Tip>
-            )}
-              </div>
-            </div>
-          );
-        })()}
-=======
         <CommandBar
           state={state}
           actor={actor}
@@ -1075,8 +750,15 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           onlyLandsLeft={onlyLandsLeft}
           onEndTurn={endTurn}
         />
-        <StepBanner state={state} actor={actor} waiting={online && !mine} error={error} abilityCount={abilityCount} abilityLocked={abilityLocked} onOpenAbilities={() => setAbilitiesOpen(true)} />
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
+        {!state.winner && watching && (
+          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-sky-300/50 bg-sky-950/60 px-3 py-2 text-sm text-sky-100 shadow-sm">
+            <span aria-hidden="true">👁</span>
+            <span className="min-w-0 flex-1">
+              You are watching. It is <b>{playerName(playerToAct(state))}</b>&apos;s turn to act.
+            </span>
+          </div>
+        )}
+        {!watching && <StepBanner state={state} actor={actor} waiting={online && !mine} error={error} abilityCount={abilityCount} abilityLocked={abilityLocked} onOpenAbilities={() => setAbilitiesOpen(true)} />}
 
         {/* Panels that appear while something needs an answer. They share a box that scrolls on its own, so the board never moves. */}
         <div className="action-box flex max-h-[34dvh] shrink-0 flex-col gap-1.5 overflow-y-auto empty:hidden">
@@ -1276,10 +958,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           winner={state.winner}
           reason={endNote ?? (online ? net.snapshot?.endReason ?? null : null)}
           onPlayAgain={startGame}
-<<<<<<< HEAD
           you={online && !watching ? actor : undefined}
-=======
-          you={online ? actor : undefined}
           keep={
             <KeepRandomDecks
               className="mt-4"
@@ -1290,7 +969,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
               note={online ? "Liked your random cards?" : "Liked the random cards?"}
             />
           }
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f
           onLeave={
             online
               ? () => {
@@ -1304,229 +982,3 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     </main>
   );
 }
-<<<<<<< HEAD
-
-type Interaction = (p: Permanent) => { onClick?: () => void; ring: string; note?: string; combat?: { tone: string; label: string; why?: string }; dim?: boolean };
-
-function Side({ label, children, player, tone, grow, mat, zones, overlay }: { label: string; children: React.ReactNode; player?: PlayerId; tone?: "emerald"; grow?: boolean; mat?: string; zones?: React.ReactNode; overlay?: React.ReactNode }) {
-  const style = player ? PLAYER_STYLE[player] : null;
-  if (mat) {
-    // A playmat: the player's chosen surface, and the library and graveyard in their own zones on the right.
-    return (
-      <section
-        className={`playmat relative flex flex-col gap-1 rounded-2xl border-2 border-black/60 px-3 py-1.5 text-white ${grow ? "min-h-0 flex-1 overflow-hidden" : "shrink-0"}`}
-        style={{ background: `linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), ${mat}` }}
-      >
-        <h2 className="relative z-[1] flex items-center gap-2 font-display text-sm font-bold uppercase tracking-widest text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.8)]">
-          {style && <span className={`inline-block h-3 w-3 rounded-full ring-2 ring-white/70 ${style.bar}`} aria-hidden="true" />}
-          {label}
-        </h2>
-        {/* Notices (what the other player just cast) float over the mat, so they never squeeze the cards. */}
-        {overlay && <div className="absolute inset-x-4 top-9 z-20 flex flex-col gap-1.5 lg:right-48">{overlay}</div>}
-        <div className="relative z-[1] flex min-h-0 flex-1 gap-3">
-          <FitToHeight className="flex-1">{children}</FitToHeight>
-          {zones && (
-            // the library, graveyard and exile share the whole height of the mat, and scale with it (a choice panel makes the mat shorter, for example)
-            <div className="flex min-h-0 w-44 shrink-0 flex-col gap-1.5 rounded-xl border-2 border-dashed border-white/30 bg-black/25 p-1.5">{zones}</div>
-          )}
-        </div>
-      </section>
-    );
-  }
-  const tray = tone === "emerald";
-  return (
-    <section
-      className={`relative flex flex-col gap-1.5 rounded-2xl border-2 px-3 py-2 shadow-lg ${grow ? "min-h-0 flex-1 overflow-y-auto" : "shrink-0"} ${
-        tray ? "border-[#6ee7b7]/50 bg-slate-950/65 text-white" : style ? `${style.border} ${style.borderL} ${style.soft}` : "border-zinc-200 border-l-zinc-400 bg-white/70"
-      }`}
-    >
-      <h2 className={`flex items-center gap-2 font-display text-xs font-bold uppercase tracking-widest ${tray ? "text-[#a7f3d0]" : "text-zinc-600"}`}>
-        {style && <span className={`inline-block h-2.5 w-2.5 rounded-full ${style.bar}`} aria-hidden="true" />}
-        {label}
-      </h2>
-      {children}
-    </section>
-  );
-}
-
-/** The line between a player's creatures and lands, labelled on the side where the lands are. */
-function LandsDivider({ landsBelow, onMat }: { landsBelow: boolean; onMat?: boolean }) {
-  const label = <span className={`font-display text-[10px] font-semibold uppercase tracking-widest ${onMat ? "text-white/70 [text-shadow:0_1px_2px_rgba(0,0,0,0.7)]" : "text-zinc-500"}`}>Lands &amp; artifacts</span>;
-  return (
-    <div className="flex flex-col gap-0.5" role="separator" aria-label="Lands are on this side of the line">
-      {!landsBelow && label}
-      <div className={`h-0.5 w-full rounded ${onMat ? "bg-gradient-to-r from-transparent via-[#fde68a]/70 to-transparent" : "bg-zinc-400"}`} />
-      {landsBelow && label}
-    </div>
-  );
-}
-
-const statusOf = (p: Permanent) =>
-  [p.tapped && "Tapped", p.summoningSick && "Summoning sick", p.damage > 0 && `${p.damage} damage`].filter(Boolean) as string[];
-
-/** One row of permanents (lands or creatures). */
-function Lane({
-  perms,
-  state,
-  interaction,
-  size,
-  onInspect,
-  onZoom,
-  attackingIds,
-  onPreview,
-  onUnpreview,
-  collapseEmpty,
-}: {
-  /** An empty row takes no space (used in combat, when room is tight). */
-  collapseEmpty?: boolean;
-  perms: Permanent[];
-  onPreview: (def: CardDef, el: HTMLElement) => void;
-  onUnpreview: () => void;
-  attackingIds: string[];
-  state: GameState;
-  interaction: Interaction;
-  size: "sm" | "md";
-  onInspect: (def: Inspected["def"], status?: string[]) => void;
-  onZoom: (def: Inspected["def"]) => void;
-}) {
-  const everything = [...state.players.p1.battlefield, ...state.players.p2.battlefield];
-  const sign = (n: number) => (n >= 0 ? `+${n}` : `${n}`);
-
-  const renderPerm = (p: Permanent, attachment = false) => {
-    const def = state.cards[p.card.defId];
-    // Auras and Equipment: "On: <creature>" on them, and their names on the creature they are attached to.
-    const host = p.attachedTo ? everything.find((x) => x.card.iid === p.attachedTo) : undefined;
-    const attached = everything.filter((x) => x.attachedTo === p.card.iid);
-    const tags = [
-      ...(host ? [`On: ${state.cards[host.card.defId].name}`] : []),
-      ...attached.map((a) => `+ ${state.cards[a.card.defId].name}`),
-      ...(p.counters ? [`${p.counters}× +1/+1`] : []),
-      ...(p.minusCounters ? [`${p.minusCounters}× -1/-1`] : []),
-      ...(p.chosenColor ? [`Color: ${p.chosenColor}`] : []),
-      ...(p.regenShield ? ["Regenerates"] : []),
-      // effects that last until end of turn
-      ...(p.powerBonus || p.toughnessBonus ? [`${sign(p.powerBonus ?? 0)}/${sign(p.toughnessBonus ?? 0)} this turn`] : []),
-      ...(p.tempKeywords ?? []).map((k) => `${k} this turn`),
-      ...(p.cantBlockTurn ? ["can't block this turn"] : []),
-      ...(p.controlReturn ? ["stolen until end of turn"] : []),
-      // which spell or ability is behind those effects
-      ...(p.tempFrom ?? []).map((f) => `✦ ${f.name}`),
-      ...(p.loyalty !== undefined ? [`Loyalty ${p.loyalty}`] : []),
-      ...(p.crewed ? ["Crewed"] : []),
-    ];
-    const creature = def.type === "creature" || p.crewed === true;
-    return (
-      <div key={p.card.iid} className="shrink-0" onMouseEnter={(e) => onPreview(def, e.currentTarget)} onMouseLeave={onUnpreview}>
-      <CardView
-        iid={p.card.iid}
-        tags={tags}
-        power={creature ? powerOf(state, p) : undefined}
-        toughness={creature ? toughnessOf(state, p) : undefined}
-        attacking={attackingIds.includes(p.card.iid)}
-        def={def}
-        size={attachment ? "sm" : size}
-        tapped={p.tapped}
-        summoningSick={p.summoningSick}
-        damage={p.damage}
-        {...interaction(p)}
-        {...(attachment ? { ring: "ring-2 ring-violet-400" } : {})}
-        onHover={() => onInspect(def, statusOf(p))}
-        onZoom={() => onZoom(def)}
-      />
-      </div>
-    );
-  };
-
-  return (
-    <div className={`flex flex-wrap items-start gap-1.5 ${collapseEmpty && perms.length === 0 ? "" : size === "md" ? "min-h-[var(--card-h,168px)]" : "min-h-[calc(var(--card-h,168px)*0.8)]"}`}>
-      {perms
-        // An Aura or Equipment is drawn next to what it is attached to, not on its own.
-        .filter((p) => !(p.attachedTo && everything.some((x) => x.card.iid === p.attachedTo)))
-        .map((p) => {
-          const attachments = everything.filter((x) => x.attachedTo === p.card.iid);
-          const group = (
-            <>
-              {renderPerm(p)}
-              {attachments.map((a) => renderPerm(a, true))}
-            </>
-          );
-          return attachments.length > 0 ? (
-            <div key={p.card.iid} className="flex items-start gap-1 rounded-lg border border-violet-300 bg-violet-50/50 p-1">
-              {group}
-            </div>
-          ) : (
-            <div key={p.card.iid}>{group}</div>
-          );
-        })}
-    </div>
-  );
-}
-
-/** Divide an attacker's damage among the creatures blocking it (rule 510.1c). The total always stays equal to its power. */
-function DamagePanel({
-  state,
-  needed,
-  effective,
-  onShift,
-}: {
-  state: GameState;
-  needed: ReturnType<typeof getDamageAssignments>;
-  effective: (attacker: string) => Record<string, number>;
-  onShift: (attacker: string, from: string, to: string) => void;
-}) {
-  const perm = (iid: string) => Object.values(state.players).flatMap((p) => p.battlefield).find((x) => x.card.iid === iid)!;
-  const name = (iid: string) => state.cards[perm(iid).card.defId].name;
-
-  return (
-    <section className="flex flex-col gap-3 rounded-lg border border-amber-500/40 bg-zinc-100 p-3">
-      <h2 className="text-xs font-semibold uppercase font-display tracking-wide text-amber-600">Assign combat damage</h2>
-      {needed.map(({ attacker, blockers, power, trampleTo }) => {
-        const amounts = effective(attacker);
-        // A trampler may also put damage on the defending player (after lethal damage on every blocker).
-        const targets = trampleTo ? [...blockers, trampleTo] : blockers;
-        return (
-          <div key={attacker} className="flex flex-col gap-1">
-            <div className="text-sm">
-              <span className="font-semibold">{name(attacker)}</span> deals {power} damage, divided among its blockers
-              {trampleTo ? ` and (trample) ${playerName(trampleTo)}` : ""}:
-            </div>
-            {targets.map((id) => {
-              const others = targets.filter((o) => o !== id);
-              const give = others.find((o) => (amounts[o] ?? 0) > 0); // "+" takes one from a target that has some
-              const take = others[0]; // "-" gives one to another target
-              const isPlayerRow = id === trampleTo;
-              const b = isPlayerRow ? null : perm(id);
-              const toughnessLeft = b ? (state.cards[b.card.defId].toughness ?? 0) - b.damage : null;
-              const label = isPlayerRow ? `${playerName(trampleTo)} (trample)` : name(id);
-              return (
-                <div key={id} className="flex items-center gap-2 text-sm">
-                  <span className="w-40 truncate">{label}</span>
-                  {toughnessLeft !== null && <span className="text-xs text-zinc-500">toughness {toughnessLeft}</span>}
-                  <button
-                    disabled={!(amounts[id] > 0) || !take}
-                    onClick={() => onShift(attacker, id, take)}
-                    className="rounded bg-zinc-300 px-2 hover:bg-zinc-400 disabled:opacity-30"
-                    aria-label={`Less damage to ${label}`}
-                  >
-                    -
-                  </button>
-                  <span className="w-5 text-center font-bold">{amounts[id] ?? 0}</span>
-                  <button
-                    disabled={!give}
-                    onClick={() => give && onShift(attacker, give, id)}
-                    className="rounded bg-zinc-300 px-2 hover:bg-zinc-400 disabled:opacity-30"
-                    aria-label={`More damage to ${label}`}
-                  >
-                    +
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        );
-      })}
-    </section>
-  );
-}
-=======
->>>>>>> 437f1392709f8c4f2684b47c60b2558a0b8f792f

@@ -68,8 +68,8 @@ function Status({ status }: { status: DeckStatus }) {
   if (status.ready) return <p className="text-sm text-emerald-600">Ready to play.</p>;
   return (
     <ul className="flex flex-col gap-1 text-xs">
-      {status.errors.map((e) => (
-        <li key={e} className="text-amber-700">
+      {status.errors.map((e, i) => (
+        <li key={`${i}-${e}`} className="text-amber-700">
           {e}
         </li>
       ))}

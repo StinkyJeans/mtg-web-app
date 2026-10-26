@@ -27,10 +27,8 @@ export function Side({ label, children, player, tone, grow, mat, zones, overlay 
         <div className="relative z-[1] flex min-h-0 flex-1 gap-3">
           <FitToHeight className="flex-1">{children}</FitToHeight>
           {zones && (
-            // the library, graveyard and exile shrink to fit when the mat gets short (a choice panel is open, for example)
-            <FitToHeight className="w-44 shrink-0 rounded-xl border-2 border-dashed border-white/30 bg-black/25 p-1.5" innerClassName="flex flex-col gap-1.5" maxZoom={1} minZoom={0.3}>
-              {zones}
-            </FitToHeight>
+            // the library, graveyard and exile share the whole height of the mat, and scale with it (a choice panel makes the mat shorter, for example)
+            <div className="flex min-h-0 w-44 shrink-0 flex-col gap-1.5 rounded-xl border-2 border-dashed border-white/30 bg-black/25 p-1.5">{zones}</div>
           )}
         </div>
       </section>

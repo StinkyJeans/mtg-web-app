@@ -10,8 +10,8 @@ export function Help({ text, max = 3, large }: { text: string; max?: number; lar
   if (lines.length === 0) return null;
   return (
     <span className={large ? "mt-1.5 block text-[15px] font-normal leading-relaxed text-zinc-700" : "mt-1 block text-xs font-normal leading-snug text-zinc-500"}>
-      {lines.map((l) => (
-        <span key={l} className="block">
+      {lines.map((l, i) => (
+        <span key={`${i}-${l}`} className="block">
           ⓘ {l}
         </span>
       ))}

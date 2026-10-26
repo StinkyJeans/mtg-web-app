@@ -1,5 +1,4 @@
 import Link from "next/link";
-import BackgroundMusic from "./BackgroundMusic";
 import LiveWallpaper from "./LiveWallpaper";
 import Lobby from "./lobby/Lobby";
 import FriendsPanel from "./friends/FriendsPanel";
@@ -12,7 +11,6 @@ export default function Home() {
   return (
     <main className="relative flex flex-1 flex-col items-center justify-center gap-7 overflow-x-clip p-5 text-white sm:p-8">
       <LiveWallpaper />
-      <BackgroundMusic />
       <ProfileButton />
       <FriendsPanel />
       <Lobby />
