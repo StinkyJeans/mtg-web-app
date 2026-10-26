@@ -98,15 +98,16 @@ export default function ResolveZone({
   if (entries.length === 0) return null;
 
   return (
-    <section aria-label="To resolve" aria-live="polite" className="pointer-events-auto ml-auto flex w-full max-w-md flex-col gap-1.5 rounded-xl border-2 border-dashed border-white/40 bg-slate-950/70 p-2 shadow-xl backdrop-blur-sm">
-      <h3 className="font-display text-[11px] font-extrabold uppercase tracking-widest text-amber-200">To resolve</h3>
+    // It floats over the board (no panel behind it), so the player's mat stays visible around the cards. Only the cards take clicks.
+    <section aria-label="To resolve" aria-live="polite" className="pointer-events-none fixed left-[56%] top-[26dvh] z-40 flex w-[min(24rem,92vw)] -translate-x-1/2 flex-col gap-2">
+      <h3 className="self-start rounded-full bg-slate-950/80 px-3 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-widest text-amber-200 shadow-lg shadow-black/40">To resolve</h3>
       {entries.map((e) => (
-        <div key={e.key} className={`announce-in flex items-start gap-2.5 rounded-lg bg-white p-2 text-zinc-900 ring-2 ${LOOK[e.status].ring}`}>
+        <div key={e.key} className={`announce-in pointer-events-auto flex items-start gap-2.5 rounded-lg bg-white/95 p-2 text-zinc-900 shadow-2xl shadow-black/50 ring-2 ${LOOK[e.status].ring}`}>
           <button
             type="button"
             onClick={() => e.def && onZoom(e.def)}
             aria-label={e.def ? `Enlarge ${e.def.name}` : "Card"}
-            className="flex h-[134px] w-24 shrink-0 items-end overflow-hidden rounded-md border border-zinc-700 bg-zinc-300 bg-cover bg-center shadow"
+            className="flex h-[112px] w-20 shrink-0 items-end overflow-hidden rounded-md border border-zinc-700 bg-zinc-300 bg-cover bg-center shadow"
             style={e.def?.image ? { backgroundImage: `url(${cardImageUrl(e.def.image)})` } : undefined}
           >
             {!e.def?.image && <span className="p-1 text-left text-[11px] font-semibold leading-tight">{e.def?.name}</span>}
