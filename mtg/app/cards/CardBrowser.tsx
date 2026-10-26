@@ -84,6 +84,7 @@ export default function CardBrowser() {
             onClick={() => {
               setType(t);
               setPage(0);
+              
             }}
           />
         ))}
