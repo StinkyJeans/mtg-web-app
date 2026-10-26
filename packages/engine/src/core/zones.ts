@@ -136,6 +136,12 @@ export function exilePlayable(state: GameState, player: PlayerId): CardInstance[
   });
 }
 
+/** Playing an exiled card: what a spell cast from there costs more (Lightstall Inquisitor's {1}) and whether a land enters tapped. */
+export function exilePlayTerms(state: GameState, player: PlayerId, iid: string): { tax: number; tappedLand: boolean } {
+  const entry = state.players[player].mayPlay?.find((e) => e.iid === iid);
+  return { tax: entry?.tax ?? 0, tappedLand: entry?.tappedLand ?? false };
+}
+
 /** "Until this leaves the battlefield": what it was keeping in exile comes back under its owner's control (a card from a hand goes back to the hand). */
 function releaseHeld(state: GameState, perm: Permanent): void {
   for (const card of perm.heldFromHand ?? []) {
@@ -170,7 +176,8 @@ export function removeFromBattlefield(state: GameState, perm: Permanent, control
 
 /** Makes a token and puts it onto the battlefield under `controller`. */
 export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerId, events: GameEvent[]): void {
-  const defId = `token-${spec.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${spec.power ?? 0}-${spec.toughness ?? 0}-${spec.colors.join("")}-${spec.keywords.join("-")}`;
+  const keywords: string[] = spec.changeling ? [...spec.keywords, "changeling"] : spec.keywords;
+  const defId = `token-${spec.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${spec.power ?? 0}-${spec.toughness ?? 0}-${spec.colors.join("")}-${keywords.join("-")}`;
   state.cards[defId] ??= {
     id: defId,
     name: spec.name,
@@ -181,7 +188,7 @@ export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerI
     typeLine: `Token ${spec.artifact && spec.type === "creature" ? "Artifact Creature" : spec.type === "creature" ? "Creature" : "Artifact"} — ${spec.subtypes}`,
     text: spec.text,
     colors: spec.colors,
-    keywords: spec.keywords,
+    keywords,
     playable: false, // never in a deck
   };
   const card: CardInstance = { iid: `tok${state.nextId++}`, defId, owner: controller };

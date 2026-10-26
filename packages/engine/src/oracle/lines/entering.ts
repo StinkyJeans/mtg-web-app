@@ -38,7 +38,19 @@ export function readChooseColorOnEnter(line: string, out: ParsedCard): boolean {
     out.chooseColor = chooseColor[2] ? { except: colorWords[chooseColor[2]] } : {};
     return true;
   }
+  if (/^as (?:it|~) enters, choose a creature type$/.test(line)) {
+    out.chooseType = true;
+    return true;
+  }
   return false;
+}
+
+// Giada: "Each other Angel you control enters with an additional +1/+1 counter on it for each Angel you already control."
+export function readOthersEnterWithCounters(line: string, out: ParsedCard): boolean {
+  const m = /^each other ([a-z]+) you control enters with an additional \+1\/\+1 counter on it for each ([a-z]+) you already control$/.exec(line);
+  if (!m || m[1] !== m[2]) return false;
+  out.othersEnterWithCounters = m[1];
+  return true;
 }
 
 // Lands that enter tapped unless a condition holds (check lands, fast lands, slow lands, ...)

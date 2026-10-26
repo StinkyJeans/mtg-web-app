@@ -1,4 +1,5 @@
 import { getCard } from "../cards.js";
+import { defSubtypes } from "../creatureTypes.js";
 import type { CardFilter, CountSpec, SourceQuality, StaticEffect, TargetSpec } from "../effects.js";
 import { isBasicLand } from "../deck.js";
 import { hasKeyword } from "../keywords.js";
@@ -36,12 +37,14 @@ export function entersTappedNow(state: GameState, controller: PlayerId, def: Car
 
 /** Does this card fit a "reveal a ... card" filter (a type, a creature type, or "nonland")? */
 export function cardMatches(def: CardDef, filter: CardFilter): boolean {
+  if (filter.basic && !isBasicLand(def)) return false;
+  if (filter.maxMV !== undefined && def.cost > filter.maxMV) return false;
   if (filter.all) return true;
   if (filter.nonland) return def.type !== "land";
   const line = (def.typeLine ?? def.type).toLowerCase();
   if (filter.types?.some((t) => def.type === t || line.split("—")[0].includes(t))) return true;
   if (filter.colors?.some((c) => (def.colors ?? []).includes(c))) return true;
-  return filter.subtypes?.some((s) => (line.split("—")[1] ?? "").split(/\s+/).includes(s)) ?? false;
+  return filter.subtypes?.some((s) => defSubtypes(def).includes(s)) ?? false;
 }
 
 /** Mode effects count their targets from 0; when several modes are chosen (or one target is repeated X times) the later ones are shifted. */
@@ -79,10 +82,10 @@ export function isProtectedFrom(s: GameState, perm: Permanent, source: SourceQua
   return source.colors.some((c) => protection.colors.includes(c)) || (source.artifact && protection.artifacts);
 }
 
+export { defSubtypes };
+
 const controllerOf = (s: GameState, p: Permanent): PlayerId => (s.players.p1.battlefield.includes(p) ? "p1" : "p2");
 
-/** The subtypes on a card's type line (lowercase): "Creature — Zombie Wizard" is ["zombie", "wizard"]. */
-export const defSubtypes = (def: CardDef): string[] => ((def.typeLine ?? "").split(" // ")[0].split("—")[1] ?? "").toLowerCase().split(/\s+/).filter(Boolean);
 
 /** A permanent's creature types (lowercase): the printed ones, plus any an Aura on it adds ("is an Angel in addition to its other types"). */
 export function subtypesOf(s: GameState, p: Permanent): string[] {

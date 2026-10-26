@@ -3,12 +3,24 @@ import { isBasicLand } from "../../deck.js";
 import { parseManaCost, payMana } from "../../mana.js";
 import { shuffle } from "../../state.js";
 import { OPPONENT } from "../../types.js";
-import type { CardInstance, PlayerId } from "../../types.js";
+import type { Ref, RunContext } from "../../effects.js";
+import type { CardDef, CardInstance, GameState, Permanent, PlayerId } from "../../types.js";
 import { cardMatches, findPermanentOrNull, nameOf, playerLabel } from "../permanents.js";
 import { drawCards, putCounters, removeFromBattlefield } from "../zones.js";
 import { creatureEntered, queueTriggers } from "../triggers.js";
 import { subjectsOf } from "../targets.js";
 import { rngNext, plural, type EffectHandlers } from "./shared.js";
+
+
+/** The creature that explores: the effect's target ("target creature you control explores"), or the permanent itself. */
+function explorerOf(state: GameState, ctx: RunContext, what?: Ref): { perm: Permanent; player: PlayerId } | undefined {
+  if (what) {
+    const s = subjectsOf(state, what, ctx).find((x) => x.k === "perm");
+    return s?.k === "perm" ? { perm: s.perm, player: s.owner } : undefined;
+  }
+  const self = findPermanentOrNull(state, ctx.sourceId);
+  return self ? { perm: self.perm, player: self.owner.id } : undefined;
+}
 
 /** Drawing, discarding, and looking at or searching the library. */
 export const LIBRARY_EFFECTS = {
@@ -99,26 +111,29 @@ export const LIBRARY_EFFECTS = {
       ...(effect.toBottom ? { restToGraveyard: false, randomBottom: false, bottomIids: ["bottom"] } : {}),
     });
   },
-  explore({ state, ctx, events, say, startPick }) {
+  explore({ state, ctx, events, say, startPick }, effect) {
     // Rule 701.44: a land goes to the hand; otherwise a +1/+1 counter, then the card stays on top or goes to the graveyard.
-    const me = state.players[ctx.controller];
+    // The explorer's controller reveals from their own library ("target creature you control explores": a Map).
+    const explorer = explorerOf(state, ctx, effect.what);
+    if (effect.what && !explorer) return;
+    const player = explorer?.player ?? ctx.controller;
+    const me = state.players[player];
     const top = me.library[0];
-    const self = findPermanentOrNull(state, ctx.sourceId);
-    if (top) say(`${ctx.sourceName} explores and reveals ${getCard(state, top.defId).name}.`);
+    if (top) say(`${explorer ? nameOf(state, explorer.perm) : ctx.sourceName} explores and reveals ${getCard(state, top.defId).name}.`);
     if (top && getCard(state, top.defId).type === "land") {
       me.hand.push(me.library.shift()!);
-      events.push({ type: "cardDrawn", player: ctx.controller, iid: top.iid });
+      events.push({ type: "cardDrawn", player, iid: top.iid });
       return;
     }
-    if (self) putCounters(state, self.perm, self.owner.id, 1);
+    if (explorer) putCounters(state, explorer.perm, explorer.player, 1);
     if (!top) return;
     startPick({
-      player: ctx.controller,
+      player,
       prompt: `Explore: put ${getCard(state, top.defId).name} into your graveyard, or keep it on top of your library`,
       kind: "surveil",
       options: [top.iid],
       optional: true,
-      owner: ctx.controller,
+      owner: player,
       remaining: 1,
       ordered: [],
     });
@@ -258,9 +273,10 @@ export const LIBRARY_EFFECTS = {
     // "Its controller may search": usually the player of the effect, sometimes another one (Path to Exile).
     const searcher = effect.who ? ((subjectsOf(state, effect.who, ctx).find((s) => s.k === "player") as { k: "player"; id: PlayerId } | undefined)?.id ?? ctx.controller) : ctx.controller;
     const library = state.players[searcher].library;
-    const any = effect.for === "any";
+    const any = effect.for === "any" && !effect.filters;
+    const fits = (def: CardDef) => (effect.filters ? effect.filters.some((f) => cardMatches(def, f)) : any || isBasicLand(def));
     const seen = new Set<string>();
-    const options = library.filter((c) => (any || isBasicLand(getCard(state, c.defId))) && (any || (!seen.has(c.defId) && seen.add(c.defId)))).map((c) => c.iid);
+    const options = library.filter((c) => fits(getCard(state, c.defId)) && (any || (!seen.has(c.defId) && seen.add(c.defId)))).map((c) => c.iid);
     if (options.length === 0) {
       [state.players[searcher].library, state.rng] = shuffle(library, state.rng);
       return;
@@ -268,7 +284,7 @@ export const LIBRARY_EFFECTS = {
     const toHand = effect.to === "hand";
     startPick({
       player: searcher,
-      prompt: toHand ? `Search your library: choose a ${any ? "card" : "basic land"} to put into your hand` : `Search your library: choose a basic land to put onto the battlefield${effect.tapped === false ? "" : " tapped"}`,
+      prompt: toHand ? `Search your library: choose a ${effect.label ?? (any ? "card" : "basic land")} to put into your hand` : `Search your library: choose a basic land to put onto the battlefield${effect.tapped === false ? "" : " tapped"}`,
       kind: toHand ? "searchAny" : "searchLand",
       entersTapped: effect.tapped !== false,
       reveal: effect.reveal,

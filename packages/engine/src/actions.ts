@@ -1,9 +1,10 @@
 import { getCard } from "./cards.js";
 import {
-  askColor,
+  askAsEnters,
   checkStateBasedActions,
   entersTappedNow,
   exilePlayable,
+  exilePlayTerms,
   findPermanent,
   findPermanentOrNull,
   forbidden,
@@ -177,6 +178,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       if (me.landsPlayedThisTurn >= MAX_LANDS_PER_TURN) return fail("You already played a land this turn.");
       let idx = me.hand.findIndex((c) => c.iid === action.iid);
       let zone = me.hand;
+      const { tappedLand } = exilePlayTerms(next, player, action.iid); // "each land played this way enters tapped"
       if (idx < 0 && exilePlayable(next, player).some((c) => c.iid === action.iid)) {
         zone = me.exile; // "you may play that card" from exile
         idx = me.exile.findIndex((c) => c.iid === action.iid);
@@ -185,12 +187,12 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       if (idx < 0) return fail("That card is not in your hand.");
       if (getCard(next, zone[idx].defId).type !== "land") return fail("That card is not a land.");
       const [card] = zone.splice(idx, 1);
-      me.battlefield.push({ card, tapped: entersTappedNow(next, player, getCard(next, card.defId)), summoningSick: false, damage: 0 });
+      me.battlefield.push({ card, tapped: (zone === me.exile && tappedLand) || entersTappedNow(next, player, getCard(next, card.defId)), summoningSick: false, damage: 0 });
       me.landsPlayedThisTurn++;
       events.push({ type: "landPlayed", player, iid: card.iid });
       queueTriggers(next, card, player, "enters"); // "When this land enters, you gain 1 life."
       landEntered(next, player); // landfall
-      askColor(next, me.battlefield[me.battlefield.length - 1], player); // "As this enters, choose a color"
+      askAsEnters(next, me.battlefield[me.battlefield.length - 1], player); // "As this enters, choose a color" (or a creature type)
       break;
     }
 

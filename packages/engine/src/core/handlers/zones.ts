@@ -175,6 +175,23 @@ export const ZONE_EFFECTS = {
       });
     }
   },
+  exileToPlay({ state, ctx, startPick }, effect) {
+    for (const s of subjectsOf(state, effect.who, ctx)) {
+      if (s.k !== "player" || state.pendingPick || state.players[s.id].hand.length === 0) continue;
+      startPick({
+        player: s.id,
+        prompt: `${ctx.sourceName}: exile a card from your hand. You may play it while it stays exiled (a spell costs {${effect.tax}} more, a land enters tapped).`,
+        kind: "exileToPlay",
+        options: state.players[s.id].hand.map((c) => c.iid),
+        optional: false,
+        owner: s.id,
+        remaining: 1,
+        ordered: [],
+        playTax: effect.tax,
+        playLandTapped: effect.tappedLand,
+      });
+    }
+  },
   yardCastable({ state, ctx, say }) {
     // Only the creature cards there now (rule 611.2c): one put there later doesn't gain it.
     const me = state.players[ctx.controller];

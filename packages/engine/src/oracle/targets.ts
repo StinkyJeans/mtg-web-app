@@ -68,6 +68,7 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   if (phrase === "target artifact") return { kind: "artifact", label: phrase };
   if (phrase === "target enchantment") return { kind: "enchantment", label: phrase };
   if (phrase === "target artifact or enchantment") return { kind: "artifactOrEnchantment", label: phrase };
+  if (phrase === "target creature or vehicle") return { kind: "permanent", types: ["creature", "vehicle"], label: phrase };
   const fromYard = graveyardCardSpec(phrase);
   if (fromYard) return fromYard;
   if (phrase === "target artifact, enchantment, or creature with flying") return { kind: "permanent", types: ["artifact", "enchantment", "creature"], creatureWith: "flying", label: phrase };
@@ -177,6 +178,12 @@ export function refFor(phrase: string, ctx: Ctx): Ref | null {
       return ctx.allowSelf ? { t: "allCreatures", scope: "all", notSelf: true } : null;
     case "each creature without flying":
       return { t: "allCreatures", scope: "all", noFlying: true };
+    case "all tapped creatures":
+    case "each tapped creature":
+      return { t: "allCreatures", scope: "all", tapped: true };
+    case "all untapped creatures":
+    case "each untapped creature":
+      return { t: "allCreatures", scope: "all", tapped: false };
     case "each creature you don't control":
     case "each creature your opponents control":
     case "all creatures you don't control":

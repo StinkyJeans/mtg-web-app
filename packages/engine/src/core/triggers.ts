@@ -17,7 +17,7 @@ import {
   subtypesOf,
 } from "./permanents.js";
 import { ignoresHexproof } from "./targets.js";
-import { isToken } from "./zones.js";
+import { isToken, putCounters } from "./zones.js";
 
 // Entering the battlefield and triggered abilities: which triggers fire, and putting them in the queue.
 
@@ -55,6 +55,7 @@ function triggerCondHolds(state: GameState, controller: PlayerId, trigger: Trigg
 /** "Whenever another creature you control enters": the controller's other permanents with such a trigger. */
 export function creatureEntered(state: GameState, card: CardInstance, controller: PlayerId): void {
   const entering = state.players[controller].battlefield.find((p) => p.card.iid === card.iid);
+  if (entering) addEnteringCounters(state, entering, controller);
   if (entering) creatureMoved(state, entering, controller, "enters");
   for (const perm of state.players[controller].battlefield) {
     const def = getCard(state, perm.card.defId);
@@ -75,6 +76,17 @@ export function creatureEntered(state: GameState, card: CardInstance, controller
         item: { kind: "ability", id: newId(state), controller, source: perm.card.iid, sourceName: def.name, effects: trigger.effects, targets: [], specs: bindSpecs(trigger.targets, perm.card.iid), text: trigger.text, other: card.iid },
       });
     }
+  }
+}
+
+/** Giada: "Each other Angel you control enters with an additional +1/+1 counter on it for each Angel you already control." */
+function addEnteringCounters(state: GameState, perm: Permanent, controller: PlayerId): void {
+  const others = state.players[controller].battlefield.filter((p) => p !== perm);
+  const types = subtypesOf(state, perm);
+  for (const source of others) {
+    const type = parseCard(getCard(state, source.card.defId)).othersEnterWithCounters;
+    if (!type || !types.includes(type)) continue;
+    putCounters(state, perm, controller, others.filter((p) => subtypesOf(state, p).includes(type)).length);
   }
 }
 
@@ -110,6 +122,7 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
     // A creature spell only counts for "a noncreature or Dragon spell" when it is a Dragon.
     if (event === "noncreatureSpell" && extra?.subtypes && !(trigger.orSpellSubtype && extra.subtypes.includes(trigger.orSpellSubtype))) continue;
     if (trigger.other && extra?.self) continue;
+    if (trigger.selfOnly && !extra?.self) continue;
     if ((event === "allyDies" || event === "allyAttacks") && trigger.subtypes && !trigger.subtypes.some((t) => extra?.subtypes?.includes(t))) continue;
     if (trigger.notSubtype && extra?.subtypes?.includes(trigger.notSubtype)) continue;
     if (trigger.ifKicked && !findPermanentOrNull(state, card.iid)?.perm.kicked) continue;
@@ -133,6 +146,7 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
       const power = died?.power ?? (self ? powerOf(state, self) : 0);
       targets = targets.map((t) => (t.mvAtMostPower ? { ...t, mv: { n: power, op: "max" as const } } : t));
     }
+    if (extra?.other && targets.some((t) => t.notOther)) targets = targets.map((t) => (t.notOther ? { ...t, except: extra.other } : t));
     state.triggerQueue.push({
       specs: bindSpecs(targets, card.iid),
       ...(trigger.modes ? { modes: trigger.modes } : {}),
@@ -154,9 +168,11 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
   }
 }
 
-/** "As this enters, choose a color": starts the choice (nothing to ask when only one color is allowed). */
-export function askColor(state: GameState, perm: Permanent, controller: PlayerId): void {
-  const choose = parseCard(getCard(state, perm.card.defId)).chooseColor;
+/** "As this enters, choose a color" / "choose a creature type": starts the choice (nothing to ask when only one color is allowed). */
+export function askAsEnters(state: GameState, perm: Permanent, controller: PlayerId): void {
+  const parsed = parseCard(getCard(state, perm.card.defId));
+  if (parsed.chooseType && !state.pendingPick) return askCreatureType(state, perm, controller);
+  const choose = parsed.chooseColor;
   if (!choose || state.pendingPick) return;
   const options = (["W", "U", "B", "R", "G"] as const).filter((c) => c !== choose.except);
   if (options.length === 1) {
@@ -168,6 +184,38 @@ export function askColor(state: GameState, perm: Permanent, controller: PlayerId
     prompt: `${nameOf(state, perm)}: choose a color${choose.except ? ` other than ${choose.except}` : ""}`,
     kind: "color",
     options: [...options],
+    optional: false,
+    owner: controller,
+    remaining: 1,
+    ordered: [],
+    colorFor: perm.card.iid,
+    source: { iid: perm.card.iid, name: nameOf(state, perm), defId: perm.card.defId },
+  };
+}
+
+/**
+ * "As this land enters, choose a creature type": the types among the player's own cards, most common first
+ * (choosing a type none of their cards have would do nothing).
+ */
+function askCreatureType(state: GameState, perm: Permanent, controller: PlayerId): void {
+  const p = state.players[controller];
+  const counts = new Map<string, number>();
+  for (const card of [...p.library, ...p.hand, ...p.graveyard, ...p.exile, ...p.battlefield.map((b) => b.card)]) {
+    const def = getCard(state, card.defId);
+    if (!/\bcreature\b/i.test(def.typeLine ?? def.type)) continue;
+    // the printed types only: a changeling would count as every type
+    for (const t of ((def.typeLine ?? "").split(" // ")[0].split("—")[1] ?? "").toLowerCase().split(/\s+/).filter(Boolean)) counts.set(t, (counts.get(t) ?? 0) + 1);
+  }
+  const options = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([t]) => t);
+  if (options.length <= 1) {
+    perm.chosenType = options[0] ?? "human";
+    return;
+  }
+  state.pendingPick = {
+    player: controller,
+    prompt: `${nameOf(state, perm)}: choose a creature type`,
+    kind: "creatureType",
+    options,
     optional: false,
     owner: controller,
     remaining: 1,
@@ -190,6 +238,10 @@ export function queueWard(state: GameState, item: StackItem): void {
     const found = findPermanentOrNull(state, target.iid);
     // "When this becomes the target of a spell or ability, ...": a trigger for the permanent's controller.
     if (found) queueTriggers(state, found.perm.card, found.owner.id, "becomesTarget", { byOpponent: item.controller !== found.owner.id });
+    // "Whenever a creature you control becomes the target of a spell or ability an opponent controls, ...": every permanent of its controller.
+    if (found && isCreature(state, found.perm)) {
+      for (const p of state.players[found.owner.id].battlefield) queueTriggers(state, p.card, found.owner.id, "allyTargeted", { byOpponent: item.controller !== found.owner.id, other: found.perm.card.iid });
+    }
     const parsed = found ? parseCard(getCard(state, found.perm.card.defId)) : undefined;
     const ward = found ? (parsed?.ward ?? staticEffectsOn(state, found.perm).find((st) => st.ward)?.ward) : undefined;
     if (!found || ward === undefined || found.owner.id === item.controller || (wardsOff && isCreature(state, found.perm))) return;

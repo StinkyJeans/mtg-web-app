@@ -23,11 +23,17 @@ export function abilityList(state: GameState, actor: PlayerId) {
         const card = [...me.graveyard, ...me.exile].find((x) => x.iid === c.iid)!;
         const def = state.cards[card.defId];
         // A creature card cast from the graveyard (Case of the Uneaten Feast), or a warped card cast from exile, costs its mana cost.
-        const why = c.zone === "graveyard" && def.type === "creature" ? ("yard" as const) : c.zone === "exile" && me.mayPlay?.some((e) => e.iid === c.iid && e.fromTurn !== undefined) ? ("warp" as const) : undefined;
+        // One exiled from the hand by Lightstall Inquisitor costs more (`tax`).
+        const entry = c.zone === "exile" ? me.mayPlay?.find((e) => e.iid === c.iid) : undefined;
+        const why = c.zone === "graveyard" && def.type === "creature" ? ("yard" as const) : entry?.source === "warp" ? ("warp" as const) : entry?.source === "exiled" ? ("exiled" as const) : undefined;
         const cost = c.zone === "exile" || why === "yard" ? (def.manaCost ?? "") : (parseCard(def).flashback ?? "");
-        return { iid: c.iid, name: def.name, cost, zone: c.zone as "graveyard" | "exile", ...(why ? { why } : {}) };
+        return { iid: c.iid, name: def.name, cost, zone: c.zone as "graveyard" | "exile", ...(why ? { why } : {}), ...(entry?.tax ? { tax: entry.tax } : {}) };
       }),
-    exileLands: getLegalActions(state, actor).flatMap((a) => (a.type === "playLand" && me.exile.some((c) => c.iid === a.iid) ? [{ iid: a.iid, name: state.cards[me.exile.find((c) => c.iid === a.iid)!.defId].name }] : [])),
+    exileLands: getLegalActions(state, actor).flatMap((a) =>
+      a.type === "playLand" && me.exile.some((c) => c.iid === a.iid)
+        ? [{ iid: a.iid, name: state.cards[me.exile.find((c) => c.iid === a.iid)!.defId].name, ...(me.mayPlay?.some((e) => e.iid === a.iid && e.tappedLand) ? { tapped: true } : {}) }]
+        : [],
+    ),
   };
 }
 

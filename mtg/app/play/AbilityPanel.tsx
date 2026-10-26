@@ -38,9 +38,9 @@ export function AbilityPanel({
   loyalty?: LoyaltyOption[];
   onLoyalty?: (a: LoyaltyOption) => void;
   /** `source`: for a copy cast from a prepared creature, that creature's name. */
-  flashbacks?: { iid: string; name: string; cost: string; zone?: "graveyard" | "exile" | "prepared"; source?: string; why?: "yard" | "warp" }[];
+  flashbacks?: { iid: string; name: string; cost: string; zone?: "graveyard" | "exile" | "prepared"; source?: string; why?: "yard" | "warp" | "exiled"; tax?: number }[];
   /** Lands in exile that may be played ("you may play that card"). */
-  exileLands?: { iid: string; name: string }[];
+  exileLands?: { iid: string; name: string; tapped?: boolean }[];
   onPlayLand?: (iid: string) => void;
   onFlashback?: (iid: string) => void;
   /** Abilities that exist but can't be used right now, with the reason. Shown greyed out. */
@@ -84,6 +84,10 @@ export function AbilityPanel({
                 <span className="font-semibold">Cast {f.name}</span>: <ManaText text={f.cost} /> — from exile, where warp put it
                 <Help text="warp" large />
               </>
+            ) : f.why === "exiled" ? (
+              <>
+                <span className="font-semibold">Cast {f.name}</span>: <ManaText text={f.cost} /> plus <ManaText text={`{${f.tax ?? 0}}`} /> — it was exiled from your hand, so it costs more
+              </>
             ) : f.zone === "exile" ? (
               <>
                 <span className="font-semibold">Play {f.name}</span>: <ManaText text={f.cost} /> — it was exiled and you attacked this turn
@@ -102,7 +106,7 @@ export function AbilityPanel({
         ))}
         {exileLands.map((l) => (
           <button key={`exile-land-${l.iid}`} onClick={() => onPlayLand?.(l.iid)} className="rounded-lg border border-emerald-400 bg-white px-3 py-2 text-left text-base leading-snug hover:bg-emerald-100">
-            <span className="font-semibold">Play {l.name}</span> as your land for the turn — it was exiled and you attacked this turn
+            <span className="font-semibold">Play {l.name}</span> as your land for the turn — {l.tapped ? "it was exiled from your hand, and enters tapped" : "it was exiled and you attacked this turn"}
           </button>
         ))}
         {cycles.map((c) => (

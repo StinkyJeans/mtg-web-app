@@ -13,10 +13,10 @@ import { parseSimple } from "./sentences.js";
  * (Each copy gets its own target slot, so the player can choose fewer or none.)
  */
 function expandUpTo(s: string, ctx: Ctx): Effect[] | null {
-  const m = /^(.*?)(?:each of )?up to (one|two|three) (other |another )?(target (?:creature|permanent|nonland permanent|artifact|enchantment)s?(?: you control| an opponent controls| you don't control)?)(.*)$/.exec(s);
+  const m = /^(.*?)(?:each of )?up to (one|two|three) (other |another )?(target (?:creature|permanent|nonland permanent|artifact|enchantment)s?(?: or (?:artifact|enchantment)s?)?(?: you control| an opponent controls| you don't control)?)(.*)$/.exec(s);
   if (!m) return null;
   const count = toNumber(m[2]) ?? 0;
-  const base = m[4].replace(/^target (creature|permanent|nonland permanent|artifact|enchantment)s/, "target $1");
+  const base = m[4].replace(/^target (creature|permanent|nonland permanent|artifact|enchantment)s/, "target $1").replace(/ or (artifact|enchantment)s\b/, " or $1");
   const spec = targetSpec(base);
   if (!spec || count < 1) return null;
   const out: Effect[] = [];
@@ -67,6 +67,18 @@ export function parseClause(s: string, ctx: Ctx): Effect[] | null {
   return null;
 }
 
+/** "a basic Plains card or a creature card with mana value 1 or less": a filter for each alternative. */
+function searchFilters(phrase: string): CardFilter[] | null {
+  const out: CardFilter[] = [];
+  for (const part of phrase.split(/ or (?=an? )/)) {
+    const m = /^an? (basic )?(.+?) card(?: with mana value (\d+) or less)?$/.exec(part);
+    const filter = m ? parseCardFilter(m[2]) : null;
+    if (!filter) return null;
+    out.push({ ...filter, ...(m![1] ? { basic: true } : {}), ...(m![3] ? { maxMV: Number(m![3]) } : {}) });
+  }
+  return out;
+}
+
 /** "creature", "instant or sorcery", "nonland", "human", "elf, warrior, or tyvar": what a reveal effect may take. */
 function parseCardFilter(phrase: string): CardFilter | null {
   if (phrase === "nonland") return { nonland: true };
@@ -107,6 +119,9 @@ function parseChoiceText(text: string, ctx: Ctx): Effect[] | null {
   m = /^search your library for a basic land card, (reveal (?:it|that card), )?put (?:that card|it) into your hand, then shuffle$/.exec(t);
   if (m) return [{ type: "search", for: "basicLand", to: "hand", reveal: m[1] !== undefined }];
   if (t === "search your library for a card, put that card into your hand, then shuffle") return [{ type: "search", for: "any", to: "hand" }];
+  m = /^search your library for (an? .+? card(?: with mana value \d+ or less)?(?: or an? .+? card(?: with mana value \d+ or less)?)?), (reveal (?:it|that card), )?put (?:that card|it) into your hand, then shuffle$/.exec(t);
+  const filters = m ? searchFilters(m[1]) : null;
+  if (m && filters) return [{ type: "search", for: "any", to: "hand", filters, label: m[1].replace(/^an? /, ""), reveal: m[2] !== undefined }];
   const reveal = new RegExp(`^look at the top (${NUMBER_WORDS}|\\d+) cards of your library\\. you may reveal (?:a|an) (.+?) card from among them and put (?:it|that card) into your hand\\. put the rest on the bottom of your library in (a random|any) order$`).exec(t);
   const filter = reveal ? parseCardFilter(reveal[2]) : null;
   if (reveal && filter) return [{ type: "revealToHand", n: toNumber(reveal[1]) ?? 0, filter, random: reveal[3] === "a random", reveal: true }];
@@ -132,6 +147,7 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
     .replace(/you may discard a card\. if you do, draw a card/g, "@@rummage@@")
     .replace(/you may put a card from your hand on the bottom of your library\. if you do, draw a card/g, "@@rummagebottom@@")
     .replace(/exile the top card of your library\. during any turn you attacked with ~, you may play that card/g, "@@exiletopplay@@")
+    .replace(/each opponent exiles a card from their hand and may play that card for as long as it remains exiled\. each spell cast this way costs \{(\d+)\} more to cast\. each land played this way enters tapped/g, "@@exiletoplay $1@@")
     .replace(/you may tap any number of untapped creatures you control\. ~ gets \+1\/\+1 until end of turn for each creature tapped this way/g, "@@tapforbonus@@");
   const whole = parseChoiceText(text, ctx);
   if (whole) return whole;

@@ -1,6 +1,7 @@
 import type { CardDef, GameState, Permanent, PlayerId } from "./types.js";
 import { getCard } from "./cards.js";
 import { hasKeyword } from "./keywords.js";
+import { CREATURE_TYPES, defSubtypes } from "./creatureTypes.js";
 
 export type ManaColor = "W" | "U" | "B" | "R" | "G" | "C";
 export const MANA_COLORS: readonly ManaColor[] = ["W", "U", "B", "R", "G", "C"];
@@ -144,7 +145,7 @@ function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chose
   const text = (def.text ?? "")
     .replace(/\([^)]*\)/g, "")
     .replace(/\.? ?spend this mana only to cast an instant or sorcery spell\.?/gi, "")
-    .replace(/^\{t\}: add \{[wubrgc]\}\. spend this mana only to cast a creature spell\.?$/gim, "")
+    .replace(/^\{t\}: add [^\n]*?\. spend this mana only to [^\n]*$/gim, "") // restricted lines: see restrictedMana
     .replace(/\.? ?if that mana is spent on an? [a-z]+ creature spell, it gains haste until end of turn\.?/gi, "")
     .toLowerCase();
   const found = new Set<ManaColor>();
@@ -194,8 +195,9 @@ function manaColorsOf(state: GameState, perm: Permanent, forSpell?: CardDef): Ma
   // Restricted mana can only pay for the kind of spell it names.
   if (manaAbilityRestriction(def) === "instantOrSorcery" && !(forSpell && (forSpell.type === "instant" || forSpell.type === "sorcery"))) return [];
   const chosen = manaAbilityUsesChosenColor(def) && perm.chosenColor ? [perm.chosenColor] : [];
-  const withChosen = (colors: ManaColor[]) => [...new Set([...colors, ...chosen])];
-  if (def.type === "land") return withChosen([...landManaColors(def), ...(forSpell?.type === "creature" ? creatureOnlyColors(def) : [])]);
+  const only = forSpell ? restrictedMana(def).filter((r) => restrictionAllows(r, perm, forSpell)).flatMap((r) => r.colors) : [];
+  const withChosen = (colors: ManaColor[]) => [...new Set([...colors, ...chosen, ...only])];
+  if (def.type === "land") return withChosen(landManaColors(def));
   if (def.type === "artifact") return withChosen(manaAbilityColors(def) ?? []); // artifacts aren't "summoning sick"
   if (def.type === "creature" && (!perm.summoningSick || hasKeyword(def, "haste"))) return withChosen(manaAbilityColors(def) ?? []);
   return [];
@@ -268,12 +270,40 @@ export function payMana(state: GameState, player: PlayerId, cost: ManaCost, forS
   return best!;
 }
 
-/** "{T}: Add {B}. Spend this mana only to cast a creature spell.": the colors that only pay for creature spells. */
-export function creatureOnlyColors(def: CardDef): ManaColor[] {
-  const out: ManaColor[] = [];
-  for (const m of (def.text ?? "").toLowerCase().matchAll(/^\{t\}: add \{([wubrgc])\}\. spend this mana only to cast a creature spell\.?$/gm)) out.push(m[1].toUpperCase() as ManaColor);
+interface RestrictedMana {
+  colors: ManaColor[];
+  /** "...to cast a creature spell" / "...an artifact spell" / "...an Angel spell" / "...a creature spell of the chosen type". */
+  creature?: boolean;
+  cardType?: string;
+  subtype?: string;
+  chosenType?: boolean;
+}
+
+/**
+ * Mana lines that may only pay for some spells: "{T}: Add {B}. Spend this mana only to cast a creature spell.", "...an Angel spell.",
+ * "{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type or activate an ability of a creature source of the chosen type."
+ * (Only the spell half of that last one is used: abilities are paid without it.)
+ */
+export function restrictedMana(def: CardDef): RestrictedMana[] {
+  const out: RestrictedMana[] = [];
+  const lines = (def.text ?? "").toLowerCase().matchAll(/^\{t\}: add (\{[wubrgc]\}|one mana of any color)\. spend this mana only to cast (a creature spell of the chosen type or activate an ability of a creature source of the chosen type|a creature spell|an? ([a-z]+) spell)\.?$/gm);
+  for (const m of lines) {
+    const colors = m[1] === "one mana of any color" ? [...ALL_FIVE] : [m[1][1].toUpperCase() as ManaColor];
+    if (m[2].includes("chosen type")) out.push({ colors, creature: true, chosenType: true });
+    else if (m[2] === "a creature spell") out.push({ colors, creature: true });
+    else if (SPELL_TYPES.includes(m[3])) out.push({ colors, cardType: m[3] });
+    else if (CREATURE_TYPES.includes(m[3])) out.push({ colors, subtype: m[3] });
+  }
   return out;
 }
+
+/** Card types a restriction may name ("Spend this mana only to cast an artifact spell"). */
+export const SPELL_TYPES = ["artifact", "enchantment", "planeswalker", "instant", "sorcery"];
+
+const restrictionAllows = (r: RestrictedMana, perm: Permanent, spell: CardDef): boolean =>
+  (!r.creature || spell.type === "creature") &&
+  (!r.cardType || (spell.typeLine ?? spell.type).toLowerCase().split("—")[0].includes(r.cardType)) &&
+  (!r.subtype || defSubtypes(spell).includes(r.subtype)) && (!r.chosenType || (!!perm.chosenType && defSubtypes(spell).includes(perm.chosenType)));
 
 /** Was this permanent's mana the kind that gives `spell` haste? */
 export function hasteFrom(state: GameState, iid: string, spell: CardDef): boolean {

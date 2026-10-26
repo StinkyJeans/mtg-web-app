@@ -42,11 +42,13 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (spec.subtype && !subtypesOf(state, found.perm).includes(spec.subtype)) return false;
       if (spec.notSubtype && subtypesOf(state, found.perm).includes(spec.notSubtype)) return false;
       if (spec.mv && (spec.mv.op === "min" ? def.cost < spec.mv.n : def.cost > spec.mv.n)) return false;
+      if (spec.filter === "tapped" && !found.perm.tapped) return false;
       if (spec.kind === "permanent") {
         // "enchant permanent", or "target nonland permanent an opponent controls", or "target creature or enchantment"
         if (spec.nonland && def.type === "land") return false;
         const creatureFits = () => (def.type === "creature" || found.perm.crewed === true) && (!spec.creatureWith || kw(state, found.perm, spec.creatureWith)); // "or creature with flying"
-        if (spec.types && !spec.types.some((t) => (t === "creature" ? creatureFits() : t === "artifact" ? isArtifactDef(def) : t === "enchantment" ? isEnchantmentDef(def) : def.type === t))) return false;
+        const fits = (t: string) => (t === "creature" ? creatureFits() : t === "artifact" ? isArtifactDef(def) : t === "enchantment" ? isEnchantmentDef(def) : t === "vehicle" ? defSubtypes(def).includes("vehicle") : def.type === t);
+        if (spec.types && !spec.types.some(fits)) return false;
         if (spec.controller === "you" && found.owner.id !== controller) return false;
         if (spec.controller === "opponent" && found.owner.id === controller) return false;
         return true;
@@ -64,7 +66,6 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (def.type !== "creature" && !found.perm.crewed) return false;
       if (spec.controller === "you" && found.owner.id !== controller) return false;
       if (spec.controller === "opponent" && found.owner.id === controller) return false;
-      if (spec.filter === "tapped" && !found.perm.tapped) return false;
       if (spec.toughness && (spec.toughness.op === "min" ? toughnessOf(state, found.perm) < spec.toughness.n : toughnessOf(state, found.perm) > spec.toughness.n)) return false;
       if (spec.notArtifact && isArtifactDef(def)) return false;
       if (spec.power && (spec.power.op === "min" ? powerOf(state, found.perm) < spec.power.n : powerOf(state, found.perm) > spec.power.n)) return false;
@@ -155,7 +156,7 @@ export function subjectsOf(state: GameState, ref: Ref, ctx: RunContext): Subject
       const skip = ref.except !== undefined && ctx.targets[ref.except]?.kind === "permanent" ? (ctx.targets[ref.except] as { iid: string }).iid : undefined;
       return Object.values(state.players)
         .filter((p) => ref.scope === "all" || (ref.scope === "yours") === (p.id === ctx.controller))
-        .flatMap((p) => p.battlefield.filter((perm) => isCreature(state, perm) && perm.card.iid !== skip && !(ref.notSelf && perm.card.iid === ctx.sourceId) && !(ref.noFlying && kw(state, perm, "flying")) && (!ref.subtype || subtypesOf(state, perm).includes(ref.subtype))).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
+        .flatMap((p) => p.battlefield.filter((perm) => isCreature(state, perm) && perm.card.iid !== skip && !(ref.notSelf && perm.card.iid === ctx.sourceId) && !(ref.noFlying && kw(state, perm, "flying")) && (ref.tapped === undefined || perm.tapped === ref.tapped) && (!ref.subtype || subtypesOf(state, perm).includes(ref.subtype))).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
     }
     case "allPlaneswalkers":
       return Object.values(state.players).flatMap((p) => p.battlefield.filter((perm) => isPlaneswalker(state, perm)).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));

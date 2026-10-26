@@ -53,6 +53,21 @@ export function readAttackWithOthers(line: string, out: ParsedCard): boolean {
 }
 
 export function readBecomesTarget(line: string, out: ParsedCard): boolean {
+  const allyTargeted = /^whenever a creature you control becomes the target of a spell or ability an opponent controls,? (.+)$/.exec(line);
+  if (allyTargeted) {
+    // "...put a +1/+1 counter on target creature you control other than that creature."
+    const text = allyTargeted[1].replace(/(target creature you control) other than that creature/, "$1");
+    const notOther = text !== allyTargeted[1];
+    const ctx = newCtx(true);
+    const effects = /\bthat creature\b/.test(text) ? null : parseEffectText(text, ctx);
+    if (!effects || effects.length === 0) {
+      out.unsupported.push(line);
+      return true;
+    }
+    const targets = notOther ? ctx.targets.map((t) => (t.label === "target creature you control" ? { ...t, notOther: true, label: "target creature you control other than that creature" } : t)) : ctx.targets;
+    out.triggers.push({ event: "allyTargeted", byOpponent: true, effects, targets, text: line });
+    return true;
+  }
   const targeted = /^when ~ becomes the target of a spell or ability,? (.+)$/.exec(line);
   if (targeted) {
     const ctx = newCtx(true);
@@ -213,19 +228,20 @@ export function readAllyDies(line: string, out: ParsedCard): boolean {
 }
 
 // "Whenever one or more +1/+1 counters are put on another non-Hydra creature you control, put a +1/+1 counter on this creature."
+// and "Whenever you put one or more +1/+1 counters on this creature, draw a card."
 export function readCountersPutOnAlly(line: string, out: ParsedCard): boolean {
   const countersOn = /^whenever one or more \+1\/\+1 counters are put on another (?:non-([a-z]+) )?creature you control,? (.+)$/.exec(line);
-  if (countersOn) {
-    const ctx = newCtx(true);
-    const effects = parseEffectText(countersOn[2], ctx);
-    if (effects && effects.length > 0) {
-      out.triggers.push({ event: "allyCountersAdded", other: true, ...(countersOn[1] ? { notSubtype: countersOn[1] } : {}), effects, targets: ctx.targets, text: line });
-      return true;
-    }
+  const onSelf = /^whenever you put one or more \+1\/\+1 counters on ~,? (.+)$/.exec(line);
+  if (!countersOn && !onSelf) return false;
+  const ctx = newCtx(true);
+  const effects = parseEffectText((countersOn ?? onSelf)![countersOn ? 2 : 1], ctx);
+  if (!effects || effects.length === 0) {
     out.unsupported.push(line);
     return true;
   }
-  return false;
+  if (onSelf) out.triggers.push({ event: "allyCountersAdded", selfOnly: true, effects, targets: ctx.targets, text: line });
+  else out.triggers.push({ event: "allyCountersAdded", other: true, ...(countersOn![1] ? { notSubtype: countersOn![1] } : {}), effects, targets: ctx.targets, text: line });
+  return true;
 }
 
 // ── "Whenever another creature (you control) enters / leaves the battlefield"

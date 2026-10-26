@@ -1,7 +1,7 @@
 import type { GameEvent } from "../actions.js";
 import { getCard } from "../cards.js";
 import {
-  askColor,
+  askAsEnters,
   bindSpecs,
   checkStateBasedActions,
   creatureEntered,
@@ -41,7 +41,7 @@ function enterBattlefield(state: GameState, card: CardInstance, controller: Play
   events.push({ type: "permanentEntered", player: controller, iid: card.iid });
   const entered = state.players[controller].battlefield[state.players[controller].battlefield.length - 1];
   if (counters > 0) putCounters(state, entered, controller, counters);
-  askColor(state, entered, controller);
+  askAsEnters(state, entered, controller);
   queueTriggers(state, card, controller, "enters");
   creatureEntered(state, card, controller); // (for other permanents only triggers about their type apply, e.g. "a Cartouche you control enters")
 }

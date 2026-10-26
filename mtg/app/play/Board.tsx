@@ -112,6 +112,7 @@ export function Lane({
       ...(p.warped ? ["Warped: exiled at end step"] : []),
       ...(p.heldFromHand ?? []).map((c) => `Holding: ${state.cards[c.defId]?.name ?? "a card"}`),
       ...(p.chosenColor ? [`Color: ${p.chosenColor}`] : []),
+      ...(p.chosenType ? [`Type: ${p.chosenType.charAt(0).toUpperCase()}${p.chosenType.slice(1)}`] : []),
       ...(p.regenShield ? ["Regenerates"] : []),
       // effects that last until end of turn
       ...(p.powerBonus || p.toughnessBonus ? [`${sign(p.powerBonus ?? 0)}/${sign(p.toughnessBonus ?? 0)} this turn`] : []),

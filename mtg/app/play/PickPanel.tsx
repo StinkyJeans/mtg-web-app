@@ -20,6 +20,7 @@ const CONFIRM: Partial<Record<PickKind, (name: string) => string>> = {
   searchAny: (n) => `Take ${n}`,
   revealToHand: (n) => `Take ${n}`,
   handExile: (n) => `Exile ${n}`,
+  exileToPlay: (n) => `Exile ${n}`,
   scry: (n) => `Put ${n} on the bottom`,
   surveil: (n) => `Put ${n} into the graveyard`,
 };
@@ -91,7 +92,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
       </section>
     );
   }
-  if (pick.kind === "ward" || pick.kind === "mode" || pick.kind === "mayPay" || pick.kind === "tax" || pick.kind === "toggle" || pick.kind === "topBottom") {
+  if (pick.kind === "ward" || pick.kind === "mode" || pick.kind === "mayPay" || pick.kind === "tax" || pick.kind === "toggle" || pick.kind === "topBottom" || pick.kind === "creatureType") {
     return (
       <section className="flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
         <PickHeader state={state} onZoom={onZoom} />
@@ -102,7 +103,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
               {pick.payLife ? `${pick.wardCost ? " and " : ""}${pick.payLife} life` : ""}
             </button>
           )}
-          {(pick.kind === "toggle" || pick.kind === "topBottom") &&
+          {(pick.kind === "toggle" || pick.kind === "topBottom" || pick.kind === "creatureType") &&
             pick.options.map((o) => (
               <button key={o} onClick={() => onPick(o)} className="rounded-lg border border-rose-400 bg-white px-4 py-1.5 text-sm font-semibold capitalize hover:bg-rose-100">
                 {pick.kind === "topBottom" ? `Put it on the ${o}` : o}

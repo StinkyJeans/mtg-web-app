@@ -7,6 +7,7 @@ import {
   checkStateBasedActions,
   countFor,
   exilePlayable,
+  exilePlayTerms,
   findPermanentOrNull,
   forbidden,
   isCreature,
@@ -32,8 +33,9 @@ import { applyPayment, canCastNow, checkTargets, holdsPriority, openRound, sorce
 /**
  * What a card costs to cast right now: the printed cost, less what its own text gives ("costs {1} less if you control a Wizard",
  * "for each spell your opponents have cast this turn") and what the caster's permanents give ("Goblin spells you cast cost {1} less").
+ * `targets`: the ones chosen, for "costs {3} less to cast if it targets a tapped permanent" (no discount while they aren't known).
  */
-export function castCostOf(state: GameState, player: PlayerId, def: CardDef): ReturnType<typeof manaCostOf> {
+export function castCostOf(state: GameState, player: PlayerId, def: CardDef, targets?: TargetChoice[]): ReturnType<typeof manaCostOf> {
   const base = manaCostOf(def);
   if (!base) return base;
   const me = state.players[player];
@@ -45,6 +47,7 @@ export function castCostOf(state: GameState, player: PlayerId, def: CardDef): Re
     if (own.ifFlyer && me.battlefield.some((p) => isCreature(state, p) && kw(state, p, "flying"))) less += own.n;
     if (own.perOpponentSpell) less += own.n * (state.players[OPPONENT[player]].spellsCastThisTurn ?? 0);
     if (own.per) less += own.n * countFor(state, player, own.per);
+    if (own.ifTargetsTapped && targets?.some((t) => t.kind === "permanent" && findPermanentOrNull(state, t.iid)?.perm.tapped)) less += own.n;
   }
   for (const perm of me.battlefield) {
     for (const mod of parseCard(getCard(state, perm.card.defId)).costMods ?? []) {
@@ -69,7 +72,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   if (def.type === "land") return "Lands are played, not cast.";
   if (!isPermanentCard(def) && def.type !== "instant" && def.type !== "sorcery") return `${def.name} can't be cast yet.`;
   const parsed = parseCard(def);
-  let cost = castCostOf(state, player, def);
+  let cost = castCostOf(state, player, def, targets);
   // A creature card that may be cast from the graveyard this turn (Case of the Uneaten Feast) costs what it always does.
   const fromYard = from === "graveyard" && def.type === "creature" && (me.yardCastable ?? []).includes(iid);
   if (from === "graveyard" && !fromYard) {
@@ -83,6 +86,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
     cost = parseManaCost(parsed.warp);
   }
   if (!parsed.ok || !cost) return `${def.name} can't be played yet.`;
+  if (from === "exile") cost = { ...cost, generic: cost.generic + exilePlayTerms(state, player, iid).tax }; // "each spell cast this way costs {1} more"
   if (!canCastNow(state, player, def)) return timingError(state, def);
 
   let specs = parsed.spell?.targets ?? [];

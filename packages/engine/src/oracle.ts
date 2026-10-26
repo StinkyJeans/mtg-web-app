@@ -123,6 +123,11 @@ export function parseCard(def: CardDef): ParsedCard {
         result.costReduction = { n: Number(perSpell[1]), perOpponentSpell: true };
         return false;
       }
+      const ifTapped = /^~ costs \{(\d+)\} less to cast if it targets a tapped permanent\.?$/.exec(line);
+      if (ifTapped) {
+        result.costReduction = { n: Number(ifTapped[1]), ifTargetsTapped: true };
+        return false;
+      }
       const ifFlyer = /^~ costs \{(\d+)\} less to cast if you control a creature with flying\.?$/.exec(line);
       if (ifFlyer) {
         result.costReduction = { n: Number(ifFlyer[1]), ifFlyer: true };

@@ -12,7 +12,7 @@ export type Ref =
   | { t: "you" } // the controller
   | { t: "opp" } // the controller's opponent
   | { t: "eachPlayer" }
-  | { t: "allCreatures"; scope: "all" | "yours" | "opponents"; except?: number; noFlying?: boolean; subtype?: string; notSelf?: boolean } // `except`: not the i-th target; `notSelf`: "all other creatures"
+  | { t: "allCreatures"; scope: "all" | "yours" | "opponents"; except?: number; noFlying?: boolean; subtype?: string; notSelf?: boolean; tapped?: boolean } // `except`: not the i-th target; `notSelf`: "all other creatures"; `tapped`: only tapped (true) or untapped (false) ones
   | { t: "allPlaneswalkers" }
   | { t: "ownerOf"; i: number } // the owner of the i-th target ("its owner gains 4 life")
   | { t: "controllerOf"; i: number } // the controller of the i-th target, as it was when the spell resolved
@@ -45,7 +45,7 @@ export type Effect =
   // "Look at the top five cards. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom."
   | { type: "revealToHand"; n: number; filter: CardFilter; random: boolean; required?: boolean; restTo?: "bottom" | "graveyard"; reveal?: boolean }
   // Search your library for a card (a basic land card, or any card): onto the battlefield (tapped) or into your hand, then shuffle.
-  | { type: "search"; tapped?: boolean; for?: "basicLand" | "any"; to?: "hand" | "battlefield"; who?: Ref; reveal?: boolean }
+  | { type: "search"; tapped?: boolean; for?: "basicLand" | "any"; to?: "hand" | "battlefield"; who?: Ref; reveal?: boolean; filters?: CardFilter[]; label?: string } // `filters`: a card that fits any of them, `label` names it
   | { type: "scry"; n: number } // look at the top n cards; any of them may go to the bottom (see PendingPick)
   | { type: "mill"; amount: Amount; who: Ref } // the top cards of the library go to the graveyard
   | { type: "regenerate"; what: Ref } // a regeneration shield until end of turn
@@ -99,8 +99,9 @@ export type Effect =
   | { type: "createToken"; token: TokenSpec; amount: Amount; who?: Ref }
   | { type: "ifLifeGained"; atLeast: number; then: Effect[] } // "if you gained life this turn, ..." / "draw a card if you've gained 3 or more life this turn"
   | { type: "ifSelfPower"; n: number; then: Effect[] } // "then destroy all other creatures if its power is exactly 20"
-  | { type: "explore" } // the permanent explores (rule 701.44)
+  | { type: "explore"; what?: Ref } // the permanent (or `what`) explores (rule 701.44)
   | { type: "exileFromHand"; who: Ref } // look at target opponent's hand; you may exile a nonland card from it until this leaves the battlefield
+  | { type: "exileToPlay"; who: Ref; tax: number; tappedLand: boolean } // each of them exiles a card from their hand and may play it while it stays exiled (spells cost `tax` more)
   | { type: "putSavedCounters"; what: Ref } // "put its counters on target creature you control": the counters it had as it died
   | { type: "offspringCopy" } // offspring: create a 1/1 token copy of this creature
   | { type: "yardCastable" } // creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn
@@ -115,6 +116,9 @@ export interface CardFilter {
   nonland?: boolean;
   /** Any card at all ("put one of them into your hand"). */
   all?: boolean;
+  /** Also required, on top of the terms above: "a basic Plains card", "a creature card with mana value 1 or less". */
+  basic?: boolean;
+  maxMV?: number;
 }
 
 /** A token the game makes up while playing: a Treasure, or "a 1/1 white Soldier creature token". */
@@ -132,6 +136,8 @@ export interface TokenSpec {
   artifact?: boolean;
   /** "...that's tapped and attacking": it joins the combat. */
   tappedAttacking?: boolean;
+  /** "...with changeling": every creature type. */
+  changeling?: boolean;
 }
 
 /** Everything an effect needs to know about where it came from. Kept with a pending choice so the rest of the effects can run later. */
@@ -213,6 +219,8 @@ export interface TargetSpec {
   /** "another target ...": not the permanent the ability belongs to (filled in as `except` when the ability is put on the stack). */
   other?: boolean;
   except?: string;
+  /** "...other than that creature": not the creature the trigger is about (also filled in as `except`). */
+  notOther?: boolean;
   /** "with mana value 2 or greater" / "with toughness 4 or greater". */
   mv?: { n: number; op: "min" | "max" };
   /** "Target artifact, enchantment, or creature with flying": a creature only counts with this keyword. */
@@ -304,7 +312,7 @@ export interface TriggeredAbility {
   ifKicked?: boolean;
   event: "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
     | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
-    | "allyDies" | "allyCountersAdded" | "allyAttacks";
+    | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted";
   /** An "intervening if": the trigger only happens when this is true as the event occurs. */
   cond?: {
     lifeGainedAtLeast?: number;
@@ -327,6 +335,8 @@ export interface TriggeredAbility {
   orSpellSubtype?: string;
   /** For "allyCountersAdded": "another non-Hydra creature you control". */
   notSubtype?: string;
+  /** For "allyCountersAdded": "whenever you put one or more +1/+1 counters on this creature". */
+  selfOnly?: boolean;
   /** For "allyEnters": "whenever an enchantment you control enters" (eerie). */
   enchantments?: boolean;
   /** For "allyEnters": "whenever ~ or another creature or artifact you control enters": artifacts count too. */
@@ -455,6 +465,10 @@ export interface ParsedCard {
   extraSacrifice?: boolean;
   /** "As this enters, choose a color (other than blue)." */
   chooseColor?: { except?: string };
+  /** "As this land enters, choose a creature type." */
+  chooseType?: boolean;
+  /** "Each other Angel you control enters with an additional +1/+1 counter on it for each Angel you already control": the type. */
+  othersEnterWithCounters?: string;
   /** "{T}: Add {U} or one mana of the chosen color." */
   manaChosen?: boolean;
   /** "Can't be blocked except by walls and/or creatures with flying": only these can block it. */
@@ -479,7 +493,8 @@ export interface ParsedCard {
   lifeGainPlus?: number;
   lifeGainDouble?: boolean;
   /** "~ costs {1} less to cast if you control a Wizard" / "for each spell your opponents have cast this turn" / "if you control a creature with flying". */
-  costReduction?: { n: number; ifControl?: string; ifFlyer?: boolean; perOpponentSpell?: boolean; per?: CountSpec };
+  /** `ifTargetsTapped`: "if it targets a tapped permanent" (so the cost depends on the targets chosen). */
+  costReduction?: { n: number; ifControl?: string; ifFlyer?: boolean; perOpponentSpell?: boolean; per?: CountSpec; ifTargetsTapped?: boolean };
   /** Permanents that make your spells cost less: "Goblin spells you cast cost {1} less", "during turns other than yours...". */
   costMods?: { n: number; subtype?: string; minMV?: number; otherTurn?: boolean }[];
   /** "Spells you cast with mana value 5 or greater can't be countered." */
@@ -590,7 +605,7 @@ export interface PendingPick {
   /** The card the choice comes from. A resolving spell is already in the graveyard, so this is how both players see what is going on. */
   source?: { iid: string; name: string; defId?: string };
   prompt: string;
-  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color" | "handExile";
+  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color" | "creatureType" | "handExile" | "exileToPlay";
   /** The cards to choose between (instance ids). They are shown to the chooser. */
   options: string[];
   /** The player may decline (eye spy, a search that finds nothing). */
@@ -608,7 +623,7 @@ export interface PendingPick {
   payLife?: number;
   /** Crew: the Vehicle being crewed. */
   vehicle?: string;
-  /** Color: the permanent that is choosing a color as it enters. */
+  /** Color / creature type: the permanent that is choosing it as it enters. */
   colorFor?: string;
   /** Search: the land enters tapped. */
   entersTapped?: boolean;
@@ -616,6 +631,9 @@ export interface PendingPick {
   seen?: string[];
   /** Hand exile: the permanent that keeps the card until it leaves the battlefield. */
   holder?: string;
+  /** Exile to play (Lightstall Inquisitor): what a spell cast from there costs more, and whether a land played from there enters tapped. */
+  playTax?: number;
+  playLandTapped?: boolean;
   /** Search or look, to hand: the card text reveals the chosen card, so the opponent may learn its name. */
   reveal?: boolean;
   /** Reveal-to-hand / tutor: where the card goes, and what happens to the rest of the looked-at cards. */

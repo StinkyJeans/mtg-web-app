@@ -1,5 +1,6 @@
 import type { ActivatedAbility, ParsedCard } from "../../effects.js";
-import { manaAbilityColors, manaAbilityUsesChosenColor, parseManaCost } from "../../mana.js";
+import { CREATURE_TYPES } from "../../creatureTypes.js";
+import { manaAbilityColors, manaAbilityUsesChosenColor, parseManaCost, SPELL_TYPES } from "../../mana.js";
 import { toNumber } from "../words.js";
 import { newCtx } from "../targets.js";
 import { parseSacrificeFilter } from "../sentences.js";
@@ -53,9 +54,11 @@ export function readSacrificeForMana(line: string, out: ParsedCard): boolean {
   return false;
 }
 
-// "{T}: Add {B}. Spend this mana only to cast a creature spell." (the payment reads the restriction from the card)
-export function readCreatureOnlyMana(line: string, out: ParsedCard): boolean {
-  return /^\{T\}: add \{[WUBRGC]\}\. spend this mana only to cast a creature spell$/.test(line);
+// "{T}: Add {B}. Spend this mana only to cast a creature spell.", "...an Angel spell.", "{T}: Add one mana of any color. Spend this mana
+// only to cast a creature spell of the chosen type or ..." (the payment reads the restriction from the card: mana.ts restrictedMana)
+export function readRestrictedMana(line: string, out: ParsedCard): boolean {
+  const m = /^\{T\}: add (?:\{[WUBRGC]\}|one mana of any color)\. spend this mana only to cast (a creature spell of the chosen type or activate an ability of a creature source of the chosen type|a creature spell|an? ([a-z]+) spell)$/.exec(line);
+  return !!m && (!m[2] || SPELL_TYPES.includes(m[2]) || CREATURE_TYPES.includes(m[2]));
 }
 
 // A Case: "Solved — Sacrifice this Case: ...", usable only once it is solved.

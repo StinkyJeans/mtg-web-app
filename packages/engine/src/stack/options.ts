@@ -1,5 +1,5 @@
 import { getCard } from "../cards.js";
-import { bindSpecs, exilePlayable, forbidden, isCreature, isPermanentCard, kw, legalTargets, powerOf, subtypesOf } from "../core.js";
+import { bindSpecs, exilePlayable, exilePlayTerms, forbidden, isCreature, isPermanentCard, kw, legalTargets, powerOf, subtypesOf } from "../core.js";
 import type { TargetSpec } from "../effects.js";
 import { addCosts, parseManaCost, payMana, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
@@ -39,14 +39,19 @@ export interface Castable {
 function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDef, zone?: Castable["zone"]): Castable | null {
   if (!isPermanentCard(def) && def.type !== "instant" && def.type !== "sorcery") return null;
   const parsed = parseCard(def);
-  const cost = castCostOf(state, player, def);
+  const printed = castCostOf(state, player, def);
+  const tax = zone === "exile" ? exilePlayTerms(state, player, iid).tax : 0;
+  const cost = printed && tax > 0 ? { ...printed, generic: printed.generic + tax } : printed;
   if (!parsed.ok || !cost || !canCastNow(state, player, def)) return null;
   const warpCost = parsed.warp && zone === undefined ? parseManaCost(parsed.warp) : null;
   const canWarp = warpCost !== null && payMana(state, player, warpCost, def).ok;
   const canNormal = payMana(state, player, withX(cost, 0), def).ok;
-  if (!canNormal && !canWarp) return null;
+  // "Costs {3} less to cast if it targets a tapped permanent": when only that price can be paid, only tapped targets are offered.
+  const discount = parsed.costReduction?.ifTargetsTapped ? parsed.costReduction.n : 0;
+  const tappedOnly = !canNormal && discount > 0 && payMana(state, player, withX({ ...cost, generic: Math.max(0, cost.generic - discount) }, 0), def).ok;
+  if (!canNormal && !canWarp && !tappedOnly) return null;
   const warpPart = canWarp ? { warp: parsed.warp, ...(canNormal ? {} : { warpOnly: true }) } : {};
-  const specs = parsed.spell?.targets ?? [];
+  const specs = (parsed.spell?.targets ?? []).map((spec) => (tappedOnly && !canWarp ? { ...spec, filter: "tapped" as const } : spec));
   const modal = parsed.spell?.modal;
   const modeInfo = modal ? modal.modes.map((m) => ({ text: m.text, specs: m.targets, available: m.targets.every((spec) => legalTargets(state, spec, player).length > 0) })) : undefined;
   if (modeInfo ? !modeInfo.some((m) => m.available) : specs.some((spec) => legalTargets(state, spec, player).length === 0)) return null;

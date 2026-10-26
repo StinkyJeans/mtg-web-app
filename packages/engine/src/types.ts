@@ -115,6 +115,8 @@ export interface Permanent {
   noRegen?: boolean;
   /** "As this enters, choose a color": the color that was chosen. */
   chosenColor?: "W" | "U" | "B" | "R" | "G";
+  /** "As this land enters, choose a creature type": the type that was chosen (lowercase). */
+  chosenType?: string;
   /** Control was taken "until end of turn": the player it goes back to. */
   controlReturn?: PlayerId;
   /** "Target creature can't block this turn." */
@@ -169,7 +171,8 @@ export interface PlayerState {
   lifeLostThisTurn?: number;
   attackedThisTurn?: boolean;
   /** Cards in exile that may be played: "During any turn you attacked with ~, you may play that card", or a warped card from turn `fromTurn` on. */
-  mayPlay?: { iid: string; source: string; fromTurn?: number }[];
+  /** `tax`: a spell cast this way costs that much more; `tappedLand`: a land played this way enters tapped (Lightstall Inquisitor). */
+  mayPlay?: { iid: string; source: string; fromTurn?: number; tax?: number; tappedLand?: boolean }[];
   /** Creature cards in the graveyard that may be cast from there until end of turn. */
   yardCastable?: string[];
   /** "If a source you control would deal damage to an opponent this turn, it deals double that damage instead." */

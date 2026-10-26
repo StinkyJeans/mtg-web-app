@@ -1,7 +1,7 @@
 import type { GameEvent } from "../actions.js";
 import { getCard } from "../cards.js";
 import {
-  askColor,
+  askAsEnters,
   bindSpecs,
   changeLife,
   checkStateBasedActions,
@@ -47,6 +47,14 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     const perm = iid && pick.options.includes(iid) ? owner.battlefield.find((p) => p.card.iid === pick.colorFor) : undefined;
     if (!iid || !pick.options.includes(iid)) return "Choose one of the colors.";
     if (perm) perm.chosenColor = iid as "W" | "U" | "B" | "R" | "G";
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "creatureType") {
+    if (!iid || !pick.options.includes(iid)) return "Choose one of the creature types.";
+    const perm = owner.battlefield.find((p) => p.card.iid === pick.colorFor);
+    if (perm) perm.chosenType = iid;
     finish();
     return null;
   }
@@ -231,6 +239,13 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       events.push({ type: "effect", text: `${getCard(state, card.defId).name} is exiled from ${playerLabelOf(pick.owner)}'s hand until ${getCard(state, holder.card.defId).name} leaves the battlefield.` });
       break;
     }
+    case "exileToPlay": {
+      const card = take(owner.hand, iid);
+      owner.exile.push(card);
+      owner.mayPlay = [...(owner.mayPlay ?? []), { iid, source: "exiled", fromTurn: state.turn, tax: pick.playTax ?? 0, ...(pick.playLandTapped ? { tappedLand: true } : {}) }];
+      events.push({ type: "effect", text: `${playerLabelOf(pick.owner)} exiles ${getCard(state, card.defId).name} from their hand; they may play it while it stays exiled.` });
+      break;
+    }
     case "discard": {
       owner.graveyard.push(take(owner.hand, iid));
       events.push({ type: "cardsDiscarded", player: pick.owner, iids: [iid] });
@@ -285,7 +300,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       owner.battlefield.push({ card: land, tapped: pick.entersTapped !== false, summoningSick: false, damage: 0 });
       events.push({ type: "permanentEntered", player: pick.owner, iid });
       landEntered(state, pick.owner);
-      askColor(state, owner.battlefield[owner.battlefield.length - 1], pick.owner);
+      askAsEnters(state, owner.battlefield[owner.battlefield.length - 1], pick.owner);
       [owner.library, state.rng] = shuffle(owner.library, state.rng);
       break;
     }
