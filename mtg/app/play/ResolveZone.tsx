@@ -101,7 +101,7 @@ export default function ResolveZone({
     <section aria-label="To resolve" aria-live="polite" className="pointer-events-auto ml-auto flex w-full max-w-md flex-col gap-1.5 rounded-xl border-2 border-dashed border-white/40 bg-slate-950/70 p-2 shadow-xl backdrop-blur-sm">
       <h3 className="font-display text-[11px] font-extrabold uppercase tracking-widest text-amber-200">To resolve</h3>
       {entries.map((e) => (
-        <div key={e.key} className={`announce-in flex items-start gap-2.5 rounded-lg bg-white/95 p-2 text-zinc-900 ring-2 ${LOOK[e.status].ring}`}>
+        <div key={e.key} className={`announce-in flex items-start gap-2.5 rounded-lg bg-white p-2 text-zinc-900 ring-2 ${LOOK[e.status].ring}`}>
           <button
             type="button"
             onClick={() => e.def && onZoom(e.def)}
