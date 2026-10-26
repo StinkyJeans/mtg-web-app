@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import NotificationBell from "./NotificationBell";
 import { holdWallpaper } from "../LiveWallpaper";
 import { RowSkeletons, Skeleton } from "../Skeleton";
 import DeckPreview from "../decks/DeckPreview";
@@ -65,10 +66,11 @@ export default function ProfileButton() {
   if (!me) return null;
   return (
     <>
+      <div className="z-20 flex items-center gap-2 self-start xl:fixed xl:left-4 xl:top-14 xl:self-auto">
       <button
         onClick={() => setOpen(true)}
         aria-label="Open your profile"
-        className="z-10 flex max-w-[min(20rem,calc(100vw-2rem))] items-center self-start xl:fixed xl:left-4 xl:top-14 xl:self-auto gap-3 rounded-2xl border border-white/25 bg-slate-950/55 py-2 pl-2 pr-4 text-left text-white shadow-xl shadow-black/40 ring-1 ring-inset ring-white/10 transition hover:-translate-y-0.5 hover:bg-slate-900/70"
+        className="flex max-w-[min(20rem,calc(100vw-6rem))] items-center gap-3 rounded-2xl border border-white/25 bg-slate-950/55 py-2 pl-2 pr-4 text-left text-white shadow-xl shadow-black/40 ring-1 ring-inset ring-white/10 transition hover:-translate-y-0.5 hover:bg-slate-900/70"
       >
         <Avatar me={me} size={44} />
         <span className="min-w-0">
@@ -80,6 +82,8 @@ export default function ProfileButton() {
           </span>
         </span>
       </button>
+      <NotificationBell meId={me.id} meName={me.nickname || me.name} />
+      </div>
       {open && (
         <ProfilePopup me={me} onMe={setMe} onClose={() => setOpen(false)} />
       )}

@@ -6,7 +6,7 @@ import type { Room } from "@colyseus/sdk";
 import { createClient } from "@/lib/supabase/client";
 import { setPlayerNames } from "@/app/play/log";
 import { KICKED, MATCH_GONE } from "./protocol";
-import type { ChatLine, FriendStatus, LobbyRoomInfo, RoomSnapshot, StartPayload, UpdatePayload } from "./protocol";
+import type { ChatLine, FriendStatus, Invite, LobbyRoomInfo, RoomSnapshot, StartPayload, UpdatePayload } from "./protocol";
 
 // The browser's one connection to the live game server: the lobby (the list of rooms) and, at most, one match room.
 // It lives outside React so it survives moving from the dashboard to the play screen.
@@ -30,6 +30,10 @@ export interface OnlineState {
   friends: Record<string, FriendStatus>;
   /** Short messages for the play screen, such as "Sam is spectating your game". */
   notices: Notice[];
+  /** Friends asking this player to join their room, newest first. */
+  invites: Invite[];
+  /** Friends who just came online (account id -> when), until they go offline again or the player dismisses it. */
+  cameOnline: Record<string, number>;
 }
 
 export interface Notice {
@@ -37,7 +41,7 @@ export interface Notice {
   text: string;
 }
 
-const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null, reconnecting: false, social: "off", friends: {}, notices: [] };
+const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null, reconnecting: false, social: "off", friends: {}, notices: [], invites: [], cameOnline: {} };
 let state: OnlineState = empty;
 const listeners = new Set<() => void>();
 const set = (patch: Partial<OnlineState>) => {
@@ -199,6 +203,7 @@ export async function joinRoom(roomId: string, password?: string): Promise<boole
   set({ error: null });
   try {
     attach(await getClient().joinById(roomId, { token: await accessToken(), password }));
+    dismissInvite(roomId);
     return true;
   } catch (e) {
     set({ error: explain(e) });
@@ -256,7 +261,21 @@ export async function connectSocial(): Promise<void> {
   try {
     const room = await getClient().joinOrCreate("social", { token: await accessToken() });
     socialRoom = room;
-    room.onMessage("statuses", (list: FriendStatus[]) => set({ friends: Object.fromEntries(list.map((s) => [s.id, s])) }));
+    room.onMessage("statuses", (list: FriendStatus[]) => {
+      // the first answer only says how things are; after that, a friend going from offline to online is news
+      const known = Object.keys(state.friends).length > 0;
+      const cameOnline = { ...state.cameOnline };
+      for (const s of list) {
+        if (!s.online) delete cameOnline[s.id];
+        else if (known && state.friends[s.id] && !state.friends[s.id].online) cameOnline[s.id] = Date.now();
+      }
+      set({ friends: Object.fromEntries(list.map((s) => [s.id, s])), cameOnline });
+    });
+    room.onMessage("invite", (m: Omit<Invite, "at">) => {
+      const mine = { ...m, at: Date.now() };
+      set({ invites: [mine, ...state.invites.filter((i) => !(i.roomId === m.roomId && i.fromId === m.fromId))].slice(0, 10) });
+    });
+    room.onMessage("invite-failed", (m: { message: string }) => flash(m.message));
     room.onLeave(() => {
       socialRoom = null;
       clearInterval(pollTimer);
@@ -274,13 +293,54 @@ export async function connectSocial(): Promise<void> {
   }
 }
 
+/** The "your friend is online" message was read. */
+export const dismissCameOnline = (friendId: string) => {
+  const rest = { ...state.cameOnline };
+  delete rest[friendId];
+  set({ cameOnline: rest });
+};
+
+/** An invitation is no longer wanted (joined, declined, or it ran out). */
+export const dismissInvite = (roomId: string) => set({ invites: state.invites.filter((i) => i.roomId !== roomId) });
+
+const INVITE_KEEP_MS = 15 * 60_000; // the server lets an invited friend in for this long
+/** Invitations that have not run out. */
+export const liveInvites = (invites: Invite[]) => invites.filter((i) => Date.now() - i.at < INVITE_KEEP_MS);
+
+/**
+ * Invites a friend to a match. Uses the room this player is waiting in; if there is none, opens one first (open to anyone,
+ * named after `roomName`). Anything the server refuses (not a friend, not online, too soon) shows as the page's error message.
+ */
+export async function inviteFriend(friendId: string, roomName: string): Promise<boolean> {
+  if (!socialRoom) {
+    flash("Not connected to the game server yet. Try again in a moment.");
+    return false;
+  }
+  if (state.snapshot && state.snapshot.stage !== "waiting") {
+    flash("Finish or leave your match before inviting someone.");
+    return false;
+  }
+  let created = false;
+  if (!matchRoom) {
+    await createRoom(roomName);
+    created = matchRoom !== null;
+    if (!created) return false; // createRoom already said why
+  }
+  const roomId = matchRoom?.roomId;
+  if (!roomId) return false;
+  // a room just opened has not told the server's list who is inside yet: the invitation checks that list
+  if (created) await new Promise((r) => setTimeout(r, 700));
+  socialRoom.send("invite", { to: friendId, roomId });
+  return true;
+}
+
 export function disconnectSocial(): void {
   wantSocial = false;
   clearInterval(pollTimer);
   void socialRoom?.leave(true);
   socialRoom = null;
   friendIds = [];
-  set({ social: "off", friends: {} });
+  set({ social: "off", friends: {}, invites: [], cameOnline: {} });
 }
 
 /** The friends whose status to ask for (their account ids). */

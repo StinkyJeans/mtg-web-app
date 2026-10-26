@@ -82,6 +82,18 @@ export interface ChatLine {
   text: string;
 }
 
+/** A friend asking this player to join their match room (game-server/src/rooms/SocialRoom.ts). */
+export interface Invite {
+  fromId: string;
+  from: string;
+  roomId: string;
+  roomName: string;
+  /** The room has a password: the invitation lets this player in without it. */
+  locked: boolean;
+  /** When it arrived (set by the browser). */
+  at: number;
+}
+
 /** How one friend is doing, from the game server (game-server/src/rooms/SocialRoom.ts). */
 export interface FriendStatus {
   id: string;

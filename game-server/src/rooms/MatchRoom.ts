@@ -102,6 +102,8 @@ const RECONNECT_SECONDS = 60;
 const CLAIM_SETUP_SECONDS = 90; // a seat being set up that never connects frees its claim after this long
 
 export const acctKey = (accountId: string) => `acct-room:${accountId}`;
+/** Set (for a while) when a member invites a friend to a room: the friend may join even a room with a password. */
+export const inviteKey = (roomId: string, accountId: string) => `room-invite:${roomId}:${accountId}`;
 /** Is this room still open (on any server process)? */
 async function roomIsOpen(roomId: string) {
   try {
@@ -323,12 +325,17 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     const member = this.members.some((m) => m.account.id === account.id);
     // a room holding a seat for someone who dropped is unlocked so they can come back; nobody else gets in
     if (!member && this.members.length >= 2) throw new Error("This room is full.");
-if (this.password && !member) this.checkPassword(account, options?.password);
+    if (this.password && !member && !(await this.wasInvited(account.id))) this.checkPassword(account, options?.password);
     // the server has room for only so many rooms; the one being opened right now is already counted
     if (this.members.length === 0 && matchMaker.stats.local.roomCount > LIMITS.maxRooms()) throw new Error("The server is full right now. Try again in a few minutes.");
     // one room at a time per account (and so one account can't flood the lobby with rooms)
     if (!member) await this.claim(account.id);
     return account;
+  }
+
+  /** Did a player in this room invite this account? Then the password is not asked for. */
+  private async wasInvited(accountId: string): Promise<boolean> {
+    return Boolean(await Promise.resolve(this.presence.get(inviteKey(this.roomId, accountId))));
   }
 
   /** The room's password, with the same lock-out after too many wrong guesses for joining and for watching. */

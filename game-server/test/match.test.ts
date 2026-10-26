@@ -735,6 +735,40 @@ describe("a live match", function () {
     assert.equal(offline[0].match, null);
   });
 
+  it("lets a player invite a friend to their room: it arrives, and lets only that friend in without the password", async () => {
+    setDevFriends("dev-ivy", "dev-jon");
+    const room = await colyseus.createRoom<MatchRoom>("match", { name: "Ivy's room", password: "secret" });
+    const host = await colyseus.connectTo(room, { token: "dev:ivy", password: "secret" });
+    host.onMessage("room", () => {});
+    await wait(300); // the room list learns who is inside
+    const jon = await colyseus.sdk.joinOrCreate("social", { token: "dev:jon" });
+    const arrived = new Promise<{ fromId: string; from: string; roomId: string; roomName: string; locked: boolean }>((resolve) => jon.onMessage("invite", resolve));
+    const ivy = await colyseus.sdk.joinOrCreate("social", { token: "dev:ivy" });
+    const failures: string[] = [];
+    ivy.onMessage("invite-failed", (m: { message: string }) => failures.push(m.message));
+    ivy.onMessage("invited", () => {});
+    // someone who is not a friend can't be invited, and an invitation needs a room the sender is in
+    ivy.send("invite", { to: "dev-zed", roomId: room.roomId });
+    await wait(300);
+    assert.match(failures[0], /only invite your friends/);
+    ivy.send("invite", { to: "dev-jon", roomId: room.roomId });
+    const got = await arrived;
+    assert.equal(got.from, "ivy");
+    assert.equal(got.roomId, room.roomId);
+    assert.equal(got.locked, true, "the invited friend is told the room has a password, and does not need it");
+    ivy.send("invite", { to: "dev-jon", roomId: room.roomId }); // again, right away
+    await wait(300);
+    assert.match(failures[failures.length - 1], /just invited/);
+    // the room has a password: the invited friend gets in without it, a stranger does not
+    await assert.rejects(colyseus.connectTo(room, { token: "dev:kai" }), /needs a password/);
+    const joined = await colyseus.connectTo(room, { token: "dev:jon" });
+    joined.onMessage("room", () => {});
+    await wait(200);
+    assert.equal(room.clients.length, 2);
+    await ivy.leave();
+    await jon.leave();
+  });
+
   // ───────── the table: card sleeve and playmat ─────────
 
   it("shows each player's chosen sleeve and mat to everyone in the match, spectators included", async () => {
