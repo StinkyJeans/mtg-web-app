@@ -221,7 +221,7 @@ export function costChoices(state: GameState, player: PlayerId, ability: { costC
     .map((p) => p.card.iid);
 }
 
-export function activateAbility(state: GameState, player: PlayerId, iid: string, index: number, targets: TargetChoice[], events: GameEvent[], payWith?: string): string | null {
+export function activateAbility(state: GameState, player: PlayerId, iid: string, index: number, targets: TargetChoice[], events: GameEvent[], payWith?: string, chosenX?: number): string | null {
   const onBoard = findPermanentOrNull(state, iid);
   // A card in the hand or graveyard can have an ability that works from there.
   const zoneCard = onBoard ? undefined : [...state.players[player].hand, ...state.players[player].graveyard].find((c) => c.iid === iid);
@@ -257,11 +257,15 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
   const targetError = checkTargets(state, abilitySpecs, targets, player, def.name);
   if (targetError) return targetError;
 
+  let paidX: number | undefined;
   if (ability.mana) {
     const cost = abilityManaCost(state, found.perm, ability);
     if (!cost) return `${def.name}'s ability can't be used yet.`;
-    const paid = payMana(state, player, cost);
-    if (!paid.ok) return `Not enough mana for ${def.name}'s ability (${ability.mana}).`;
+    // "{X}{R}, {T}, Sacrifice ~: It deals X damage": the player chooses X, and pays that much more.
+    const x = cost.x ? Math.max(0, Math.floor(chosenX ?? 0)) : 0;
+    const paid = payMana(state, player, cost.x ? withX(cost, x) : cost);
+    if (!paid.ok) return `Not enough mana for ${def.name}'s ability (${ability.mana}${cost.x ? ` with X = ${x}` : ""}).`;
+    paidX = cost.x ? x : undefined;
     applyPayment(state, player, paid, events);
   }
   if (ability.costCard) {
@@ -322,7 +326,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     targets,
     specs: abilitySpecs,
     text: ability.text,
-    ...(sacrificedPower !== undefined ? { x: sacrificedPower } : {}),
+    ...(paidX !== undefined ? { x: paidX } : sacrificedPower !== undefined ? { x: sacrificedPower } : {}),
   });
   events.push({ type: "abilityActivated", player, iid, name: def.name, text: ability.text });
   queueWard(state, state.stack[state.stack.length - 1]);

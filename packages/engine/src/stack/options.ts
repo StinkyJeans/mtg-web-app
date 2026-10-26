@@ -181,6 +181,8 @@ export interface Activatable {
   /** For a cost like "Sacrifice a creature": the cards the player may choose to pay with, and what to call the choice. */
   costChoices?: string[];
   costLabel?: string;
+  /** The cost has an X ("{X}{R}"): the most the player can pay for it right now. */
+  maxX?: number;
 }
 
 /** Abilities of the player's permanents they could use right now. */
@@ -225,7 +227,13 @@ export function getActivatable(state: GameState, player: PlayerId): Activatable[
       if (ability.tapTwoSharing && !tapPair(state, player)) return;
       if (forbidden(state, perm, "noActivated")) return;
       if (ability.costCard && costChoices(state, player, ability, perm.card.iid).length === 0) return;
-      out.push({ iid: perm.card.iid, index, text: ability.text, specs: bindSpecs(ability.targets, perm.card.iid), ...(ability.costCard ? { costChoices: costChoices(state, player, ability, perm.card.iid), costLabel: ability.costCard.label } : {}) });
+      const xCost = ability.mana ? abilityManaCost(state, perm, ability) : null;
+      let maxX: number | undefined;
+      if (xCost?.x) {
+        maxX = 0;
+        while (maxX < 30 && payMana(state, player, withX(xCost, maxX + 1)).ok) maxX++;
+      }
+      out.push({ iid: perm.card.iid, index, text: ability.text, specs: bindSpecs(ability.targets, perm.card.iid), ...(maxX !== undefined ? { maxX } : {}), ...(ability.costCard ? { costChoices: costChoices(state, player, ability, perm.card.iid), costLabel: ability.costCard.label } : {}) });
     });
   }
   return out;

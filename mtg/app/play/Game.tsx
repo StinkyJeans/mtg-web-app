@@ -45,7 +45,7 @@ import { useCustomCursor } from "@/lib/cursor";
 import BlockPanel from "./BlockPanel";
 import { attackHint, blockHint, canBlock } from "./combatHints";
 import { readable } from "./cardText";
-import { ChoicePanel } from "./ChoicePanels";
+import { ChoicePanel, XPanel } from "./ChoicePanels";
 import { PickPanel, ResolvingNotice } from "./PickPanel";
 import { StackPanel } from "./StackPanel";
 import { TargetPanel } from "./TargetPanel";
@@ -161,6 +161,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [revealing, setRevealing] = useState<{ items: Announcement[]; cards: Record<string, CardDef> } | null>(null); // online: the opponent's play, shown before the board changes
   const [lifeConfirm, setLifeConfirm] = useState<{ text: string; options: { label: string; go: () => void }[] } | null>(null); // "this costs life / taps a creature: do it?"
   const [xValue, setXValue] = useState(0);
+  const [abilityX, setAbilityX] = useState<{ a: Activatable; payWith?: string } | null>(null); // an ability with {X} in its cost, waiting for the player's X
   const [attackTargets, setAttackTargets] = useState<Record<string, string>>({}); // attacker iid -> planeswalker iid
   const [handHover, setHandHover] = useState<{ def: CardDef; left: number; top: number } | null>(null); // the big card shown while the mouse is over a card
   const [abilitiesOpen, setAbilitiesOpen] = useState(false); // the abilities pop-up
@@ -231,6 +232,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     setAimed(null);
     setConfirmSkip(false);
     setPlan(null);
+    setAbilityX(null);
     setLifeConfirm(null);
     setModePick([]);
     setAttackTargets({});
@@ -548,17 +550,24 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     }
   }
 
-  function startAbility(a: Activatable, payWith?: string) {
+  function startAbility(a: Activatable, payWith?: string, x?: number) {
     // "Discard a card" / "Sacrifice a creature" as a cost: ask which one first.
     if (a.costChoices && payWith === undefined) {
       setLifeConfirm({
         text: `${cardNameAnywhere(state, a.iid)}: choose ${a.costLabel ?? "a card"}`,
-        options: a.costChoices.map((iid) => ({ label: cardNameAnywhere(state, iid), go: () => startAbility(a, iid) })),
+        options: a.costChoices.map((iid) => ({ label: cardNameAnywhere(state, iid), go: () => startAbility(a, iid, undefined) })),
       });
       return;
     }
     setLifeConfirm(null);
-    const extra = payWith === undefined ? {} : { payWith };
+    // "{X}{R}, {T}, Sacrifice ~: deals X damage": the player chooses X first (up to what they can pay).
+    if (a.maxX !== undefined && x === undefined) {
+      setXValue(a.maxX);
+      setAbilityX({ a, ...(payWith !== undefined ? { payWith } : {}) });
+      return;
+    }
+    setAbilityX(null);
+    const extra = { ...(payWith === undefined ? {} : { payWith }), ...(x === undefined ? {} : { x }) };
     if (a.specs.length === 0) {
       act({ type: "activateAbility", iid: a.iid, index: a.index, targets: [], ...extra });
     } else {
@@ -800,6 +809,16 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             title={lifeConfirm.text}
             options={[...lifeConfirm.options.map((o) => ({ label: o.label, onPick: o.go })), { label: "Cancel", onPick: () => setLifeConfirm(null) }]}
             onCancel={() => setLifeConfirm(null)}
+          />
+        )}
+        {abilityX && (
+          <XPanel
+            name={`${cardNameAnywhere(state, abilityX.a.iid)}'s ability`}
+            max={abilityX.a.maxX ?? 0}
+            x={xValue}
+            onChange={(x) => setXValue(Math.min(abilityX.a.maxX ?? 0, Math.max(0, x)))}
+            onCast={() => startAbility(abilityX.a, abilityX.payWith, xValue)}
+            onCancel={resetSelection}
           />
         )}
         {plan && (

@@ -429,7 +429,7 @@ function candidates(s: GameState, me: PlayerId): Action[] {
       return p ? (defOf(s, p)?.text ?? "") : cardText(a.iid);
     })();
     const combos = a.specs.length === 0 ? [[]] : targetCombos(s, a.specs, me, text);
-    for (const targets of combos) out.push({ type: "activateAbility", iid: a.iid, index: a.index, targets, ...(a.costChoices ? { payWith: cheapestCreature(a.costChoices) ?? a.costChoices[0] } : {}) });
+    for (const targets of combos) out.push({ type: "activateAbility", iid: a.iid, index: a.index, targets, ...(a.maxX !== undefined ? { x: a.maxX } : {}), ...(a.costChoices ? { payWith: cheapestCreature(a.costChoices) ?? a.costChoices[0] } : {}) });
   }
   for (const a of getLoyaltyAbilities(s, me)) {
     const combos = a.specs.length === 0 ? [[]] : targetCombos(s, a.specs, me, a.text);

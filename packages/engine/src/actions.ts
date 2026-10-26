@@ -49,7 +49,7 @@ export type Action =
   | { type: "playLand"; iid: string }
   | { type: "castCreature"; iid: string }
   | { type: "castSpell"; iid: string; targets?: TargetChoice[]; x?: number; kicked?: boolean; from?: "graveyard" | "exile" | "prepared"; modes?: number[]; sacrifice?: string; warp?: boolean }
-  | { type: "activateAbility"; iid: string; index: number; targets?: TargetChoice[]; payWith?: string }
+  | { type: "activateAbility"; iid: string; index: number; targets?: TargetChoice[]; payWith?: string; /** The X of a cost like "{X}{R}": what the player chose to pay. */ x?: number }
   | { type: "crew"; iid: string } // crew a Vehicle: then choose the creatures to tap
   | { type: "cycle"; iid: string } // cycle a card from hand (pay its cycling cost, discard it, draw a card)
   | { type: "passPriority" }
@@ -222,7 +222,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
     }
 
     case "activateAbility": {
-      const error = activateAbility(next, player, action.iid, action.index, action.targets ?? [], events, action.payWith);
+      const error = activateAbility(next, player, action.iid, action.index, action.targets ?? [], events, action.payWith, action.x);
       if (error) return fail(error);
       break;
     }
