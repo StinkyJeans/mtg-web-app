@@ -17,6 +17,29 @@ export function setSoundEnabled(on: boolean): void {
   }
 }
 
+const VOLUME_KEY = "mtg-sound-volume";
+const DEFAULT_VOLUME = 0.8;
+const LOUDEST = 0.6; // the effects' master gain at full volume
+
+export function soundVolume(): number {
+  try {
+    const saved = localStorage.getItem(VOLUME_KEY);
+    const v = Number(saved);
+    return saved !== null && Number.isFinite(v) ? Math.min(1, Math.max(0, v)) : DEFAULT_VOLUME;
+  } catch {
+    return DEFAULT_VOLUME;
+  }
+}
+
+export function setSoundVolume(v: number): void {
+  try {
+    localStorage.setItem(VOLUME_KEY, String(v));
+  } catch {
+    // ignore: the setting just won't be remembered
+  }
+  out?.out.gain.setTargetAtTime(v * LOUDEST, out.ctx.currentTime, 0.05);
+}
+
 export type Sound =
   | "draw"
   | "shuffle"
@@ -78,7 +101,7 @@ function audio(): Out | null {
   if (!c) return null;
   if (!out) {
     const master = c.createGain();
-    master.gain.value = 0.5;
+    master.gain.value = soundVolume() * LOUDEST;
     master.connect(c.destination);
     out = { ctx: c, out: master };
   }

@@ -18,35 +18,6 @@ export function TurnSplash() {
   );
 }
 
-/** Cards announcing what a player just cast or used, shown on that player's side of the board. */
-export default function Announcements({ items, onClose }: { items: Announcement[]; onClose: (id: number) => void }) {
-  if (items.length === 0) return null;
-  return (
-    <div className="flex flex-col gap-2" aria-live="polite">
-      {items.map((a) => (
-        <div key={a.id} className="announce-in flex items-start gap-3 rounded-lg border border-amber-400 bg-amber-50 p-3 shadow">
-          <div className="text-xl" aria-hidden="true">
-            ✨
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="font-semibold text-amber-900">{a.title}</div>
-            {a.lines.length > 0 && (
-              <ul className="mt-1 list-disc pl-5 text-sm text-zinc-800">
-                {a.lines.map((l, i) => (
-                  <li key={i}>{l}</li>
-                ))}
-              </ul>
-            )}
-          </div>
-          <button onClick={() => onClose(a.id)} aria-label="Close" className="rounded px-2 text-zinc-500 hover:bg-amber-100">
-            ×
-          </button>
-        </div>
-      ))}
-    </div>
-  );
-}
-
 /**
  * Everything cast or used this turn, kept on screen until the turn ends: spells go to the graveyard as soon as they
  * resolve, so without this it is hard to follow what has happened and what is still in effect.

@@ -32,7 +32,8 @@ import { handDraws, hideDrawn, isPileBusy, playDeal, playDraws, playToGraveyard 
 import type { Draw } from "./pileFx";
 import { announcementsFrom, describeEvents, endReason, playerName } from "./log";
 import type { Announcement } from "./log";
-import Announcements, { PassReminder, PlayedThisTurn, TurnSplash } from "./Announcements";
+import { PassReminder, PlayedThisTurn, TurnSplash } from "./Announcements";
+import ResolveZone, { holdReveal, isRevealing } from "./ResolveZone";
 import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
 import BackgroundPicker from "./BackgroundPicker";
 import AppearanceDialog from "./AppearanceDialog";
@@ -140,6 +141,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [modePick, setModePick] = useState<number[]>([]);
   const [history, setHistory] = useState<Announcement[]>([]); // everything cast or used, kept for the turn
   const [announcements, setAnnouncements] = useState<Announcement[]>([]); // "Player 1 cast ...", shown on the caster's side
+  const [revealing, setRevealing] = useState<{ items: Announcement[]; cards: Record<string, CardDef> } | null>(null); // online: the opponent's play, shown before the board changes
   const [lifeConfirm, setLifeConfirm] = useState<{ text: string; options: { label: string; go: () => void }[] } | null>(null); // "this costs life / taps a creature: do it?"
   const [xValue, setXValue] = useState(0);
   const [attackTargets, setAttackTargets] = useState<Record<string, string>>({}); // attacker iid -> planeswalker iid
@@ -280,7 +282,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    * anything they might not want: life paid for Phyrexian mana, and creatures tapped for mana (which could attack or block instead).
    */
   async function act(action: Action, as: PlayerId = actor, opts: { life?: boolean; mana?: boolean; pointless?: boolean; spare?: string[] } = {}) {
-    if (isCombatPlaying() || isPileBusy()) return; // ignore clicks while something is being animated
+    if (isCombatPlaying() || isPileBusy() || isRevealing()) return; // ignore clicks while something is being animated
     const spare = opts.spare ?? [];
     const pay = paymentOf(state, action, as, spare);
     if (!pay.ok && spare.length > 0) {
@@ -354,6 +356,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   async function commit(r: { state: GameState; events: GameEvent[] }) {
     const viewer = seat ?? playerToAct(r.state);
     playGameSounds(r.events, online ? viewer : null);
+    const told = announcementsFrom(r.events, r.state);
+    // Online: what the opponent cast or used is shown in the "to resolve" zone first, then it resolves.
+    const theirs = online ? told.filter((a) => a.player !== viewer) : [];
+    if (theirs.length > 0) {
+      flushSync(() => setRevealing({ items: theirs, cards: r.state.cards }));
+      await holdReveal();
+    }
     const gone = r.events.flatMap((e) => (e.type === "creatureDied" ? [e.iid] : e.type === "cardsDiscarded" ? e.iids : []));
     await playToGraveyard(gone);
     // Only the viewer's own cards are animated: the opponent's hand is just a count, so their draw or mulligan
@@ -373,7 +382,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       setEndNote(endReason(r.events, r.state));
       // Online: the opponent passed the turn. Said loudly, in case this player looked away while waiting.
       if (online && r.events.some((e) => e.type === "turnStarted" && e.player === viewer)) setTurnSplash((n) => n + 1);
-      const told = announcementsFrom(r.events, r.state);
+      setRevealing(null);
       if (told.length > 0) {
         setAnnouncements((a) => [...a, ...told].slice(-4));
         setHistory((h) => [...h, ...told].slice(-40));
@@ -393,7 +402,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    * Stops early if the player has to make a choice, such as discarding down to seven cards.
    */
   async function endTurn() {
-    if (isCombatPlaying() || isPileBusy()) return;
+    if (isCombatPlaying() || isPileBusy() || isRevealing()) return;
     setEndingTurn(state.turn);
     if (online) {
       if (mine) netSend("endTurn");
@@ -666,7 +675,15 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           interaction={(p) => interaction(other, p)}
           inCombat={(p) => inCombat(other, p)}
           combatSetup={combatSetup(other)}
-          overlay={<Announcements items={announcements.filter((a) => a.player === other)} onClose={(id) => setAnnouncements((l) => l.filter((x) => x.id !== id))} />}
+          overlay={
+            <ResolveZone
+              state={state}
+              played={announcements.filter((a) => a.player === other)}
+              revealing={revealing}
+              onClose={(id) => setAnnouncements((l) => l.filter((x) => x.id !== id))}
+              onZoom={setZoomed}
+            />
+          }
           zones={
             <>
               <Pile state={state} owner={other} kind="library" compact deckName={deckNames[other]} sleeve={look.sleeve(other)} />
