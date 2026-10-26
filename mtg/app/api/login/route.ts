@@ -29,6 +29,10 @@ const ADMIN = {
   "content-type": "application/json",
 };
 
+// Every call to Supabase gets a time limit: one that never answers must not hold up this name's sign-ins for good.
+const UPSTREAM_MS = 10_000;
+const call = (url: string, init: RequestInit = {}) => fetch(url, { ...init, signal: AbortSignal.timeout(UPSTREAM_MS) });
+
 const json = (
   body: unknown,
   status = 200,
@@ -74,7 +78,7 @@ function addressFailed(ip: string, now: number) {
 
 // ───────── the lock inside a real account ─────────
 async function profileId(name: string): Promise<string | null> {
-  const res = await fetch(
+  const res = await call(
     `${URL}/rest/v1/profiles?username=eq.${encodeURIComponent(name)}&select=id&limit=1`,
     { headers: { apikey: SECRET } },
   );
@@ -84,7 +88,7 @@ async function profileId(name: string): Promise<string | null> {
 }
 
 async function readLock(id: string): Promise<LoginLock | null> {
-  const res = await fetch(`${URL}/auth/v1/admin/users/${id}`, {
+  const res = await call(`${URL}/auth/v1/admin/users/${id}`, {
     headers: ADMIN,
   });
   if (!res.ok) return null;
@@ -95,7 +99,7 @@ async function readLock(id: string): Promise<LoginLock | null> {
 }
 
 async function writeLock(id: string, lock: LoginLock | null): Promise<void> {
-  await fetch(`${URL}/auth/v1/admin/users/${id}`, {
+  await call(`${URL}/auth/v1/admin/users/${id}`, {
     method: "PUT",
     headers: ADMIN,
     body: JSON.stringify({ app_metadata: { login_lock: lock } }),
@@ -138,13 +142,21 @@ export async function POST(request: Request) {
   if (early > 0) return locked(early);
 
   return oneAtATime(name, async () => {
+    try {
+      return await attempt();
+    } catch {
+      return json({ error: "Could not reach the sign-in service. Try again." }, 504);
+    }
+  });
+
+  async function attempt() {
     const now = Date.now();
     const id = SECRET ? await profileId(name) : null;
     const current = id ? await readLock(id) : (unknownNames.get(name) ?? null);
     const wait = waitSeconds(current, now);
     if (wait > 0) return locked(wait); // locked: the password isn't even checked, so a right guess can't get in during the wait
 
-    const res = await fetch(`${URL}/auth/v1/token?grant_type=password`, {
+    const res = await call(`${URL}/auth/v1/token?grant_type=password`, {
       method: "POST",
       headers: { apikey: PUBLISHABLE, "content-type": "application/json" },
       body: JSON.stringify({ email: usernameToEmail(name), password }),
@@ -190,5 +202,5 @@ export async function POST(request: Request) {
     return after > 0
       ? locked(after)
       : json({ error: "Wrong username or password." }, 401);
-  });
+  }
 }

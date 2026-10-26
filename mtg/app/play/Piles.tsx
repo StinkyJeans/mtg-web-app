@@ -9,6 +9,13 @@ import { SleeveBack } from "./AppearanceDialog";
 /** The back of a card: used for the library and by the draw animation. */
 export const CARD_BACK = "bg-gradient-to-br from-amber-700 via-amber-900 to-stone-900";
 
+// A pile is its own size container, so what is inside grows and shrinks with the room the pile is given:
+// the card picture takes most of its height (never more than about half its width), the number and the names scale with it.
+const PILE_BOX = "flex min-h-0 w-full [container-type:size] overflow-hidden rounded-lg border-2 bg-black/35 text-slate-100";
+const ART_HEIGHT = "min(72cqh, 46cqw * 1.4)";
+const COUNT_SIZE = "clamp(1.1rem, 24cqh, 2.6rem)";
+const LABEL_SIZE = "clamp(0.55rem, 9cqh, 0.8rem)";
+
 /**
  * A pile of cards: the library (face down, count) or the graveyard (top card face up, click to browse).
  * `data-pile` lets the animations find it, so cards can fly in.
@@ -29,14 +36,14 @@ export function Pile({ state, owner, kind, compact, onOpen, deckName, sleeve }: 
         disabled={!clickable}
         aria-label={`${playerName(owner)}'s exile: ${cards.length} cards`}
         title={clickable ? `Look at the cards ${playerName(owner)} has in exile` : "Exile: cards removed from the game. Nothing here yet."}
-        className={`flex min-h-10 w-full flex-1 items-center gap-2 overflow-hidden rounded-lg border-2 border-dashed border-sky-200/50 bg-black/35 px-2 py-1 text-slate-100 ${clickable ? "cursor-pointer hover:bg-black/50" : "cursor-default"}`}
+        className={`${PILE_BOX} flex-[0.8] items-center gap-2 border-dashed border-sky-200/50 px-2 py-1 ${clickable ? "cursor-pointer hover:bg-black/50" : "cursor-default"}`}
       >
         <div
           className="relative shrink-0 rounded-[3px] border border-sky-200/50 bg-sky-950/60"
-          style={{ height: "calc(var(--card-h, 100px) * 0.34)", aspectRatio: "5 / 7", ...(top?.image ? { backgroundImage: `url(${cardImageUrl(top.image)})`, backgroundSize: "cover", backgroundPosition: "center" } : {}) }}
+          style={{ height: ART_HEIGHT, aspectRatio: "5 / 7", ...(top?.image ? { backgroundImage: `url(${cardImageUrl(top.image)})`, backgroundSize: "cover", backgroundPosition: "center" } : {}) }}
         />
-        <span className="font-display text-xs font-semibold uppercase tracking-wide text-slate-300">Exile</span>
-        <span className="ml-auto text-2xl font-bold text-white">{cards.length}</span>
+        <span className="font-display font-semibold uppercase tracking-wide text-slate-300" style={{ fontSize: LABEL_SIZE }}>Exile</span>
+        <span className="ml-auto font-bold text-white" style={{ fontSize: COUNT_SIZE }}>{cards.length}</span>
       </button>
     );
   }
@@ -49,12 +56,12 @@ export function Pile({ state, owner, kind, compact, onOpen, deckName, sleeve }: 
       disabled={!clickable}
       aria-label={`${playerName(owner)}'s ${label.toLowerCase()}: ${cards.length} cards`}
       title={clickable ? `Look through ${playerName(owner)}'s graveyard` : undefined}
-      className={`relative flex w-full items-center justify-center gap-3 overflow-hidden rounded-lg border-2 bg-black/35 text-slate-100 ${
+      className={`${PILE_BOX} relative justify-center gap-3 ${
         kind === "graveyard" ? "border-white/25" : "border-[#fcd34d]/70"
-      } ${compact ? "min-h-[3.4rem] min-w-0 flex-1 px-2 py-1" : "h-36 px-3"} ${clickable ? "cursor-pointer hover:bg-black/50" : "cursor-default"}`}
+      } ${compact ? `min-w-0 px-2 py-1 ${kind === "library" ? "flex-[1.3]" : "flex-1"}` : "h-36 px-3"} ${clickable ? "cursor-pointer hover:bg-black/50" : "cursor-default"}`}
     >
       {kind === "library" && cards.length > 0 && sleeve ? (
-        <div className="relative ml-1 mt-1 shrink-0" data-sleeve-pile style={{ height: "calc(var(--card-h, 100px) * 0.5)", aspectRatio: "5 / 7" }}>
+        <div className="relative ml-1 mt-1 shrink-0" data-sleeve-pile style={{ height: ART_HEIGHT, aspectRatio: "5 / 7" }}>
           {/* a thicker stack looks like a bigger library */}
           <SleeveBack
             css={sleeve.css}
@@ -65,17 +72,17 @@ export function Pile({ state, owner, kind, compact, onOpen, deckName, sleeve }: 
       ) : (
         <div
           className={`relative shrink-0 rounded border border-white/30 ${compact ? "" : "h-28 w-20"} ${kind === "library" && cards.length > 0 ? CARD_BACK : "bg-white/10"}`}
-          style={{ ...(compact ? { height: "calc(var(--card-h, 100px) * 0.5)", aspectRatio: "5 / 7" } : {}), ...(top?.image ? { backgroundImage: `url(${cardImageUrl(top.image)})`, backgroundSize: "cover", backgroundPosition: "center" } : {}) }}
+          style={{ ...(compact ? { height: ART_HEIGHT, aspectRatio: "5 / 7" } : {}), ...(top?.image ? { backgroundImage: `url(${cardImageUrl(top.image)})`, backgroundSize: "cover", backgroundPosition: "center" } : {}) }}
         >
           {kind === "library" && cards.length > 0 && <div className="absolute inset-1 rounded-sm border border-[#fcd34d]/50" />}
           {cards.length === 0 && <span className="absolute inset-0 flex items-center justify-center text-[10px] text-slate-300">empty</span>}
         </div>
       )}
       <div className="flex min-w-0 flex-col text-left">
-        <span className="text-[10px] font-semibold uppercase font-display tracking-wide text-slate-300">{label}</span>
-        <span className={`font-bold text-white ${compact ? "text-2xl" : "text-2xl"}`}>{cards.length}</span>
+        <span className="font-semibold uppercase font-display tracking-wide text-slate-300" style={{ fontSize: LABEL_SIZE }}>{label}</span>
+        <span className="font-bold text-white" style={{ fontSize: COUNT_SIZE }}>{cards.length}</span>
         {kind === "library" && deckName && (
-          <span title={deckName} className={`truncate text-slate-300 ${compact ? "max-w-24 text-[10px]" : "max-w-40 text-xs"}`}>
+          <span title={deckName} className={`truncate text-slate-300 ${compact ? "max-w-24" : "max-w-40 text-xs"}`} style={compact ? { fontSize: LABEL_SIZE } : undefined}>
             {deckName}
           </span>
         )}

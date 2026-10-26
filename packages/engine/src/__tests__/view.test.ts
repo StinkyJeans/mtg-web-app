@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyAction, CARDS, createGame, getLegalActions, HIDDEN_CARD_ID, viewFor } from "../index.js";
+import { applyAction, CARDS, createGame, getLegalActions, HIDDEN_CARD_ID, spectatorView, viewFor } from "../index.js";
 import type { GameState } from "../index.js";
 
 const DEFS = { ...CARDS, island: { id: "island", name: "Island", type: "land" as const, cost: 0, typeLine: "Basic Land — Island" } };
@@ -71,4 +71,18 @@ test("a hidden card's id doesn't follow the deck list, so it can't tell the oppo
   const all = [...g.players.p1.hand, ...g.players.p1.library];
   const firstHalf = all.filter((c) => Number(c.iid.split("-")[1]) < 20).map((c) => c.defId);
   assert.ok(firstHalf.includes("mountain") && firstHalf.includes("forest"));
+});
+
+test("a spectator sees the board but neither hand, and no library", () => {
+  const g = game();
+  const v = spectatorView(g);
+  for (const id of ["p1", "p2"] as const) {
+    assert.equal(v.players[id].hand.length, g.players[id].hand.length, "the hands can still be counted");
+    assert.equal(v.players[id].hand.every((c) => c.defId === HIDDEN_CARD_ID), true, `${id}'s hand is face down`);
+    assert.equal(v.players[id].library.every((c) => c.defId === HIDDEN_CARD_ID), true, `${id}'s library is face down`);
+  }
+  assert.equal(v.rng, 0);
+  // what a pick is showing to its chooser stays hidden from a spectator
+  g.pendingPick = { player: "p1", prompt: "Look", kind: "scry", options: g.players.p1.library.slice(0, 2).map((c) => c.iid), optional: false, owner: "p1", remaining: 1 } as GameState["pendingPick"];
+  assert.equal(spectatorView(g).players.p1.library.every((c) => c.defId === HIDDEN_CARD_ID), true);
 });

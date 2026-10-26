@@ -53,68 +53,68 @@ export default function CoinFlip({
   }
 
   const winner = call && result ? (call === result ? caller : OPPONENT[caller]) : null;
-  const button = "rounded-lg px-6 py-3 font-semibold";
-
   return (
-    <main className="flex flex-1 flex-col items-center justify-center gap-6 p-8 text-zinc-900">
-      <h1 className="text-3xl font-bold">Coin flip</h1>
+    <main className="relative flex flex-1 flex-col items-center justify-center gap-4 p-5 text-slate-100 sm:p-8">
+      <div className="page-atmosphere" aria-hidden="true" />
+      <div className="panel-glass flex w-full max-w-2xl flex-col items-center gap-4 px-6 py-8 text-center sm:px-10">
+        <h1 className="page-title !text-3xl sm:!text-4xl">Coin flip</h1>
+        <p className="text-sm uppercase tracking-[0.25em] text-slate-300">Who goes first?</p>
 
-      {use3d ? (
-        <Coin3D result={result} flipping={stage === "flipping"} onLanded={landed} onUnavailable={no3d} />
-      ) : (
-        <FlatCoin stage={stage} angle={angle} />
-      )}
+        <div className="relative flex items-center justify-center">
+          <div className="pointer-events-none absolute inset-x-6 bottom-6 top-10 rounded-full bg-[radial-gradient(closest-side,rgba(244,180,61,0.28),transparent)]" aria-hidden="true" />
+          {use3d ? <Coin3D result={result} flipping={stage === "flipping"} onLanded={landed} onUnavailable={no3d} /> : <FlatCoin stage={stage} angle={angle} />}
+        </div>
 
-      {stage === "call" && (
-        <>
-          <p className="text-zinc-700">
-            <span className="font-semibold">{playerName(caller)}</span>, call it. The winner chooses who goes first.
-          </p>
-          <div className="flex gap-3">
-            <button onClick={() => flip("heads")} className={`${button} bg-amber-500 text-black hover:bg-amber-400`}>
-              Heads
-            </button>
-            <button onClick={() => flip("tails")} className={`${button} bg-zinc-300 text-black hover:bg-zinc-400`}>
-              Tails
-            </button>
-          </div>
-          <button onClick={onBack} className="text-sm text-zinc-500 underline hover:text-zinc-700">
-            Back to deck choice
-          </button>
-        </>
-      )}
-
-      {stage === "flipping" && (
-        <p className="text-zinc-700">
-          {playerName(caller)} called <span className="font-semibold capitalize">{call}</span>…
-        </p>
-      )}
-
-      {stage === "result" && winner && call && result && (
-        <>
-          <p className="text-xl">
-            It&apos;s <span className="font-bold capitalize">{result}</span>! {playerName(caller)} called {call}, so{" "}
-            <span className="font-bold text-amber-600">{playerName(winner)}</span> wins the flip.
-          </p>
-          <p className="text-zinc-600">{playerName(winner)}, who goes first?</p>
-          <div className="flex gap-3">
-            {([true, false] as const).map((goFirst) => (
-              <button
-                key={String(goFirst)}
-                onClick={() =>
-                  onDone(
-                    goFirst ? winner : OPPONENT[winner],
-                    `${playerName(caller)} called ${call}; it landed ${result}. ${playerName(winner)} won the flip and chose to go ${goFirst ? "first" : "second"}.`,
-                  )
-                }
-                className={`${button} ${goFirst ? "bg-amber-500 text-black hover:bg-amber-400" : "border border-zinc-400 hover:bg-zinc-200"}`}
-              >
-                Go {goFirst ? "first" : "second"}
+        {stage === "call" && (
+          <>
+            <p className="text-slate-200">
+              <span className="font-bold text-[#ffe29a]">{playerName(caller)}</span>, call it. The winner chooses who goes first.
+            </p>
+            <div className="flex gap-3">
+              <button onClick={() => flip("heads")} className="btn-gold !px-8 !py-3 !text-base">
+                Heads
               </button>
-            ))}
-          </div>
-        </>
-      )}
+              <button onClick={() => flip("tails")} className="btn-gold !px-8 !py-3 !text-base">
+                Tails
+              </button>
+            </div>
+            <button onClick={onBack} className="btn-ghost !text-sm">
+              ← Back to deck choice
+            </button>
+          </>
+        )}
+
+        {stage === "flipping" && (
+          <p className="text-slate-200">
+            {playerName(caller)} called <span className="font-bold capitalize text-[#ffe29a]">{call}</span>…
+          </p>
+        )}
+
+        {stage === "result" && winner && call && result && (
+          <>
+            <p className="text-xl">
+              It&apos;s <span className="font-bold capitalize text-[#ffe29a]">{result}</span>! {playerName(caller)} called {call}, so <span className="font-bold text-[#ffe29a]">{playerName(winner)}</span> wins the flip.
+            </p>
+            <p className="text-slate-300">{playerName(winner)}, who goes first?</p>
+            <div className="flex gap-3">
+              {([true, false] as const).map((goFirst) => (
+                <button
+                  key={String(goFirst)}
+                  onClick={() =>
+                    onDone(
+                      goFirst ? winner : OPPONENT[winner],
+                      `${playerName(caller)} called ${call}; it landed ${result}. ${playerName(winner)} won the flip and chose to go ${goFirst ? "first" : "second"}.`,
+                    )
+                  }
+                  className={`${goFirst ? "btn-gold" : "btn-ghost"} !px-8 !py-3 !text-base`}
+                >
+                  Go {goFirst ? "first" : "second"}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
     </main>
   );
 }
@@ -125,7 +125,7 @@ function Coin3D({
   flipping,
   onLanded,
   onUnavailable,
-  className = "h-[22rem] w-[min(26rem,90vw)]",
+  className = "h-[28rem] w-[min(32rem,92vw)]",
 }: {
   result: Side | null;
   flipping: boolean;

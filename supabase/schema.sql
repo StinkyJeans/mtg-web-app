@@ -1,4 +1,4 @@
--- MTG Duel schema. Run once in Supabase: SQL Editor -> New query -> paste -> Run.
+-- DuelRealm MTG schema. Run once in Supabase: SQL Editor -> New query -> paste -> Run.
 -- Safe to re-run only on an empty project (it does not use "if not exists" everywhere).
 
 -- ───────── profiles (one row per auth user, created automatically) ─────────

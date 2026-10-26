@@ -38,7 +38,7 @@ import {
 } from "@mtg/engine";
 import type { Action, Activatable, Castable, CardDef, GameEvent, GameState, Permanent, PlayerId, TargetChoice, TargetSpec } from "@mtg/engine";
 import { useBattlefieldBackground } from "@/lib/background";
-import { leaveRoom, onGameUpdate, send as netSend, tryReconnect, useOnline } from "@/lib/online/session";
+import { dismissNotice, leaveRoom, onGameUpdate, send as netSend, tryReconnect, useOnline } from "@/lib/online/session";
 import { fetchCardsByIds } from "@/lib/cards";
 import { buildRandomDeck } from "@/lib/randomDeck";
 import { deckStatus, expandDeck, listMyDecks, loadDefsFor } from "@/lib/decks";
@@ -46,14 +46,16 @@ import CardDetail, { CardImage, Lightbox } from "./CardDetail";
 import type { Inspected } from "./CardDetail";
 import CardView from "./CardView";
 import CoinFlip from "./CoinFlip";
+import EnterBattlefield from "./EnterBattlefield";
+import LookPicker from "./LookPicker";
 import { isCombatPlaying, playCombat } from "./combatFx";
 import { ResignDialog, VictoryDialog } from "./EndDialogs";
 import { GraveyardDialog, Pile } from "./Piles";
-import { hideDrawn, isPileBusy, playDeal, playDraws, playToGraveyard } from "./pileFx";
+import { hideDrawn, holdPiles, isPileBusy, playDeal, playDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
 import type { Draw } from "./pileFx";
 import { announcementsFrom, describeEvents, endReason, playerName } from "./log";
 import type { Announcement } from "./log";
-import Announcements, { PassReminder, PlayedThisTurn, TurnSplash } from "./Announcements";
+import Announcements, { PassReminder, PlayedThisTurn, TurnSplash, WelcomeSplash } from "./Announcements";
 import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
 import { ManaText } from "./ManaSymbols";
 import BackgroundPicker from "./BackgroundPicker";
@@ -109,6 +111,7 @@ const RANDOM_ID = "random"; // a deck built at random when the game starts
 const HAND_ZOOM_W = 320;
 /** How long "Your turn" stays on screen; matches the turn-splash animation in globals.css. */
 const TURN_SPLASH_MS = 1800;
+const WELCOME_MS = 2300; // how long "Welcome to the Battle Field, Now Duel!" stays up before the cards are dealt
 // How long a player can sit on their own turn before being reminded to pass it; shorter once nothing is left to do.
 const REMIND_IDLE_MS = 20000;
 const REMIND_DONE_MS = 6000;
@@ -118,8 +121,14 @@ const REMIND_DONE_MS = 6000;
  * so without the key a new match would open on the last match's board and end popup.
  */
 export function OnlineGame() {
-  const { matchId } = useOnline();
-  return <Game key={matchId ?? "none"} online />;
+  const { matchId, game } = useOnline();
+  return (
+    <>
+      <Game key={`game-${matchId ?? "none"}`} online />
+      {/* the loading screen: up until the match has arrived from the server, then it fades */}
+      <EnterBattlefield key={`enter-${matchId ?? "none"}`} ready={game !== null} names={game?.names} />
+    </>
+  );
 }
 
 /**
@@ -129,6 +138,7 @@ export function OnlineGame() {
  */
 export default function Game({ online = false }: { online?: boolean } = {}) {
   const [localGame, setGame] = useState<GameState | null>(null);
+  const [entered, setEntered] = useState(0); // hot-seat: how many times a match has begun, for the loading screen
   const net = useOnline();
   /** The game on screen: hot-seat, the one this screen has been updating, or (right after joining) the server's first view. */
   const game = localGame ?? (online ? (net.game?.view ?? null) : null);
@@ -137,6 +147,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   // falling back to the player to act would flip the screen (and the end popup) to the opponent's side.
   const [seat, setSeat] = useState<PlayerId | null>(null);
   if (online && net.game && net.game.you !== seat) setSeat(net.game.you);
+  // Watching a match (not playing it): the board is drawn from one side, both hands are face down, and nothing can be done.
+  const [watching, setWatching] = useState(false);
+  if (online && net.game && (net.game.spectator === true) !== watching) setWatching(net.game.spectator === true);
   // Online: after getting back in (a lost connection, a server restart) the server's copy of the game replaces the one on screen.
   const [startSeen, setStartSeen] = useState(net.game);
   if (online && net.game !== startSeen) {
@@ -149,7 +162,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [endingTurn, setEndingTurn] = useState<number | null>(null); // the turn "End turn" was pressed in
   const dealt = useRef(false);
   const background = useBattlefieldBackground(); // the picture behind the battlefield
-  const look = useAppearance(); // each player's card sleeves and playmat
+  const look = useAppearance(online ? (net.game?.looks ?? null) : null); // each player's card sleeves and playmat (online: what each chose before the match)
   const [lookOpen, setLookOpen] = useState(false);
   const [cursorOn, setCursorOn] = useCustomCursor();
   // The Magic cursor is for the play screen only: the page gets a class while this screen is open.
@@ -188,6 +201,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [abilitiesOpen, setAbilitiesOpen] = useState(false); // the abilities pop-up
   const [viewingYard, setViewingYard] = useState<{ owner: PlayerId; zone: "graveyard" | "exile" } | null>(null); // whose graveyard or exile is open
   const [endNote, setEndNote] = useState<string | null>(null); // how the game ended, for the win popup
+  const [welcome, setWelcome] = useState(false); // "Welcome to the Battle Field, Now Duel!" while it is on screen
   const [turnSplash, setTurnSplash] = useState(0); // online: counts "Your turn" splashes, 0 while none is on screen
 
   const [loading, setLoading] = useState(false);
@@ -222,9 +236,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     if (!online || !game || !net.game || dealt.current) return;
     dealt.current = true;
     if (!net.game.fresh) return;
-    const hand = handDraws(game);
-    hideDrawn(hand);
-    void playDeal(hand);
+    void openingDeal(handDraws(game), net.game.spectator !== true); // a spectator is not greeted
   });
 
   // Online: every change to the game arrives from the server, one at a time, in order.
@@ -335,6 +347,15 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       <main className="flex flex-1 flex-col items-center justify-center gap-3 p-8 text-zinc-900">
         <h1 className="text-2xl font-bold">Joining the match…</h1>
         <p className="text-zinc-600">If this takes more than a few seconds you will be taken back to the lobby.</p>
+        <button
+          onClick={() => {
+            leaveRoom();
+            router.push("/");
+          }}
+          className="btn-ghost"
+        >
+          ← Back to dashboard
+        </button>
       </main>
     );
   }
@@ -355,14 +376,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             setResigning(null);
             resetSelection();
             setPending(null);
+            setEntered((n) => n + 1);
             setDeckNames(pending.names);
             setHistory([]);
             setAnnouncements([]);
           });
           // The opening seven are dealt from the library into the hand.
-          const dealt = handDraws(fresh);
-          hideDrawn(dealt);
-          void playDeal(dealt);
+          void openingDeal(handDraws(fresh), true);
         }}
       />
     );
@@ -370,72 +390,80 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
   if (!game) {
     return (
-      <main className="flex flex-1 flex-col items-center justify-center gap-4 p-8 text-zinc-900">
-        <h1 className="text-3xl font-bold">Hot-seat duel</h1>
-        <p className="text-zinc-600">Two players, one screen. Heads or tails decides who goes first.</p>
-        <div className="flex flex-wrap justify-center gap-4">
-          {(["p1", "p2"] as const).map((p) => (
-            <div key={p} className="flex flex-col gap-2 text-sm text-zinc-600">
-              <span className="font-semibold text-zinc-800">{playerName(p)}</span>
-              <span>Vote for the deck size</span>
-              <div className="flex gap-2">
-                {DECK_SIZES.map((n) => (
-                  <button
-                    key={n}
-                    onClick={() => {
-                      setVotes((v) => ({ ...v, [p]: n }));
-                      setChoice({ p1: RANDOM_ID, p2: RANDOM_ID }); // decks depend on the size
-                    }}
-                    className={`rounded-lg border px-4 py-2 font-semibold ${votes[p] === n ? "border-amber-500 bg-amber-100 text-black" : "border-zinc-300 bg-zinc-100 text-zinc-700 hover:bg-zinc-200"}`}
-                  >
-                    {n} cards
-                  </button>
-                ))}
+      <main className="relative flex flex-1 flex-col items-center justify-center gap-5 p-5 text-slate-100 sm:p-8">
+        <div className="page-atmosphere" aria-hidden="true" />
+        <div className="panel-glass flex w-full max-w-3xl flex-col items-center gap-5 p-6 sm:p-8">
+          <div className="flex flex-col items-center gap-2 text-center">
+            <h1 className="page-title !text-3xl sm:!text-4xl">Hot-seat duel</h1>
+            <p className="text-slate-300">Two players, one screen. Heads or tails decides who goes first.</p>
+          </div>
+
+          <div className="flex w-full flex-wrap justify-center gap-4">
+            {(["p1", "p2"] as const).map((p) => (
+              <div key={p} className="seat-card" style={{ "--accent": p === "p1" ? "#f4b43d" : "#38bdf8" } as React.CSSProperties}>
+                <span className="seat-name">
+                  <i aria-hidden="true" />
+                  {playerName(p)}
+                </span>
+                <span className="field-label">Vote for the deck size</span>
+                <div className="seg seg-wide" role="group" aria-label={`${playerName(p)}: deck size`}>
+                  {DECK_SIZES.map((n) => (
+                    <button
+                      key={n}
+                      aria-pressed={votes[p] === n}
+                      onClick={() => {
+                        setVotes((v) => ({ ...v, [p]: n }));
+                        setChoice({ p1: RANDOM_ID, p2: RANDOM_ID }); // decks depend on the size
+                      }}
+                    >
+                      {n} cards
+                    </button>
+                  ))}
+                </div>
+                {agreedSize && (
+                  <label className="flex flex-col gap-1.5">
+                    <span className="field-label">Deck</span>
+                    <span className="tool-field !py-2">
+                      <select value={choice[p]} onChange={(e) => setChoice((c) => ({ ...c, [p]: e.target.value }))} className="glass-select w-full cursor-pointer">
+                        {deckChoices.map((o) => (
+                          <option key={o.id} value={o.id}>
+                            {o.name}
+                          </option>
+                        ))}
+                        <option value={RANDOM_ID}>Random {agreedSize}-card deck</option>
+                      </select>
+                    </span>
+                  </label>
+                )}
+                <LookPicker who={p} sleeve={look.storedSleeve[p]} mat={look.storedMat[p]} onSleeve={(v) => look.choose("sleeve", p, v)} onMat={(v) => look.choose("mat", p, v)} />
               </div>
-              {agreedSize && (
-                <label className="flex flex-col gap-1">
-                  Deck
-                  <select
-                    value={choice[p]}
-                    onChange={(e) => setChoice((c) => ({ ...c, [p]: e.target.value }))}
-                    className="rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-2 text-zinc-900"
-                  >
-                    {deckChoices.map((o) => (
-                      <option key={o.id} value={o.id}>
-                        {o.name}
-                      </option>
-                    ))}
-                    <option value={RANDOM_ID}>Random {agreedSize}-card deck</option>
-                  </select>
-                </label>
-              )}
-            </div>
-          ))}
-        </div>
-        <p className="max-w-md text-center text-sm text-zinc-600">
-          {agreedSize
-            ? `Agreed: ${agreedSize}-card decks. A player without a saved deck of that size gets a random one.`
-            : votes.p1 !== null && votes.p2 !== null
-              ? "You voted for different sizes. Both players must agree on the same deck size."
-              : "Each player votes. The game starts when both choose the same size."}
-        </p>
-        {hidden > 0 && (
-          <p className="max-w-md text-center text-xs text-zinc-500">
-            {hidden} saved deck{hidden > 1 ? "s are" : " is"} not offered: not legal (20+ cards, max 4 copies) or containing cards
-            the game can&apos;t play yet. Only decks with exactly the voted size are listed. See the Decks page.
+            ))}
+          </div>
+
+          <p className={`max-w-md text-center text-sm ${!agreedSize && votes.p1 !== null && votes.p2 !== null ? "text-[#fde68a]" : "text-slate-300"}`}>
+            {agreedSize
+              ? `Agreed: ${agreedSize}-card decks. A player without a saved deck of that size gets a random one.`
+              : votes.p1 !== null && votes.p2 !== null
+                ? "You voted for different sizes. Both players must agree on the same deck size."
+                : "Each player votes. The game starts when both choose the same size."}
           </p>
-        )}
-        <button
-          onClick={startGame}
-          disabled={loading || !agreedSize}
-          className="rounded-lg bg-amber-500 px-6 py-3 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
-        >
-          {loading ? "Loading cards…" : "Start game"}
-        </button>
-        <Link href="/" className="rounded-lg border border-zinc-400 px-5 py-2 text-sm font-semibold hover:bg-zinc-200">
-          ← Back to home
-        </Link>
-        {error && <p className="max-w-md text-center text-sm text-red-600">{error}</p>}
+          {hidden > 0 && (
+            <p className="max-w-md text-center text-xs text-slate-400">
+              {hidden} saved deck{hidden > 1 ? "s are" : " is"} not offered: not legal (20+ cards, max 4 copies) or containing cards the game can&apos;t play yet. Only decks with exactly
+              the voted size are listed. See the Decks page.
+            </p>
+          )}
+
+          <div className="flex flex-wrap items-center justify-center gap-3">
+            <button onClick={startGame} disabled={loading || !agreedSize} className="btn-gold !px-8 !py-3 !text-base">
+              {loading ? "Loading cards…" : "Start game"}
+            </button>
+            <Link href="/" className="btn-ghost !px-5 !py-3 !text-sm">
+              ← Back to home
+            </Link>
+          </div>
+          {error && <p role="alert" className="max-w-md rounded-xl border border-red-400/40 bg-red-950/50 px-3 py-2 text-center text-sm text-[#fecaca]">{error}</p>}
+        </div>
       </main>
     );
   }
@@ -443,7 +471,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const state = game;
   const actor = seat ?? playerToAct(state);
   /** Hot-seat: always true. Online: only while the game is waiting for this player. */
-  const mine = !online || playerToAct(state) === actor;
+  const mine = !online || (!watching && playerToAct(state) === actor);
   const other = OPPONENT[actor];
   const legal = getLegalActions(state, actor);
   const playable = new Set(legal.flatMap((a) => (a.type === "playLand" || a.type === "castCreature" || a.type === "castSpell" ? [a.iid] : [])));
@@ -479,7 +507,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    * anything they might not want: life paid for Phyrexian mana, and creatures tapped for mana (which could attack or block instead).
    */
   async function act(action: Action, as: PlayerId = actor, opts: { life?: boolean; mana?: boolean; pointless?: boolean; spare?: string[] } = {}) {
-    if (isCombatPlaying() || isPileBusy()) return; // ignore clicks while something is being animated
+    if (watching || isCombatPlaying() || isPileBusy()) return; // a watcher can't act; and ignore clicks while something is being animated
     const spare = opts.spare ?? [];
     const pay = paymentOf(action, as, spare);
     if (!pay.ok && spare.length > 0) {
@@ -557,7 +585,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     const viewer = seat ?? playerToAct(r.state);
     // Only the viewer's own cards are animated: the opponent's hand is just a count, so their draw or mulligan
     // would fly across this screen as if it were the viewer's.
-    const draws: Draw[] = state.phase === "mulligan" ? [] : r.events.flatMap((e) => {
+    const draws: Draw[] = gameRef.current?.phase === "mulligan" ? [] : r.events.flatMap((e) => {
       const card = e.type === "cardDrawn" && e.player === viewer ? r.state.players[viewer].hand.find((c) => c.iid === e.iid) : undefined;
       return card ? [{ iid: card.iid, owner: viewer, faceUp: true, def: r.state.cards[card.defId] }] : [];
     }).slice(0, 3);
@@ -585,6 +613,26 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       hideDrawn(dealt);
       await playDeal(dealt);
     }
+  }
+
+  /**
+   * The start of a match: the opening hand stays hidden while the loading screen fades and, for the players, "Welcome to the
+   * Battle Field, Now Duel!" shows on the board. Then the cards are dealt from the library.
+   */
+  async function openingDeal(hand: Draw[], greet: boolean) {
+    hideDrawn(hand);
+    const release = holdPiles(); // clicks wait for the cards
+    try {
+      await untilBattlefieldShown();
+      if (greet) {
+        setWelcome(true);
+        await new Promise((r) => setTimeout(r, WELCOME_MS));
+        setWelcome(false);
+      }
+    } finally {
+      release();
+    }
+    await playDeal(hand);
   }
 
   /** The hand of the player looking at the screen, as cards to animate. */
@@ -1038,15 +1086,17 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         </button>
         <BackgroundPicker bg={background} />
         <PlayedThisTurn items={history.filter((h) => h.turn === state.turn)} state={state} onZoom={(defId) => setZoomed(state.cards[defId])} />
-        <ChatPanel
-          messages={chat}
-          as={actor}
-          onSend={(text) => (online ? netSend("chat", { text }) : setChat((c) => [...c, { id: c.length, from: actor, text }]))}
-        />
+        {!watching && (
+          <ChatPanel
+            messages={chat}
+            as={actor}
+            onSend={(text) => (online ? netSend("chat", { text }) : setChat((c) => [...c, { id: c.length, from: actor, text }]))}
+          />
+        )}
         <LogPanel lines={log} />
         {/* You: bottom left */}
         <div className="shrink-0">
-          <PlayersPanel state={state} order={[actor]} actor={actor} onResign={setResigning} heading="You" />
+          <PlayersPanel state={state} order={[actor]} actor={actor} onResign={watching ? undefined : setResigning} heading={watching ? "Player" : "You"} />
         </div>
       </aside>
 
@@ -1169,17 +1219,25 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         </section>
 
         {/* What to do now, in the color of the step. */}
-        {!state.winner && (() => {
+        {!state.winner && watching && (
+          <div className="flex shrink-0 items-center gap-2 rounded-xl border border-sky-300/50 bg-sky-950/60 px-3 py-2 text-sm text-sky-100 shadow-sm">
+            <span aria-hidden="true">👁</span>
+            <span className="min-w-0 flex-1">
+              You are watching. It is <b>{playerName(playerToAct(state))}</b>&apos;s turn to act.
+            </span>
+          </div>
+        )}
+        {!state.winner && !watching && (() => {
           const mode: BannerMode = state.pendingPick || state.pendingChoice ? "choice" : state.priority ? "stack" : state.phase === "attackers" ? "attack" : state.phase === "blockers" ? "block" : state.phase === "damage" ? "damage" : state.phase === "mulligan" ? "mulligan" : state.phase === "cleanup" ? "cleanup" : "main";
           const b = BANNER[mode];
           return (
-            <div className={`flex shrink-0 items-center gap-2 rounded-xl border px-3 py-1 shadow-sm ${b.box}`}>
-              <span className="text-lg" aria-hidden="true">
+            <div className={`flex shrink-0 items-center gap-2.5 rounded-xl border px-3.5 py-2 shadow-sm ${b.box}`}>
+              <span className="text-2xl" aria-hidden="true">
                 {b.icon}
               </span>
-              <div className="min-w-0 flex-1 text-xs leading-snug">
-                <span className="mr-2 text-[10px] font-extrabold uppercase font-display tracking-widest opacity-70">{b.label}</span>
-                <span className="font-medium">{hint}</span>
+              <div className="min-w-0 flex-1 text-[15px] leading-snug">
+                <span className="mr-2.5 text-xs font-extrabold uppercase font-display tracking-widest">{b.label}</span>
+                <span className="font-semibold">{hint}</span>
               </div>
               {error && (
                 <span className="rounded-lg bg-red-600 px-3 py-1 text-sm font-semibold text-white shadow">
@@ -1370,6 +1428,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           <Lane perms={cardsIn(actor, "land")} state={state} interaction={(p) => interaction(actor, p)} size="sm" onInspect={inspect} onZoom={setZoomed} attackingIds={attackerIds} onPreview={showPreview} onUnpreview={() => setHandHover(null)} />
         </Side>
 
+        {!watching && (
         <Side label={`${playerName(actor)}'s hand`} tone="emerald">
           {/* While choosing cards (mulligan, discard) the hand stays together; otherwise playable cards come first, apart from the rest. */}
           {(() => {
@@ -1422,13 +1481,14 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             );
           })()}
         </Side>
+        )}
       </section>
 
       {/* Right: the card under the mouse, big */}
       <aside className="flex flex-col gap-2 lg:min-h-0">
         {/* Your opponent: top right */}
         <div className="shrink-0">
-          <PlayersPanel state={state} order={[other]} actor={actor} onResign={online ? undefined : setResigning} heading="Opponent" />
+          <PlayersPanel state={state} order={[other]} actor={actor} onResign={online ? undefined : setResigning} heading={watching ? "Player" : "Opponent"} />
         </div>
         <div className="min-h-0 flex-1 lg:overflow-y-auto">
           <CardDetail inspected={inspected} />
@@ -1492,6 +1552,43 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         />
       )}
 
+      {online && (watching || (net.snapshot?.spectators ?? 0) > 0 || net.notices.length > 0) && (
+        <div className="pointer-events-none fixed inset-x-0 top-14 z-30 flex flex-col items-center gap-2 px-4">
+          {watching && (
+            <div className="pointer-events-auto flex items-center gap-3 rounded-full border border-sky-300/60 bg-slate-950/90 py-1.5 pl-4 pr-1.5 text-sm font-semibold text-sky-100 shadow-xl shadow-black/40">
+              <span>
+                👁 Watching{(net.snapshot?.spectators ?? 0) > 1 ? ` · ${net.snapshot?.spectators} watching` : ""}
+              </span>
+              <button
+                onClick={() => {
+                  leaveRoom();
+                  router.push("/");
+                }}
+                className="btn-ghost !py-1"
+              >
+                ← Back to dashboard
+              </button>
+            </div>
+          )}
+          {!watching && (net.snapshot?.spectators ?? 0) > 0 && (
+            <div className="rounded-full border border-white/25 bg-slate-950/85 px-3 py-1 text-xs font-semibold text-slate-100 shadow-lg shadow-black/40">
+              👁 {net.snapshot?.spectators} watching
+            </div>
+          )}
+          {net.notices.map((n) => (
+            <button
+              key={n.id}
+              onClick={() => dismissNotice(n.id)}
+              title="Dismiss"
+              className="pointer-events-auto max-w-md rounded-2xl border border-amber-300/60 bg-slate-950/90 px-4 py-2 text-left text-sm font-semibold text-amber-100 shadow-xl shadow-black/40"
+            >
+              👁 {n.text}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {welcome && <WelcomeSplash />}
       {turnSplash > 0 && !state.winner && <TurnSplash key={turnSplash} />}
       {online && net.reconnecting && (
         <div role="status" className="pointer-events-none fixed inset-x-0 top-3 z-30 flex justify-center px-4">
@@ -1506,7 +1603,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           winner={state.winner}
           reason={endNote ?? (online ? net.snapshot?.endReason ?? null : null)}
           onPlayAgain={startGame}
-          you={online ? actor : undefined}
+          you={online && !watching ? actor : undefined}
           onLeave={
             online
               ? () => {
@@ -1516,6 +1613,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
               : undefined
           }
         />}
+      {!online && entered > 0 && <EnterBattlefield key={entered} />}
     </main>
   );
 }
@@ -1540,10 +1638,8 @@ function Side({ label, children, player, tone, grow, mat, zones, overlay }: { la
         <div className="relative z-[1] flex min-h-0 flex-1 gap-3">
           <FitToHeight className="flex-1">{children}</FitToHeight>
           {zones && (
-            // the library, graveyard and exile shrink to fit when the mat gets short (a choice panel is open, for example)
-            <FitToHeight className="w-44 shrink-0 rounded-xl border-2 border-dashed border-white/30 bg-black/25 p-1.5" innerClassName="flex flex-col gap-1.5" maxZoom={1} minZoom={0.3}>
-              {zones}
-            </FitToHeight>
+            // the library, graveyard and exile share the whole height of the mat, and scale with it (a choice panel makes the mat shorter, for example)
+            <div className="flex min-h-0 w-44 shrink-0 flex-col gap-1.5 rounded-xl border-2 border-dashed border-white/30 bg-black/25 p-1.5">{zones}</div>
           )}
         </div>
       </section>

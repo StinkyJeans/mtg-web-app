@@ -1,8 +1,8 @@
 import { Room, Client, CloseCode, ServerError, matchMaker } from "colyseus";
 import type { Delayed } from "colyseus";
-import { applyAction, createGame, HIDDEN_CARD_ID, playerToAct, viewFor } from "@mtg/engine";
+import { applyAction, createGame, HIDDEN_CARD_ID, playerToAct, spectatorView, unplayableCards, viewFor } from "@mtg/engine";
 import type { Action, CardDef, GameEvent, GameState, PlayerId } from "@mtg/engine";
-import { accountFromToken, dropLive, loadCards, loadLive, saveLive, saveMatch } from "../supabase.js";
+import { accountFromToken, dropLive, friendIdsOf, loadCards, loadLive, saveLive, saveMatch } from "../supabase.js";
 import type { Account } from "../supabase.js";
 import { botPool } from "../botPool.js";
 import { LIMITS, passwordGuesses } from "../limits.js";
@@ -29,7 +29,14 @@ export const KICKED = 4100;
 /** Error code (sent as the HTTP status, so it must be one) for a restore of a match that has ended or was never saved: the browser stops trying. */
 export const MATCH_GONE = 410;
 
+/** What a player chose for the table: their card sleeve and playmat, as "preset:<id>" (empty = their default). Shown to everyone in the match. */
+export interface Look {
+  sleeve: string;
+  mat: string;
+}
+
 interface Member {
+  look?: Look;
   sessionId: string;
   account: Account;
   seat: PlayerId;
@@ -50,6 +57,8 @@ export interface RoomMeta {
   locked: boolean;
   /** A room with a computer opponent: nobody else can join it. */
   bot: boolean;
+  /** People watching the match. */
+  spectators: number;
 }
 
 /** What the lobby shows for a room, and what each player's room pop-up is drawn from. */
@@ -62,11 +71,15 @@ export interface RoomSnapshot {
   size: number | null;
   /** "The votes differ" so the pop-up can say so. */
   mismatch: boolean;
-  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; bot?: boolean }[];
+  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; bot?: boolean; look?: Look }[];
   /** `call`, `result` and `winner` stay null until the caller has called heads or tails. */
   coin: { caller: PlayerId; call: Side | null; result: Side | null; winner: PlayerId | null; chose: "first" | "second" | null } | null;
   winner: PlayerId | "draw" | null;
   endReason: string | null;
+  /** How many people are watching. */
+  spectators: number;
+  /** Set when this snapshot is for someone watching, not playing (`you` is then only the side the board is drawn from). */
+  spectating?: boolean;
 }
 
 type Side = "heads" | "tails";
@@ -88,7 +101,7 @@ interface SavedMatch {
 const RECONNECT_SECONDS = 60;
 const CLAIM_SETUP_SECONDS = 90; // a seat being set up that never connects frees its claim after this long
 
-const acctKey = (accountId: string) => `acct-room:${accountId}`;
+export const acctKey = (accountId: string) => `acct-room:${accountId}`;
 /** Is this room still open (on any server process)? */
 async function roomIsOpen(roomId: string) {
   try {
@@ -100,7 +113,8 @@ async function roomIsOpen(roomId: string) {
 const SAVE_DELAY_MS = 300; // changes in quick succession are saved once
 
 export class MatchRoom extends Room<{ metadata: RoomMeta }> {
-  maxClients = 2;
+  /** Two players, and the people watching. */
+  maxClients = 2 + LIMITS.maxSpectators();
   /** A browser that sends more than this per second is cut off. */
   maxMessagesPerSecond = LIMITS.messagesPerSecond();
 
@@ -124,6 +138,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   private botTimer?: ReturnType<typeof setTimeout>;
   private botRun = 0; // bumped whenever a bot move in the works must be thrown away
   private idleTimer?: ReturnType<typeof setTimeout>;
+  private spectators = new Map<string, { account: Account }>(); // by session id: people watching, who see no hand and can do nothing
   private claimed = new Set<string>(); // accounts that currently hold a seat here (one room per account)
   private lastChat = 0;
   private saveTimer: Delayed | undefined;
@@ -153,7 +168,6 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       }
       MatchRoom.botRooms.add(this.roomId);
       this.members.push({ sessionId: "bot", account: { id: "bot", username: "Bot" }, seat: "p2", connected: true, vote: null, deck: null, isBot: true });
-      void this.lock(); // nobody else can join a room that has a bot
       this.publish();
     },
 
@@ -162,7 +176,6 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       if (!m || m.seat !== "p1" || this.stage !== "waiting" || !this.bot) return;
       this.members = this.members.filter((x) => !x.isBot);
       MatchRoom.botRooms.delete(this.roomId);
-      void this.unlock();
       this.publish();
     },
 
@@ -196,6 +209,9 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
         const cards = await loadCards(ids);
         const bad = ids.find((id) => !cards[id] || cards[id].playable === false);
         if (bad) throw new Error(`"${bad}" can't be played in this game.`);
+        // the stored flag can lag behind the rules engine: the engine has the last word on what it can play
+        const stuck = unplayableCards(cards, ids)[0];
+        if (stuck) throw new Error(`${stuck.name} can't be played yet.`);
         Object.assign(this.defs, cards);
       };
       try {
@@ -213,6 +229,17 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
         return;
       }
       if (this.stage === "decks" && this.members.length === 2 && this.members.every((x) => x.deck)) this.startCoin();
+      this.publish();
+    },
+
+    /** The player's card sleeve and playmat, chosen before the game. Only a preset's name is accepted (never a picture), so it is small and safe to show the other player. */
+    look: (client: Client, message: { sleeve?: unknown; mat?: unknown; bot?: { sleeve?: unknown; mat?: unknown } }) => {
+      const m = this.member(client);
+      if (!m || this.stage === "playing" || this.stage === "over") return;
+      const clean = (v: unknown) => (typeof v === "string" && /^(preset:[a-z0-9-]{1,40})?$/.test(v) ? v : "");
+      m.look = { sleeve: clean(message?.sleeve), mat: clean(message?.mat) };
+      const bot = this.bot; // the host also dresses the computer's table
+      if (bot && m.seat === "p1" && message?.bot) bot.look = { sleeve: clean(message.bot.sleeve), mat: clean(message.bot.mat) };
       this.publish();
     },
 
@@ -247,7 +274,13 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     /** A browser that has just joined (or reconnected) asks where things stand, once it is ready to listen. */
     hello: (client: Client) => {
       const m = this.member(client);
-      if (!m) return;
+      if (!m) {
+        if (this.spectators.has(client.sessionId)) {
+          client.send("room", this.snapshot({ seat: "p1" }, true));
+          this.sendGameToSpectator(client);
+        }
+        return;
+      }
       client.send("room", this.snapshot(m));
       if (this.stage === "playing" || this.stage === "over") this.sendGame(m);
     },
@@ -262,7 +295,6 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
         // "removing" the bot just takes it out of the room
         this.members = this.members.filter((x) => !x.isBot);
         MatchRoom.botRooms.delete(this.roomId);
-        void this.unlock();
         this.publish();
         return;
       }
@@ -279,30 +311,45 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     },
   };
 
-  async onAuth(client: Client, options: { token?: string; password?: string }) {
+  async onAuth(client: Client, options: { token?: string; password?: string; spectate?: boolean }) {
     const account = await accountFromToken(options?.token);
     if (!account) throw new Error("Please sign in again.");
     if (this.banned.has(account.id)) throw new Error("The host removed you from this room.");
+    // someone who only wants to watch
+    if (options?.spectate) return this.authSpectator(account, options.password);
     // the same account can't hold two seats
     if (this.members.some((m) => m.account.id === account.id && m.connected)) throw new Error("You are already in this room.");
     // a player coming back to their own seat doesn't need the password again
     const member = this.members.some((m) => m.account.id === account.id);
     // a room holding a seat for someone who dropped is unlocked so they can come back; nobody else gets in
     if (!member && this.members.length >= 2) throw new Error("This room is full.");
-if (this.password && !member) {
-      const wait = passwordGuesses.waitSeconds(account.id);
-      if (wait > 0) throw new Error(`Too many wrong passwords. Try again in ${wait} seconds.`);
-      if (options?.password !== this.password) {
-        if (options?.password) passwordGuesses.fail(account.id);
-        throw new Error(options?.password ? "Wrong password." : "This room needs a password.");
-      }
-      passwordGuesses.succeed(account.id);
-    }
+if (this.password && !member) this.checkPassword(account, options?.password);
     // the server has room for only so many rooms; the one being opened right now is already counted
     if (this.members.length === 0 && matchMaker.stats.local.roomCount > LIMITS.maxRooms()) throw new Error("The server is full right now. Try again in a few minutes.");
     // one room at a time per account (and so one account can't flood the lobby with rooms)
     if (!member) await this.claim(account.id);
     return account;
+  }
+
+  /** The room's password, with the same lock-out after too many wrong guesses for joining and for watching. */
+  private checkPassword(account: Account, given: string | undefined) {
+    const wait = passwordGuesses.waitSeconds(account.id);
+    if (wait > 0) throw new Error(`Too many wrong passwords. Try again in ${wait} seconds.`);
+    if (given !== this.password) {
+      if (given) passwordGuesses.fail(account.id);
+      throw new Error(given ? "Wrong password." : "This room needs a password.");
+    }
+    passwordGuesses.succeed(account.id);
+  }
+
+  /** Watching: free in an open room, with the password in a locked one. Only a match that is being played can be watched. */
+  private async authSpectator(account: Account, password: string | undefined) {
+    if (this.stage !== "playing") throw new Error(this.stage === "over" ? "This match is over." : "This match has not started yet.");
+    if (this.members.some((m) => m.account.id === account.id)) throw new Error("You are playing in this match.");
+    if (this.spectators.size >= LIMITS.maxSpectators()) throw new Error("This match already has as many people watching as it allows.");
+    if (this.password) this.checkPassword(account, password);
+    await this.claim(account.id); // one room at a time: you can't play in one match and watch another
+    return { ...account, spectator: true };
   }
 
   /** Reserves the account for this room, or refuses if it holds a seat in another room that is still open. */
@@ -359,12 +406,15 @@ if (this.password && !member) {
     const acc = (account ?? (client.auth as Account | undefined))!;
     this.claimed.add(acc.id);
     void this.presence.set(acctKey(acc.id), this.roomId); // holds the seat for good (until released)
+    if ((acc as Account & { spectator?: boolean }).spectator) {
+      void this.watcherArrived(client, acc);
+      return;
+    }
     const back = this.members.find((x) => x.account.id === acc.id);
     if (back) {
       // a player coming back after a lost connection, or after a restart
       back.sessionId = client.sessionId;
       back.connected = true;
-      if (this.members.length === 2 && this.members.every((x) => x.connected)) void this.lock();
       this.publish();
       this.sendGame(back);
       if (this.restored) {
@@ -375,12 +425,18 @@ if (this.password && !member) {
     }
     const seat: PlayerId = this.members.some((x) => x.seat === "p1") ? "p2" : "p1";
     this.members.push({ sessionId: client.sessionId, account: acc, seat, connected: true, vote: null, deck: null });
-    if (this.members.length === 2) void this.lock(); // full: the matchmaker stops sending people here
     this.publish();
   }
 
   async onLeave(client: Client, code: number) {
     if (this.shuttingDown) return; // the restart letting everyone go: the match was saved and goes on afterwards
+    const watcher = this.spectators.get(client.sessionId);
+    if (watcher) {
+      this.spectators.delete(client.sessionId);
+      this.release(watcher.account.id);
+      this.publish();
+      return;
+    }
     const m = this.members.find((x) => x.sessionId === client.sessionId);
     if (!m) return;
     const leftOnPurpose = code === CloseCode.CONSENTED;
@@ -388,7 +444,6 @@ if (this.password && !member) {
     if (this.stage === "playing" && !leftOnPurpose) {
       // a dropped connection: hold the seat for a while
       m.connected = false;
-      void this.unlock();
       this.publish();
       try {
         const back = await this.allowReconnection(client, RECONNECT_SECONDS);
@@ -428,6 +483,10 @@ if (this.password && !member) {
       this.members = this.members.filter((x) => x !== m);
       this.release(m.account.id);
       this.publish();
+      if (this.members.length === 0 && this.spectators.size > 0) {
+        this.broadcast("closed", { message: "The match is over." });
+        void this.disconnect();
+      }
       return;
     }
     // before the game: the host leaving closes the room, a guest leaving just frees the seat
@@ -445,7 +504,6 @@ if (this.password && !member) {
     this.size = null;
     this.mismatch = false;
     this.coin = null;
-    void this.unlock();
     this.publish();
   }
 
@@ -458,7 +516,49 @@ if (this.password && !member) {
     return this.clients.find((c) => c.sessionId === m.sessionId);
   }
 
-  private snapshot(m: Member): RoomSnapshot {
+  /** Both players' sleeves and playmats, by seat. */
+  private looks(): Record<PlayerId, Look> {
+    const of = (seat: PlayerId) => this.members.find((x) => x.seat === seat)?.look ?? { sleeve: "", mat: "" };
+    return { p1: of("p1"), p2: of("p2") };
+  }
+
+  private clientById(sessionId: string) {
+    return this.clients.find((c) => c.sessionId === sessionId);
+  }
+
+  /** A person has started watching: they get the room and the game as a spectator sees it, and the players are told. */
+  private async watcherArrived(client: Client, acc: Account) {
+    this.spectators.set(client.sessionId, { account: acc });
+    this.touch();
+    client.send("room", this.snapshot({ seat: "p1" }, true));
+    this.sendGameToSpectator(client);
+    this.publish(); // the players' count and the lobby's line
+    const friends = await friendIdsOf(acc.id);
+    for (const m of this.members) {
+      if (m.isBot) continue;
+      this.clientOf(m)?.send("spectator", { name: acc.username, friend: friends.has(m.account.id) });
+    }
+  }
+
+  /** The whole game as a spectator sees it: both hands and both libraries face down. */
+  private sendGameToSpectator(client: Client) {
+    if (!this.game) return;
+    const winnerName = this.coin ? this.members.find((x) => x.seat === this.coin!.winner)?.account.username : "";
+    const callerName = this.coin ? this.members.find((x) => x.seat === this.coin!.caller)?.account.username : "";
+    client.send("start", {
+      view: spectatorView(this.game),
+      events: [] as GameEvent[],
+      you: "p1",
+      spectator: true,
+      names: Object.fromEntries(this.members.map((x) => [x.seat, x.account.username])),
+      deckNames: this.deckNames,
+      summary: this.coin ? `${callerName} called ${this.coin.call}; it landed ${this.coin.result}. ${winnerName} won the flip and chose to go ${this.coin.chose}.` : "",
+      fresh: false,
+      looks: this.looks(),
+    });
+  }
+
+  private snapshot(m: Pick<Member, "seat">, spectating = false): RoomSnapshot {
     return {
       stage: this.stage,
       name: this.title,
@@ -467,10 +567,12 @@ if (this.password && !member) {
       locked: this.password !== "",
       size: this.size,
       mismatch: this.mismatch,
-      players: this.members.map((x) => ({ seat: x.seat, name: x.account.username, connected: x.connected, voted: x.vote, deckReady: x.deck !== null, ...(x.isBot ? { bot: true } : {}) })),
+      players: this.members.map((x) => ({ seat: x.seat, name: x.account.username, connected: x.connected, voted: x.vote, deckReady: x.deck !== null, ...(x.isBot ? { bot: true } : {}), ...(x.look ? { look: x.look } : {}) })),
       coin: this.coin,
       winner: this.winner,
       endReason: this.endReason,
+      spectators: this.spectators.size,
+      ...(spectating ? { spectating: true } : {}),
     };
   }
 
@@ -478,8 +580,9 @@ if (this.password && !member) {
   private publish() {
     this.touch();
     for (const m of this.members) this.clientOf(m)?.send("room", this.snapshot(m));
+    for (const id of this.spectators.keys()) this.clientById(id)?.send("room", this.snapshot({ seat: "p1" }, true));
     const host = this.members.find((x) => x.seat === "p1");
-    void this.setMetadata({ name: this.title, host: host?.account.username ?? "", players: this.members.map((x) => x.account.username), status: this.stage, turn: this.game?.turn ?? 0, locked: this.password !== "", bot: this.bot !== undefined });
+    void this.setMetadata({ name: this.title, host: host?.account.username ?? "", players: this.members.map((x) => x.account.username), status: this.stage, turn: this.game?.turn ?? 0, locked: this.password !== "", bot: this.bot !== undefined, spectators: this.spectators.size });
     this.persist();
   }
 
@@ -555,7 +658,20 @@ if (this.password && !member) {
     const [a, b] = [this.members.find((x) => x.seat === "p1")!, this.members.find((x) => x.seat === "p2")!];
     this.deckNames = { p1: a.deck!.name, p2: b.deck!.name };
     const decks = { p1: a.deck!.ids, p2: b.deck!.ids };
-    this.game = createGame(decks, Math.floor(Math.random() * 2 ** 31), this.defs, { startingPlayer: first, mulligan: true });
+    try {
+      this.game = createGame(decks, Math.floor(Math.random() * 2 ** 31), this.defs, { startingPlayer: first, mulligan: true });
+    } catch (e) {
+      // a deck the engine can't play got through: send both players back to choose again, instead of leaving the match stuck
+      console.error("Could not start the match:", e instanceof Error ? e.message : e);
+      for (const m of this.members) {
+        m.deck = null;
+        this.clientOf(m)?.send("error", { message: `${e instanceof Error ? e.message : "That deck can't be played"} Choose your decks again.` });
+      }
+      this.coin = null;
+      this.stage = "decks";
+      this.publish();
+      return;
+    }
     this.stage = "playing";
     this.publish();
     for (const m of this.members) this.sendGame(m, true);
@@ -575,6 +691,7 @@ if (this.password && !member) {
       deckNames: this.deckNames,
       summary: this.coin ? `${callerName} called ${this.coin.call}; it landed ${this.coin.result}. ${winnerName} won the flip and chose to go ${this.coin.chose}.` : "",
       fresh,
+      looks: this.looks(),
     });
   }
 
@@ -582,6 +699,10 @@ if (this.password && !member) {
     if (!this.game) return;
     this.touch(); // a move was made: the room is in use
     for (const m of this.members) this.clientOf(m)?.send("update", { view: viewFor(this.game, m.seat), events });
+    if (this.spectators.size > 0) {
+      const view = spectatorView(this.game);
+      for (const id of this.spectators.keys()) this.clientById(id)?.send("update", { view, events });
+    }
   }
 
   /** One action at a time, only from the right player, and the new state goes out to both. */

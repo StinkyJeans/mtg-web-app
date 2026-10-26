@@ -1,4 +1,4 @@
-# MTG Duel live game server
+# DuelRealm MTG live game server
 
 A [Colyseus](https://colyseus.io) server (0.18) that runs online matches between two players.
 The rules live in `packages/engine`; this server holds the real game state and applies every action with that engine,

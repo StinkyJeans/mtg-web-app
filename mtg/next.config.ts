@@ -14,7 +14,7 @@ const nextConfig: NextConfig = {
     return [
       {
         // The wallpapers are large (the videos are 6 to 11 MB). Keep them for a week; the browser may keep playing an old one for that long if a file is swapped under the same name.
-        source: "/backgrounds/:path*",
+        source: "/:folder(backgrounds|music)/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=2592000" }],
       },
       {

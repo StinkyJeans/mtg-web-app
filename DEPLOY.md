@@ -1,4 +1,4 @@
-# Putting MTG Duel on the internet
+# Putting DuelRealm MTG on the internet
 
 Everything runs on **Railway**, in the project **mtg-web**. Two pieces, two services:
 

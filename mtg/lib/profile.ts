@@ -7,8 +7,28 @@ import { createClient } from "@/lib/supabase/client";
 export interface Me {
   id: string;
   name: string;
+  /** The name shown to friends and opponents instead of the login name, or null. */
+  nickname: string | null;
   /** Address of the picture, or null. */
   avatar: string | null;
+}
+
+export const MAX_NICKNAME = 24;
+
+/** A nickname as it will be kept: no control characters, single spaces, at most 24 characters; null when nothing is left. */
+export function cleanNickname(text: string): string | null {
+  const t = text.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim().slice(0, MAX_NICKNAME).trim();
+  return t || null;
+}
+
+/** Saves (or, with an empty text, removes) the nickname. Returns what was kept. */
+export async function saveNickname(me: string, text: string): Promise<string | null> {
+  const nickname = cleanNickname(text);
+  const { error } = await createClient().from("profiles").update({ nickname }).eq("id", me);
+  if (error) {
+    throw new Error(/column|schema cache/i.test(error.message) ? "Nicknames are not set up yet. Run supabase/05-friends.sql once in the Supabase SQL editor." : error.message);
+  }
+  return nickname;
 }
 
 /** Where a player's picture lives. `version` changes with every new picture, so browsers fetch the new one. */
@@ -22,8 +42,11 @@ export async function loadMe(): Promise<Me | null> {
   if (!u) return null;
   const stored = u.user_metadata.avatar as string | number | undefined; // a version number; older accounts hold the picture itself
   const legacy = typeof stored === "string" && stored.startsWith("data:");
+  // (if the nickname column is not installed yet, there is simply no nickname)
+  const { data: profile } = await createClient().from("profiles").select("nickname").eq("id", u.id).maybeSingle();
   const me: Me = {
     id: u.id,
+    nickname: (profile as { nickname?: string | null } | null)?.nickname ?? null,
     name:
       (u.user_metadata.username as string | undefined) ??
       u.email?.split("@")[0] ??

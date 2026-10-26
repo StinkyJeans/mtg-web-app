@@ -9,7 +9,15 @@ import { sleeveOf } from "@/lib/playmat";
 
 let busy = false;
 /** True while a card is flying, so the game can ignore clicks until it has landed. */
-export const isPileBusy = () => busy;
+let holds = 0;
+export const isPileBusy = () => busy || holds > 0;
+/** Counts as "something is being animated" (clicks are ignored) until the returned function is called. */
+export function holdPiles(): () => void {
+  holds++;
+  return () => {
+    holds--;
+  };
+}
 
 const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const cardEl = (iid: string) => document.querySelector<HTMLElement>(`[data-card-iid="${iid}"]`);
@@ -72,6 +80,27 @@ export async function playToGraveyard(iids: string[]): Promise<void> {
   }
 }
 
+// A card that is about to fly into the hand is hidden until it lands. The hiding is a style rule that names the card, not a style
+// on one page element: if the hand is redrawn while the card flies (cards regroup, the game updates), the new element is hidden too,
+// so the card is never on screen twice.
+const hiddenCards = new Set<string>();
+let hideSheet: HTMLStyleElement | null = null;
+function paintHidden() {
+  if (typeof document === "undefined") return;
+  if (!hideSheet) {
+    hideSheet = document.createElement("style");
+    document.head.appendChild(hideSheet);
+  }
+  hideSheet.textContent = [...hiddenCards].map((id) => `[data-card-iid="${CSS.escape(id)}"]{visibility:hidden !important}`).join("");
+}
+function hideCard(iid: string) {
+  hiddenCards.add(iid);
+  paintHidden();
+}
+function showCard(iid: string) {
+  if (hiddenCards.delete(iid)) paintHidden();
+}
+
 export interface Draw {
   iid: string;
   owner: PlayerId;
@@ -84,8 +113,7 @@ export interface Draw {
 export function hideDrawn(draws: Draw[]): void {
   if (!animationsEnabled()) return;
   for (const d of draws) {
-    const el = cardEl(d.iid);
-    if (el) el.style.visibility = "hidden";
+    hideCard(d.iid);
   }
 }
 
@@ -215,7 +243,7 @@ async function flyDraw(d: Draw, delay: number) {
     ).finished;
   } finally {
     outer.remove();
-    if (slot) slot.style.visibility = "";
+    showCard(d.iid);
   }
 }
 
@@ -227,10 +255,7 @@ export async function playDraws(draws: Draw[]): Promise<void> {
     for (const d of draws) await flyDraw(d, 0);
   } finally {
     busy = false;
-    for (const d of draws) {
-      const el = cardEl(d.iid);
-      if (el) el.style.visibility = "";
-    }
+    for (const d of draws) showCard(d.iid);
   }
 }
 
@@ -239,7 +264,7 @@ async function dealOne(d: Draw, delay: number) {
   const slot = cardEl(d.iid);
   await wait(delay);
   if (!library || !slot) {
-    if (slot) slot.style.visibility = "";
+    showCard(d.iid);
     return;
   }
   const from = centerOf(library.getBoundingClientRect());
@@ -262,8 +287,14 @@ async function dealOne(d: Draw, delay: number) {
     ).finished;
   } finally {
     outer.remove();
-    slot.style.visibility = "";
+    showCard(d.iid);
   }
+}
+
+/** The "entering the battlefield" screen covers the table when a match begins: the deal waits for it to fade, or nobody would see it. */
+export async function untilBattlefieldShown(): Promise<void> {
+  const start = Date.now();
+  while (Date.now() - start < 8000 && document.querySelector('.enter-overlay[data-leaving="false"]')) await new Promise((r) => setTimeout(r, 50));
 }
 
 /** The opening hand (or a mulligan's new one): the cards are dealt from the library straight into the hand, one after another. */
@@ -271,12 +302,10 @@ export async function playDeal(draws: Draw[]): Promise<void> {
   if (!animationsEnabled() || draws.length === 0) return;
   busy = true;
   try {
+    await untilBattlefieldShown();
     await Promise.all(draws.map((d, i) => dealOne(d, i * 110)));
   } finally {
     busy = false;
-    for (const d of draws) {
-      const el = cardEl(d.iid);
-      if (el) el.style.visibility = "";
-    }
+    for (const d of draws) showCard(d.iid);
   }
 }

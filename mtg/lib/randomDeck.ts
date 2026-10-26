@@ -1,3 +1,5 @@
+import { isSupportedCard } from "@mtg/engine";
+import { fetchCardsByIds } from "@/lib/cards";
 import { createClient } from "@/lib/supabase/client";
 
 type Color = "W" | "U" | "B" | "R" | "G";
@@ -40,7 +42,9 @@ async function sampleSpells(): Promise<Candidate[]> {
     if (page.error) throw new Error(page.error.message);
     for (const row of page.data as Candidate[]) seen.set(row.id, row);
   }
-  return [...seen.values()];
+  // the stored "playable" flag can lag behind the rules engine, so the engine checks each card too
+  const defs = await fetchCardsByIds([...seen.keys()]);
+  return [...seen.values()].filter((c) => defs[c.id] && isSupportedCard(defs[c.id]));
 }
 
 /**

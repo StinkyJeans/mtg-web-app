@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { CardDef } from "@mtg/engine";
 import { searchCards } from "@/lib/cards";
+import { CARDS_PAGE_SIZE, cardImageUrl } from "@/lib/cards";
+import { preloadImage, remember } from "@/lib/prefetch";
 import type { CardSearch } from "@/lib/cards";
 
 export interface CardSearchResult {
@@ -13,20 +14,37 @@ export interface CardSearchResult {
   error?: string;
 }
 
+const cachedSearch = (search: CardSearch) => remember(`cards:${JSON.stringify(search)}`, () => searchCards(search), 60_000);
+
+/** Fetches a page of results ahead of time (the next page, or the one a pager button points at). */
+export function prefetchCardPage(search: CardSearch): Promise<void> {
+  return cachedSearch(search).then(
+    (r) => r.cards.slice(0, 12).forEach((def) => def.image && preloadImage(cardImageUrl(def.image))),
+    () => undefined,
+  );
+}
+
 /** Debounced, paged card search against the database. `loading` is true while results are stale. */
 export function useCardSearch(search: CardSearch) {
   const { query, type, playableOnly, page } = search;
   const [result, setResult] = useState<CardSearchResult | null>(null);
   const key = JSON.stringify({ query, type, playableOnly, page });
+  const lastQuery = useRef(query);
 
   useEffect(() => {
     let cancelled = false;
-    // Small delay so typing doesn't fire a request per keystroke.
+    // Small delay so typing doesn't fire a request per keystroke; changing the page or a filter needs none.
+    const typing = lastQuery.current !== query;
+    lastQuery.current = query;
     const timer = setTimeout(() => {
-      searchCards({ query, type, playableOnly, page })
-        .then((r) => !cancelled && setResult({ key, ...r }))
+      cachedSearch({ query, type, playableOnly, page })
+        .then((r) => {
+          if (cancelled) return;
+          setResult({ key, ...r });
+          if ((page + 1) * CARDS_PAGE_SIZE < r.total) void prefetchCardPage({ query, type, playableOnly, page: page + 1 }); // the likely next click
+        })
         .catch((e: Error) => !cancelled && setResult({ key, cards: [], total: 0, error: e.message }));
-    }, 250);
+    }, typing ? 250 : 0);
     return () => {
       cancelled = true;
       clearTimeout(timer);

@@ -61,6 +61,15 @@ async function ensureBucket() {
   }); // "already exists" is fine
 }
 
+/** Notes the picture's version on the player's public profile, so friends can find the picture. (Skipped quietly until supabase/05-friends.sql is installed.) */
+async function markPicture(id: string, version: number | null) {
+  try {
+    await fetch(`${URL}/rest/v1/profiles?id=eq.${id}`, { method: "PATCH", headers: { apikey: SECRET, "content-type": "application/json" }, body: JSON.stringify({ avatar_v: version }) });
+  } catch {
+    // not worth failing a picture change over
+  }
+}
+
 export async function POST(request: Request) {
   if (!SECRET || !URL)
     return json({ error: "Pictures are not set up on this server." }, 503);
@@ -91,7 +100,9 @@ export async function POST(request: Request) {
     res = await put();
   }
   if (!res.ok) return json({ error: "Could not save the picture." }, 502);
-  return json({ version: Date.now() });
+  const version = Date.now();
+  await markPicture(id, version);
+  return json({ version });
 }
 
 export async function DELETE(request: Request) {
@@ -102,5 +113,6 @@ export async function DELETE(request: Request) {
   if (tooOften(id))
     return json({ error: "Too many changes. Wait a minute." }, 429);
   await storage(`object/${BUCKET}/${id}.jpg`, { method: "DELETE" }); // already gone is fine
+  await markPicture(id, null);
   return json({ ok: true });
 }

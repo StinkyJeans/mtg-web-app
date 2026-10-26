@@ -56,7 +56,13 @@ To measure your own server: start it with `DEV_AUTH=1` on a test port and run `n
 | `IDLE_MINUTES` | 30 | closes a room nobody uses |
 | `STUCK_GAME_MINUTES` | 120 | ends a game with no move for this long |
 | `PASSWORD_TRIES` / `PASSWORD_LOCK_SECONDS` | 5 / 60 | wrong room passwords before waiting |
+| `MAX_SPECTATORS` | 25 | people who may watch one match at once |
 | `REDIS_URL` | not set | see below |
+
+## Watching matches and the friends' status
+- A match in progress can be watched from the room list or from a friend's row. An open match is free to watch; a locked one needs its password (wrong guesses count toward the same lock-out as joining). Watchers see the board but no hand and no library, and cannot act or chat. Players are told "(name) is spectating your game", or "your friend (name) is spectating your game right now" for a friend.
+- Each signed-in browser keeps a small connection to the game server (the "social" room), which is what shows a friend as **online** and tells you which match they are in. Only accepted friends are ever answered about. This needs `supabase/05-friends.sql`.
+- Like the other room rules, online status and "one room per account" are shared between server processes only with `REDIS_URL` set.
 
 ## When one process is no longer enough
 

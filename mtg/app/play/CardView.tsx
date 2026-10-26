@@ -99,8 +99,8 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
         {badge}
         <div className="absolute inset-x-0 bottom-0 flex flex-wrap gap-1 p-1 text-[10px] font-semibold">
           {note && <span className="rounded bg-sky-600 px-1 text-white">{note}</span>}
-          {tags?.map((t) => (
-            <span key={t} className="rounded bg-violet-700 px-1 text-white">
+          {tags?.map((t, i) => (
+            <span key={`${i}-${t}`} className="rounded bg-violet-700 px-1 text-white">
               {t}
             </span>
           ))}
@@ -141,8 +141,8 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
       <div className="rounded bg-black/40 px-1 text-zinc-300">
         <div className="capitalize">{def.type}</div>
         {note && <div className="text-sky-300">{note}</div>}
-        {tags?.map((t) => (
-          <div key={t} className="rounded bg-violet-700/90 px-1 text-[10px] text-white">
+        {tags?.map((t, i) => (
+          <div key={`${i}-${t}`} className="rounded bg-violet-700/90 px-1 text-[10px] text-white">
             {t}
           </div>
         ))}

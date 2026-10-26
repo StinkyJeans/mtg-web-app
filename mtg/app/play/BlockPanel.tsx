@@ -101,8 +101,8 @@ export default function BlockPanel({
                 <span className="rounded bg-zinc-200 px-1.5 text-xs font-bold">
                   {powerOf(state, perm)}/{toughnessOf(state, perm)}
                 </span>
-                {(def.keywords ?? []).map((k) => (
-                  <span key={k} className="rounded bg-amber-100 px-1.5 text-xs capitalize text-amber-900">
+                {(def.keywords ?? []).map((k, i) => (
+                  <span key={`${i}-${k}`} className="rounded bg-amber-100 px-1.5 text-xs capitalize text-amber-900">
                     {k}
                   </span>
                 ))}

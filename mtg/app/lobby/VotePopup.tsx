@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from "react";
 import { STARTER_DECK } from "@mtg/engine";
 import { holdWallpaper } from "../LiveWallpaper";
 import { CoinDisplay } from "../play/CoinFlip";
+import LookPicker from "../play/LookPicker";
+import { myLook, randomLook } from "@/lib/playmat";
 import { deckStatus, expandDeck, listMyDecks, loadDefsFor } from "@/lib/decks";
 import { buildRandomDeck } from "@/lib/randomDeck";
 import { leaveRoom, send } from "@/lib/online/session";
@@ -34,8 +36,8 @@ export default function VotePopup({ room }: { room: RoomSnapshot }) {
   const guest = room.you === room.host ? room.players.find((p) => p.seat !== room.host) : undefined; // the host may still remove the guest
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Vote" className="fixed inset-0 z-50 flex items-center justify-center bg-black/55 p-4 backdrop-blur-sm">
-      <div className="flex w-full max-w-lg flex-col gap-5 rounded-3xl border border-white/25 bg-slate-950/60 p-6 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]">
+    <div role="dialog" aria-modal="true" aria-label="Vote" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+      <div className="flex w-full max-w-lg flex-col gap-5 rounded-3xl border border-white/25 bg-slate-950/95 p-6 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]">
         <header className="flex items-center gap-3">
           <ol className="flex flex-1 items-center gap-2" aria-label="Steps">
             {STEPS.map((s, i) => (
@@ -99,6 +101,14 @@ function VoteStep({ room }: { room: RoomSnapshot }) {
 
 function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   const size = room.size ?? 40;
+  // The table: the card sleeve and playmat this player wants. The server shows them to both players (and to anyone watching).
+  const [sleeve, setSleeve] = useState(() => myLook.read("sleeve"));
+  const [mat, setMat] = useState(() => myLook.read("mat"));
+  const [botLook] = useState(() => randomLook()); // against the computer, the host also dresses its table
+  const vsBotRoom = room.players.some((p) => p.bot);
+  useEffect(() => {
+    send("look", { sleeve, mat, ...(vsBotRoom ? { bot: botLook } : {}) });
+  }, [sleeve, mat, vsBotRoom, botLook]);
   const [options, setOptions] = useState<DeckOption[] | null>(null);
   const [choice, setChoice] = useState(RANDOM_ID);
   const [busy, setBusy] = useState(false);
@@ -160,6 +170,18 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
         ))}
         <option value={RANDOM_ID}>Random {size}-card deck</option>
       </select>
+      <div className="rounded-2xl border border-white/20 bg-white/5 p-3">
+        <h3 className="mb-2 text-sm font-bold uppercase tracking-widest text-[#ffe29a]">Choose your table</h3>
+        <LookPicker
+          who={room.you}
+          sleeve={sleeve}
+          mat={mat}
+          disabled={ready}
+          onSleeve={(v) => (setSleeve(v), myLook.write("sleeve", v))}
+          onMat={(v) => (setMat(v), myLook.write("mat", v))}
+        />
+        <p className="mt-2 text-xs text-slate-300">{vsBotRoom ? "Your table is shown on your side of the battlefield." : "Your opponent sees your mat and sleeve on their screen, and you see theirs."}</p>
+      </div>
       <button
         onClick={() => void confirm()}
         disabled={ready || busy || options === null}

@@ -18,6 +18,18 @@ export function TurnSplash() {
   );
 }
 
+/** "Welcome to the Battle Field, Now Duel!" over the board when a match begins, for the players. It doesn't block clicks. */
+export function WelcomeSplash() {
+  return (
+    <div role="status" aria-live="assertive" className="pointer-events-none fixed inset-x-0 top-[14dvh] z-30 flex justify-center px-4">
+      <div className="welcome-splash rounded-3xl border-2 border-amber-300/80 bg-slate-950/80 px-10 py-6 text-center shadow-2xl shadow-black/50 backdrop-blur-sm">
+        <div className="font-display text-xl font-bold uppercase tracking-[0.28em] text-slate-100 [text-shadow:0_2px_12px_rgba(0,0,0,0.7)] sm:text-2xl">Welcome to the Battle Field</div>
+        <div className="mt-1 font-display text-5xl font-extrabold uppercase tracking-[0.12em] text-amber-300 [text-shadow:0_2px_16px_rgba(244,180,61,0.55)] sm:text-7xl">Now Duel!</div>
+      </div>
+    </div>
+  );
+}
+
 /** Cards announcing what a player just cast or used, shown on that player's side of the board. */
 export default function Announcements({ items, onClose }: { items: Announcement[]; onClose: (id: number) => void }) {
   if (items.length === 0) return null;

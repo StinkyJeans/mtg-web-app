@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { PlayerId } from "@mtg/engine";
 
 // What each player picks for the table, kept in this browser only:
@@ -21,7 +21,38 @@ const grain = "repeating-linear-gradient(115deg, rgba(255,255,255,0.035) 0 2px, 
 const dots = "radial-gradient(rgba(255,255,255,0.06) 1px, transparent 1.5px) 0 0 / 14px 14px";
 const felt = (a: string, b: string, glow: string) => `radial-gradient(ellipse at 50% 0%, ${glow}, transparent 60%), ${grain}, linear-gradient(165deg, ${a}, ${b})`;
 
+/**
+ * Pictures prepared in public/cardsleeves and public/playermats. To add one: put the file in that folder and add a line here
+ * (an id nobody else uses, a name for the list, the file name).
+ */
+const picture = (folder: string, file: string) => `center / cover url("/${folder}/${encodeURIComponent(file)}")`;
+/**
+ * A playmat picture, shown WHOLE and centered inside the mat (never cropped, whatever its shape). The same picture, dimmed and
+ * stretched, fills the rest of the mat, so a square or tall picture leaves no empty bars on the wide battlefield.
+ */
+const fitted = (url: string) => `center / contain no-repeat url("${url}"), linear-gradient(rgba(0,0,0,.55), rgba(0,0,0,.55)), center / cover url("${url}")`;
+const SLEEVE_PICTURES: [string, string, string][] = [
+  ["pic-s0", "Sleeve 1", "MTG CARD SLEEVE.jpg"],
+  ["pic-s1", "Sleeve 2", "MGT CARD SLEEVE 1.jpg"],
+  ["pic-s2", "Sleeve 3", "MGT CARD SLEEVE 2.jpg"],
+  ["pic-s3", "Sleeve 4", "MGT CARD SLEEVE 3.jpg"],
+  ["pic-s4", "Sleeve 5", "MGT CARD SLEEVE 4.jpg"],
+  ["pic-s5", "Sleeve 6", "MGT CARD SLEEVE 5.jpg"],
+  ["pic-s6", "Sleeve 7", "MGT CARD SLEEVE 6.jpg"],
+  ["pic-s7", "Sleeve 8", "MGT CARD SLEEVE 7.jpg"],
+  ["pic-s8", "Sleeve 9", "MGT CARD SLEEVE 8.jpg"],
+];
+const MAT_PICTURES: [string, string, string][] = [
+  ["pic-m0", "Mat 1", "fit/mtg player mat.jpg"], // (trimmed copies of two pictures that sat on a white backdrop; the originals are in the folder above)
+  ["pic-m1", "Mat 2", "fit/mtg player mat 2.jpg"],
+  ["pic-m2", "Mat 3", "MGT player mat 1.png"],
+  ["pic-m3", "Mat 4", "mgt player mat 2.jpg"],
+  ["pic-m4", "Mat 5", "mgt player mat 3.jpg"],
+  ["pic-m5", "Mat 6", "mgt palyer mat 4.jpg"],
+];
+
 export const SLEEVES: Look[] = [
+  ...SLEEVE_PICTURES.map(([id, name, file]): Look => ({ id, name, edge: "rgba(255,255,255,.28)", css: picture("cardsleeves", file) })),
   { id: "classic", name: "Classic gold", edge: "rgba(252,211,77,.55)", css: "linear-gradient(135deg,#b45309,#78350f 55%,#1c1917)" },
   { id: "crimson", name: "Crimson", edge: "rgba(254,202,202,.6)", css: "repeating-linear-gradient(45deg, rgba(255,255,255,.08) 0 5px, transparent 5px 10px), linear-gradient(135deg,#dc2626,#7f1d1d 60%,#1c0a0a)" },
   { id: "azure", name: "Azure", edge: "rgba(186,230,253,.6)", css: "repeating-linear-gradient(-45deg, rgba(255,255,255,.08) 0 5px, transparent 5px 10px), linear-gradient(135deg,#38bdf8,#1d4ed8 55%,#0b1437)" },
@@ -34,6 +65,7 @@ export const SLEEVES: Look[] = [
 ];
 
 export const MATS: Look[] = [
+  ...MAT_PICTURES.map(([id, name, file]): Look => ({ id, name, css: fitted(`/playermats/${file.split("/").map(encodeURIComponent).join("/")}`) })),
   { id: "azure", name: "Azure felt", css: felt("#1e3a8a", "#0b1437", "rgba(125,211,252,.28)") },
   { id: "crimson", name: "Crimson felt", css: felt("#991b1b", "#2a0707", "rgba(253,164,175,.26)") },
   { id: "forest", name: "Forest", css: felt("#166534", "#052e16", "rgba(134,239,172,.26)") },
@@ -47,10 +79,11 @@ export const MATS: Look[] = [
 ];
 
 /** What each player gets until they choose something else. */
-export const DEFAULT_MAT: Record<PlayerId, string> = { p1: "azure", p2: "crimson" };
-export const DEFAULT_SLEEVE = "classic";
+export const DEFAULT_MAT: Record<PlayerId, string> = { p1: "pic-m0", p2: "pic-m1" };
+export const DEFAULT_SLEEVE = "pic-s0";
 
 const key = (kind: "sleeve" | "mat", who: PlayerId) => `mtg-${kind}-${who}`;
+const mineKey = (kind: "sleeve" | "mat") => `mtg-${kind}-me`;
 function read(k: string): string {
   try {
     return localStorage.getItem(k) ?? "";
@@ -71,7 +104,7 @@ function write(k: string, v: string): boolean {
 /** The look for a stored choice (or the default), as a CSS background and the sleeve's frame color. */
 export function resolve(kind: "sleeve" | "mat", stored: string, who: PlayerId): { css: string; edge: string; id: string | null } {
   const list = kind === "sleeve" ? SLEEVES : MATS;
-  if (stored.startsWith("data:")) return { css: `center / cover url("${stored}")`, edge: "rgba(255,255,255,.55)", id: null };
+  if (stored.startsWith("data:")) return { css: kind === "mat" ? fitted(stored) : `center / cover url("${stored}")`, edge: "rgba(255,255,255,.55)", id: null };
   const id = stored.startsWith("preset:") ? stored.slice(7) : kind === "sleeve" ? DEFAULT_SLEEVE : DEFAULT_MAT[who];
   const look = list.find((l) => l.id === id) ?? list[0];
   return { css: look.css, edge: look.edge ?? "rgba(255,255,255,.5)", id: look.id };
@@ -80,6 +113,18 @@ export function resolve(kind: "sleeve" | "mat", stored: string, who: PlayerId): 
 // The draw animation is plain DOM outside React, so the sleeves are also kept where it can read them.
 const live: Record<PlayerId, { css: string; edge: string }> = { p1: { css: SLEEVES[0].css, edge: SLEEVES[0].edge! }, p2: { css: SLEEVES[0].css, edge: SLEEVES[0].edge! } };
 export const sleeveOf = (who: PlayerId) => live[who];
+
+/** What THIS player prefers for any match they play online (their seat is only known once they are in a room). */
+export const myLook = {
+  read: (kind: "sleeve" | "mat") => read(mineKey(kind)),
+  write: (kind: "sleeve" | "mat", value: string) => write(mineKey(kind), value),
+};
+
+/** A random preset, for dressing the computer's table. */
+export function randomLook(): { sleeve: string; mat: string } {
+  const pick = (list: Look[]) => `preset:${list[Math.floor(Math.random() * list.length)].id}`;
+  return { sleeve: pick(SLEEVES), mat: pick(MATS) };
+}
 
 /** Shrinks a picture to `maxWidth` pixels wide and returns it as a JPEG data URL, so it fits in browser storage. */
 function shrink(file: File, maxWidth: number): Promise<string> {
@@ -105,18 +150,23 @@ function shrink(file: File, maxWidth: number): Promise<string> {
 
 type Stored = Record<PlayerId, string>;
 
-/** Both players' sleeves and playmats, with ways to change them. */
-export function useAppearance() {
+/**
+ * Both players' sleeves and playmats, with ways to change them. Online, `remote` holds what each player chose before the match:
+ * those are shown (to everyone, spectators too) and can't be changed during it.
+ */
+export function useAppearance(remote?: Record<PlayerId, { sleeve: string; mat: string }> | null) {
   const [sleeves, setSleeves] = useState<Stored>(() => ({ p1: read(key("sleeve", "p1")), p2: read(key("sleeve", "p2")) }));
   const [mats, setMats] = useState<Stored>(() => ({ p1: read(key("mat", "p1")), p2: read(key("mat", "p2")) }));
   const [error, setError] = useState<string | null>(null);
+  const shownSleeves = useMemo<Stored>(() => (remote ? { p1: remote.p1.sleeve, p2: remote.p2.sleeve } : sleeves), [remote, sleeves]);
+  const shownMats = useMemo<Stored>(() => (remote ? { p1: remote.p1.mat, p2: remote.p2.mat } : mats), [remote, mats]);
 
   useEffect(() => {
     for (const who of ["p1", "p2"] as const) {
-      const s = resolve("sleeve", sleeves[who], who);
+      const s = resolve("sleeve", shownSleeves[who], who);
       live[who] = { css: s.css, edge: s.edge };
     }
-  }, [sleeves]);
+  }, [shownSleeves]);
 
   const set = useCallback((kind: "sleeve" | "mat", who: PlayerId, value: string) => {
     setError(null);
@@ -136,10 +186,12 @@ export function useAppearance() {
   );
 
   return {
-    sleeve: (who: PlayerId) => resolve("sleeve", sleeves[who], who),
-    mat: (who: PlayerId) => resolve("mat", mats[who], who),
-    storedSleeve: sleeves,
-    storedMat: mats,
+    sleeve: (who: PlayerId) => resolve("sleeve", shownSleeves[who], who),
+    mat: (who: PlayerId) => resolve("mat", shownMats[who], who),
+    storedSleeve: shownSleeves,
+    storedMat: shownMats,
+    /** Chosen before an online match: can't be changed now. */
+    locked: Boolean(remote),
     choose: set,
     upload,
     error,

@@ -1,10 +1,13 @@
 "use client";
 
 import { useEffect, useState, useSyncExternalStore } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { animationsEnabled, setAnimationsEnabled } from "@/lib/motion";
+import { connectSocial, disconnectSocial } from "@/lib/online/session";
 import { setTheme } from "@/lib/theme";
+import MusicControl from "./MusicControl";
 import type { Theme } from "@/lib/theme";
 
 /** Slim top bar shown only while signed in. */
@@ -25,6 +28,9 @@ export default function UserBar() {
   useEffect(() => {
     const { data } = createClient().auth.onAuthStateChange((_event, session) => {
       setUsername(session ? ((session.user.user_metadata.username as string | undefined) ?? "player") : null);
+      // signed in: friends can see this player is online, on whatever page they are
+      if (session) void connectSocial();
+      else disconnectSocial();
     });
     return () => data.subscription.unsubscribe();
   }, []);
@@ -38,7 +44,12 @@ export default function UserBar() {
   }
 
   return (
-    <div className="flex h-10 shrink-0 items-center justify-end gap-3 border-b border-white/15 bg-slate-950/45 px-4 text-sm text-slate-200 shadow-[0_1px_12px_rgba(0,0,0,0.25)]">
+    <div className="topbar">
+      <Link href="/" className="brand hidden min-[480px]:inline" aria-label="DuelRealm MTG home">
+        DUELREALM
+      </Link>
+      <span className="flex-1" />
+      <MusicControl />
       <button
         onClick={() => {
           setAnimationsEnabled(!animations);
@@ -46,7 +57,7 @@ export default function UserBar() {
         }}
         aria-pressed={animations}
         title="Turn attack, confetti and other animations on or off"
-        className="rounded-md border border-white/20 bg-white/10 px-2 py-1 transition hover:bg-white/20"
+        className="bar-btn"
       >
         Animations: <span className={animations ? "font-semibold text-[#6ee7b7]" : "font-semibold text-slate-400"}>{animations ? "On" : "Off"}</span>
       </button>
@@ -54,14 +65,14 @@ export default function UserBar() {
         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}
         aria-pressed={theme === "dark"}
         title="Switch between light and dark mode"
-        className="rounded-md border border-white/20 bg-white/10 px-2 py-1 transition hover:bg-white/20"
+        className="bar-btn"
       >
         {theme === "dark" ? "☀ Light" : "☾ Dark"}
       </button>
-      <span>
+      <span className="hidden sm:inline">
         Signed in as <span className="font-semibold text-white">{username}</span>
       </span>
-      <button onClick={signOut} className="rounded-md border border-white/20 bg-white/10 px-2 py-1 transition hover:bg-white/20">
+      <button onClick={signOut} className="bar-btn">
         Sign out
       </button>
     </div>

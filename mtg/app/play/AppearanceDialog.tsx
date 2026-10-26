@@ -55,6 +55,10 @@ export default function AppearanceDialog({ look, cursor, onClose, first = "p1" }
           </button>
         </div>
 
+        {look.locked ? (
+          <p className="rounded-xl border border-white/20 bg-white/5 p-3 text-sm text-slate-300">Sleeves and playmats were chosen before the match: both players see the same table. They can&apos;t be changed during an online match.</p>
+        ) : (
+          <>
         {/* Preview: the mat with a stack of sleeved cards */}
         <div className="relative h-36 overflow-hidden rounded-xl border border-white/25 shadow-inner" style={{ background: mat.css }}>
           <div className="absolute inset-0 bg-black/10" />
@@ -130,6 +134,9 @@ export default function AppearanceDialog({ look, cursor, onClose, first = "p1" }
           </div>
           <p className="mt-1 text-[11px] text-slate-400">The surface under this player&apos;s creatures and lands. Wide pictures work best. Saved in this browser only.</p>
         </section>
+
+          </>
+        )}
 
         {cursor && (
           <section className="flex items-center gap-3 rounded-xl border border-white/20 bg-white/5 p-3">

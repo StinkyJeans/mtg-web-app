@@ -45,7 +45,18 @@ async function askSupabase(token: string): Promise<Account | null> {
   if (!res.ok) return null;
   const user = (await res.json()) as { id?: string; user_metadata?: { username?: string }; email?: string };
   if (!user.id) return null;
-  const account = { id: user.id, username: user.user_metadata?.username ?? user.email?.split("@")[0] ?? "player" };
+  let username = user.user_metadata?.username ?? user.email?.split("@")[0] ?? "player";
+  // a player's nickname (if they chose one) is the name shown in rooms and matches; the login name still identifies the account
+  try {
+    const named = await fetch(`${URL}/rest/v1/profiles?id=eq.${user.id}&select=nickname`, { headers: { apikey: SECRET } });
+    if (named.ok) {
+      const nick = ((await named.json()) as { nickname?: string | null }[])[0]?.nickname;
+      if (nick) username = nick;
+    }
+  } catch {
+    // no nickname available: the login name is used
+  }
+  const account = { id: user.id, username };
   if (trusted.size >= MAX_TRUSTED) for (const [k, v] of trusted) if (v.until < Date.now()) trusted.delete(k);
   if (trusted.size >= MAX_TRUSTED) trusted.clear();
   trusted.set(token, { account, until: Date.now() + TOKEN_TRUST_MS });
@@ -185,4 +196,34 @@ export async function dropLive(roomId: string): Promise<void> {
 export async function pruneLive(): Promise<void> {
   if (inMemory()) return;
   await live("DELETE", `?updated_at=lt.${new Date(Date.now() - KEEP_HOURS * 3600_000).toISOString()}`);
+}
+
+// ───────── friends (the website keeps them in Supabase; the server reads them with its own key) ─────────
+const friendCache = new Map<string, { ids: Set<string>; at: number }>();
+const FRIENDS_TRUST_MS = 20_000;
+/** For tests (DEV_AUTH): friendships between made-up accounts. */
+const devFriends = new Map<string, Set<string>>();
+export function setDevFriends(a: string, b: string) {
+  for (const [x, y] of [[a, b], [b, a]] as const) devFriends.set(x, new Set([...(devFriends.get(x) ?? []), y]));
+  friendCache.clear();
+}
+
+/**
+ * The accounts that are friends of this account (accepted friendships only). Empty if the friends feature isn't installed yet.
+ * The answer is kept for `maxAgeMs`; asking with a smaller number gets a fresher one (a friend just accepted, say).
+ */
+export async function friendIdsOf(accountId: string, maxAgeMs = FRIENDS_TRUST_MS): Promise<Set<string>> {
+  if (accountId.startsWith("dev-")) return devFriends.get(accountId) ?? new Set();
+  const hit = friendCache.get(accountId);
+  if (hit && Date.now() - hit.at < maxAgeMs) return hit.ids;
+  const ids = new Set<string>();
+  try {
+    const res = await fetch(`${URL}/rest/v1/friendships?select=requester,addressee&status=eq.accepted&or=(requester.eq.${accountId},addressee.eq.${accountId})&limit=400`, { headers: { apikey: SECRET } });
+    if (res.ok) for (const r of (await res.json()) as { requester: string; addressee: string }[]) ids.add(r.requester === accountId ? r.addressee : r.requester);
+  } catch {
+    // no friends known: nobody is announced as a friend
+  }
+  if (friendCache.size > 5000) friendCache.clear();
+  friendCache.set(accountId, { ids, at: Date.now() });
+  return ids;
 }

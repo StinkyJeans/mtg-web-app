@@ -6,7 +6,7 @@ import type { Action, GameState, PlayerId } from "@mtg/engine";
 import appConfig from "../src/app.config.js";
 import { BotPool } from "../src/botPool.js";
 import { GuessLimiter } from "../src/limits.js";
-import { loadCards } from "../src/supabase.js";
+import { loadCards, setDevFriends } from "../src/supabase.js";
 import { KICKED } from "../src/rooms/MatchRoom.js";
 import type { MatchRoom, RoomSnapshot } from "../src/rooms/MatchRoom.js";
 
@@ -603,5 +603,170 @@ describe("a live match", function () {
       await until("the target is taken", () => room.debugGame() !== d);
     }
     await until("the turn ends without pressing End turn again", () => room.debugGame()!.turn > turn);
+  });
+
+  // ───────── watching a match, and the friends' status ─────────
+
+  /** A host playing the computer, with the game already running. Returns the room and the host's connection. */
+  async function runningMatch(name: string, host: string, password?: string, look?: { sleeve: string; mat: string; bot?: { sleeve: string; mat: string } }) {
+    const room = await colyseus.createRoom<MatchRoom>("match", { name, ...(password ? { password } : {}) });
+    const client = await colyseus.connectTo(room, { token: `dev:${host}`, ...(password ? { password } : {}) });
+    let snap: RoomSnapshot | null = null;
+    const notices: { name: string; friend: boolean }[] = [];
+    client.onMessage("room", (x: RoomSnapshot) => (snap = x));
+    client.onMessage("start", () => {});
+    client.onMessage("update", () => {});
+    client.onMessage("error", () => {});
+    client.onMessage("spectator", (m: { name: string; friend: boolean }) => notices.push(m));
+    const until = async (what: string, test: () => boolean, ms = 15000) => {
+      for (let i = 0; i < ms / 25; i++) { if (test()) return; await wait(25); }
+      throw new Error(`timed out waiting for: ${what}`);
+    };
+    await until("in the room", () => snap?.players.length === 1);
+    client.send("addBot");
+    await until("the bot is in", () => snap?.players.length === 2);
+    if (look) client.send("look", look); // the table, chosen before the game
+    client.send("startVote");
+    await until("vote", () => snap?.stage === "vote");
+    client.send("vote", { size: 20 });
+    await until("decks", () => snap?.stage === "decks");
+    client.send("deck", { name: "Reds", ids: deckOf(20, "mountain", "agent-of-atlas"), botDeck: { name: "Greens", ids: deckOf(20, "forest", "advance-scout") } });
+    await until("coin", () => snap?.stage === "coin");
+    await until("the coin called", () => snap?.coin?.winner != null);
+    if (snap!.coin!.winner === "p1") client.send("order", { first: true });
+    await until("playing", () => snap?.stage === "playing", 15000);
+    return { room, client, notices, snap: () => snap, until };
+  }
+
+  /** Joins a match as a spectator and collects what it is sent. */
+  async function watch(room: Parameters<typeof colyseus.connectTo>[0], who: string, password?: string) {
+    const c = await colyseus.connectTo(room, { token: `dev:${who}`, spectate: true, ...(password ? { password } : {}) });
+    const got: { start?: { view: GameState; spectator?: boolean; you: PlayerId; looks?: Record<PlayerId, { sleeve: string; mat: string }> }; updates: GameState[]; room?: RoomSnapshot; errors: string[] } = { updates: [], errors: [] };
+    c.onMessage("start", (m: { view: GameState; spectator?: boolean; you: PlayerId; looks?: Record<PlayerId, { sleeve: string; mat: string }> }) => (got.start = m));
+    c.onMessage("update", (m: { view: GameState }) => got.updates.push(m.view));
+    c.onMessage("room", (m: RoomSnapshot) => (got.room = m));
+    c.onMessage("error", (m: { message: string }) => got.errors.push(m.message));
+    c.onMessage("closed", () => {});
+    return { c, got };
+  }
+
+  it("lets anyone watch an open match: they see the board, no hands, and the players are told", async () => {
+    const m = await runningMatch("Open match", "wes");
+    const { c, got } = await watch(m.room, "walt");
+    await m.until("the watcher has the game", () => got.start !== undefined);
+    assert.equal(got.start!.spectator, true);
+    for (const id of ["p1", "p2"] as const) {
+      assert.ok(got.start!.view.players[id].hand.length > 0, `${id} has cards in hand`);
+      assert.ok(got.start!.view.players[id].hand.every((x) => x.defId === HIDDEN_CARD_ID), `${id}'s hand is face down for the watcher`);
+      assert.ok(got.start!.view.players[id].library.every((x) => x.defId === HIDDEN_CARD_ID));
+    }
+    await m.until("the host is told", () => m.notices.length === 1);
+    assert.deepEqual(m.notices[0], { name: "walt", friend: false });
+    await m.until("the count", () => m.snap()?.spectators === 1);
+    m.client.send("action", { action: { type: "keepHand", bottom: [] } }); // the host moves, so the game has something to report
+    await m.until("the watcher follows the game", () => got.updates.length > 0);
+    assert.ok(got.updates.every((v) => [...v.players.p1.hand, ...v.players.p2.hand].every((x) => x.defId === HIDDEN_CARD_ID)), "no update ever shows a hand");
+    await c.leave();
+    await m.until("the count drops", () => m.snap()?.spectators === 0);
+  });
+
+  it("tells the players when a FRIEND is watching", async () => {
+    setDevFriends("dev-fay", "dev-fred");
+    const m = await runningMatch("Friend match", "fay");
+    await watch(m.room, "fred");
+    await watch(m.room, "stranger");
+    await m.until("both notices", () => m.notices.length === 2);
+    assert.deepEqual(m.notices.find((n) => n.name === "fred"), { name: "fred", friend: true });
+    assert.deepEqual(m.notices.find((n) => n.name === "stranger"), { name: "stranger", friend: false });
+  });
+
+  it("needs the password to watch a locked match, and counts wrong guesses like it does for joining", async () => {
+    const m = await runningMatch("Secret match", "gus", "s3cret");
+    await assert.rejects(colyseus.connectTo(m.room, { token: "dev:hal", spectate: true }), /needs a password/);
+    await assert.rejects(colyseus.connectTo(m.room, { token: "dev:hal", spectate: true, password: "nope" }), /Wrong password/);
+    const { got } = await watch(m.room, "hal", "s3cret");
+    await m.until("let in with the password", () => got.start !== undefined);
+    assert.equal(m.notices.length, 1);
+  });
+
+  it("lets a watcher do nothing but watch", async () => {
+    const m = await runningMatch("Quiet match", "ivo");
+    const { c, got } = await watch(m.room, "jay");
+    await m.until("watching", () => got.start !== undefined);
+    c.send("action", { action: { type: "concede" } });
+    c.send("endTurn");
+    c.send("chat", { text: "hello" });
+    await wait(600);
+    assert.equal(m.room.debugGame()!.winner, null, "a watcher cannot concede or act");
+    assert.equal(got.errors.length, 0);
+  });
+
+  it("only lets people watch a match that is being played, and never from inside it", async () => {
+    const waiting = await colyseus.createRoom<MatchRoom>("match", { name: "Not started" });
+    const host = await colyseus.connectTo(waiting, { token: "dev:kit" });
+    host.onMessage("room", () => {});
+    await assert.rejects(colyseus.connectTo(waiting, { token: "dev:lou", spectate: true }), /not started/);
+    const m = await runningMatch("Own match", "mia");
+    await assert.rejects(colyseus.connectTo(m.room, { token: "dev:mia", spectate: true }), /already have a room open|playing in this match/);
+  });
+
+  it("shows a friend as online, in a match and watchable (and answers only about friends)", async () => {
+    setDevFriends("dev-ned", "dev-olga");
+    const m = await runningMatch("Ned match", "ned", "pw");
+    const seen = async (asWho: string, ids: string[]) => {
+      const social = await colyseus.sdk.joinOrCreate("social", { token: `dev:${asWho}` });
+      const reply = new Promise<{ id: string; online: boolean; match: { roomId: string; locked: boolean; status: string; name: string } | null }[]>((resolve) => social.onMessage("statuses", resolve));
+      social.send("statuses", { ids });
+      const out = await reply;
+      await social.leave();
+      return out;
+    };
+    const asked = await seen("olga", ["dev-ned", "dev-zoe"]);
+    assert.equal(asked.length, 1, "someone who is not a friend is never answered");
+    assert.equal(asked[0].id, "dev-ned");
+    assert.equal(asked[0].online, true);
+    assert.equal(asked[0].match?.roomId, m.room.roomId);
+    assert.equal(asked[0].match?.locked, true, "the list says the match has a password");
+    assert.equal(asked[0].match?.status, "playing");
+    // a friend with no room and no connection is simply offline
+    setDevFriends("dev-olga", "dev-pat");
+    const offline = await seen("olga", ["dev-pat"]);
+    assert.equal(offline[0].online, false);
+    assert.equal(offline[0].match, null);
+  });
+
+  // ───────── the table: card sleeve and playmat ─────────
+
+  it("shows each player's chosen sleeve and mat to everyone in the match, spectators included", async () => {
+    const m = await runningMatch("Dressed match", "quinn", undefined, { sleeve: "preset:pic-s3", mat: "preset:pic-m2", bot: { sleeve: "preset:wheel", mat: "preset:forest" } });
+    assert.deepEqual(m.snap()?.players[0].look, { sleeve: "preset:pic-s3", mat: "preset:pic-m2" }, "the room snapshot carries the host's choice");
+    const { got } = await watch(m.room, "ruth");
+    await m.until("watching", () => got.start !== undefined);
+    assert.deepEqual(got.start!.looks?.p1, { sleeve: "preset:pic-s3", mat: "preset:pic-m2" });
+    assert.deepEqual(got.start!.looks?.p2, { sleeve: "preset:wheel", mat: "preset:forest" }, "the host also dressed the computer's table");
+  });
+
+  it("accepts only the NAME of a preset as a look, never a picture or anything odd", async () => {
+    const room = await colyseus.createRoom<MatchRoom>("match", { name: "Odd looks" });
+    const sid = await colyseus.connectTo(room, { token: "dev:sid" });
+    let snap: RoomSnapshot | null = null;
+    sid.onMessage("room", (x: RoomSnapshot) => (snap = x));
+    await wait(200);
+    sid.send("look", { sleeve: "data:image/png;base64," + "A".repeat(2000), mat: "preset:../../etc/passwd" });
+    await wait(300);
+    assert.deepEqual(snap!.players[0].look, { sleeve: "", mat: "" }, "anything but preset:<name> becomes the default");
+    sid.send("look", { sleeve: "preset:" + "x".repeat(60), mat: 42 });
+    await wait(300);
+    assert.deepEqual(snap!.players[0].look, { sleeve: "", mat: "" }, "too long, or not text: the default");
+    sid.send("look", { sleeve: "preset:pic-s1", mat: "preset:azure" });
+    await wait(300);
+    assert.deepEqual(snap!.players[0].look, { sleeve: "preset:pic-s1", mat: "preset:azure" }, "a real preset name is kept");
+  });
+
+  it("does not let the table be changed once the game is being played", async () => {
+    const m = await runningMatch("Locked look", "tess", undefined, { sleeve: "preset:pic-s1", mat: "preset:pic-m1" });
+    m.client.send("look", { sleeve: "preset:wheel", mat: "preset:forest" });
+    await wait(400);
+    assert.deepEqual(m.snap()?.players[0].look, { sleeve: "preset:pic-s1", mat: "preset:pic-m1" });
   });
 });

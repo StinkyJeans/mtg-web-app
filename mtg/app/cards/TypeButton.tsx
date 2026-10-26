@@ -18,7 +18,7 @@ const ICON: Record<"all" | CardType, string> = {
 };
 
 /** A card-type filter shown as just its icon. The name appears when you hover over it. */
-export default function TypeButton({ type, active, onClick }: { type: "all" | CardType; active: boolean; onClick: () => void }) {
+export default function TypeButton({ type, active, onClick, glass = false }: { type: "all" | CardType; active: boolean; onClick: () => void; glass?: boolean }) {
   const label = type === "all" ? "All types" : type.charAt(0).toUpperCase() + type.slice(1);
   return (
     <Tip text={label}>
@@ -27,9 +27,11 @@ export default function TypeButton({ type, active, onClick }: { type: "all" | Ca
         onClick={onClick}
         aria-label={label}
         aria-pressed={active}
-        className={`flex h-9 w-9 items-center justify-center rounded text-xl ${
-          active ? "bg-amber-500 text-black" : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300"
-        }`}
+        className={
+          glass
+            ? undefined // styled by the surrounding .icon-seg
+            : `flex h-9 w-9 items-center justify-center rounded text-xl ${active ? "bg-amber-500 text-black" : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300"}`
+        }
       >
         <i className={`ms ms-${ICON[type]}`} aria-hidden="true" />
       </button>

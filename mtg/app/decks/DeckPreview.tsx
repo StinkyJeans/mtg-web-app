@@ -3,8 +3,7 @@
 import { useEffect, useState } from "react";
 import { unplayableCards } from "@mtg/engine";
 import type { CardDef } from "@mtg/engine";
-import { fetchCardsByIds } from "@/lib/cards";
-import { getDeckContents } from "@/lib/decks";
+import { loadDeckPreview } from "@/lib/decks";
 import type { DeckBoard, DeckContents, OfficialDeck } from "@/lib/decks";
 import { Lightbox } from "../play/CardDetail";
 import CardView from "../play/CardView";
@@ -55,11 +54,7 @@ export default function DeckPreview({
 
   useEffect(() => {
     let cancelled = false;
-    getDeckContents(deck.id)
-      .then(async (contents) => {
-        const ids = BOARDS.flatMap((b) => Object.keys(contents.boards[b.id]));
-        return { contents, defs: await fetchCardsByIds(ids) };
-      })
+    loadDeckPreview(deck.id)
       .then((l) => !cancelled && setLoaded(l))
       .catch((e: Error) => !cancelled && setError(e.message));
     return () => {
@@ -108,22 +103,25 @@ export default function DeckPreview({
     >
       <div
         onClick={(e) => e.stopPropagation()}
-        className="flex max-h-[92vh] w-full max-w-6xl flex-col gap-3 overflow-hidden rounded-2xl border border-white/25 bg-slate-950/50 p-4 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150 [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]"
+        className="panel-glass flex max-h-[92vh] w-full max-w-6xl flex-col gap-4 overflow-hidden p-5 text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.5)] sm:p-6"
       >
         <div className="flex flex-wrap items-center gap-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-xl font-bold">{deck.name}</h2>
-            <p className="text-sm text-slate-200">
-              {[deck.deckType, deck.code, deck.releaseDate?.slice(0, 4)].filter(Boolean).join(" · ")}
-              {loaded && ` · ${allIds.length} cards · ${playableCopies} playable by the game today`}
-            </p>
+          <div className="flex min-w-0 flex-col gap-2">
+            <h2 className="page-title truncate !text-2xl sm:!text-3xl">{deck.name}</h2>
+            <div className="flex flex-wrap items-center gap-2">
+              {deck.deckType && <span className="chip chip-meta">{deck.deckType}</span>}
+              {deck.code && <span className="chip chip-meta font-mono">{deck.code}</span>}
+              {deck.releaseDate && <span className="chip chip-meta">{deck.releaseDate.slice(0, 4)}</span>}
+              {loaded && <span className="chip chip-meta">{allIds.length} cards</span>}
+              {loaded && (playableCopies === allIds.length ? <span className="chip chip-ok">✓ All playable today</span> : <span className="chip chip-warn">⚠ {playableCopies} of {allIds.length} playable today</span>)}
+            </div>
           </div>
           {onTogglePick && (
             <button
               onClick={onTogglePick}
               disabled={unplayable > 0}
               title={unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
-              className={`ml-auto rounded-lg border px-4 py-2 font-semibold disabled:cursor-not-allowed disabled:opacity-40 ${picked ? "border-amber-400 bg-amber-400/25" : "border-white/30 bg-white/10 hover:bg-white/20"}`}
+              className={`btn-ghost ml-auto !px-4 !py-2 ${picked ? "!border-amber-300 !bg-amber-400/25" : ""}`}
             >
               {picked ? "Selected to combine ✓" : "Add to combine"}
             </button>
@@ -133,33 +131,35 @@ export default function DeckPreview({
               onClick={onCopy}
               disabled={busy || unplayable > 0}
               title={unplayable > 0 ? "This deck has cards the game can't play yet" : undefined}
-              className="rounded-lg bg-amber-500 px-4 py-2 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
+              className="btn-gold !px-4 !py-2"
             >
               {busy ? "Copying…" : "Copy to my decks"}
             </button>
           )}
           {editHref && (
-            <Link href={editHref} className="ml-auto rounded-lg bg-amber-500 px-4 py-2 font-semibold text-black hover:bg-amber-400">
+            <Link href={editHref} className="btn-gold ml-auto !px-4 !py-2">
               Edit deck
             </Link>
           )}
-          <button onClick={onClose} aria-label="Close" className="rounded-lg border border-white/30 bg-white/10 px-3 py-2 hover:bg-white/20">
+          <button onClick={onClose} aria-label="Close" className="btn-ghost !px-3 !py-2 !text-lg leading-none">
             ×
           </button>
         </div>
 
-        {error && <p className="text-sm text-[#fca5a5]">Could not load the deck: {error}</p>}
+        {error && <p className="rounded-xl border border-red-400/40 bg-red-950/50 px-3 py-2 text-sm text-[#fecaca]">Could not load the deck: {error}</p>}
         {!loaded && !error && <CardSkeletons count={20} size="md" className="flex flex-wrap gap-2" />}
 
         <div className="flex min-h-0 flex-col gap-4 overflow-y-auto pr-1">
           {sections.map((s, si) => (
             <section key={s.id}>
-              <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-200">
-                {s.label} ({s.total})
+              <h3 className="mb-2.5 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#ffe29a]">
+                {s.label}
+                <span className="count-chip !px-2 !py-0 !text-xs">{s.total}</span>
+                <span className="h-px flex-1 bg-gradient-to-r from-[#f4b43d]/50 to-transparent" aria-hidden="true" />
               </h3>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex flex-wrap gap-2.5">
                 {s.entries.map(({ def, qty }, ei) => (
-                  <div key={def.id} onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
+                  <div key={def.id} className="card-tile !items-stretch" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
                     <CardView
                       def={def}
                       size="md"
@@ -173,7 +173,7 @@ export default function DeckPreview({
             </section>
           ))}
           {loaded && (
-            <p className="text-xs text-slate-300">
+            <p className="rounded-xl border border-white/10 bg-white/5 px-3 py-2 text-xs leading-relaxed text-slate-300">
               A red outline means the game can&apos;t play that card yet. Copying merges the commander into the main deck and leaves out
               the sideboard.
             </p>

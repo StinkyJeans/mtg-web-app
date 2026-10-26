@@ -61,6 +61,28 @@ export function coinPose(t: number, result: Side, from: FlightStart): CoinPose &
 
 // ───────── textures ─────────
 
+/** The outline of the five-flame emblem, centred on (cx, cy) and `h` tall: five spikes over a rounded point. Fill or stroke it afterwards. */
+function flameEmblem(ctx: CanvasRenderingContext2D, cx: number, cy: number, h: number): void {
+  const s = h / 2;
+  const at = (x: number, y: number): [number, number] => [cx + x * s, cy + y * s];
+  const move = (x: number, y: number) => ctx.moveTo(...at(x, y));
+  const quad = (x1: number, y1: number, x: number, y: number) => ctx.quadraticCurveTo(...at(x1, y1), ...at(x, y));
+  const cubic = (x1: number, y1: number, x2: number, y2: number, x: number, y: number) => ctx.bezierCurveTo(...at(x1, y1), ...at(x2, y2), ...at(x, y));
+  ctx.beginPath();
+  move(0, -1);
+  quad(0.05, -0.45, 0.17, 0.16);
+  quad(0.2, -0.42, 0.4, -0.8);
+  quad(0.38, -0.2, 0.57, 0.26);
+  quad(0.62, 0.0, 0.8, -0.5);
+  cubic(0.95, 0.12, 0.55, 0.8, 0, 1);
+  cubic(-0.55, 0.8, -0.95, 0.12, -0.8, -0.5);
+  quad(-0.62, 0.0, -0.57, 0.26);
+  quad(-0.38, -0.2, -0.4, -0.8);
+  quad(-0.2, -0.42, -0.17, 0.16);
+  quad(-0.05, -0.45, 0, -1);
+  ctx.closePath();
+}
+
 /** One face of the coin. `relief` draws a grey-scale height map instead of colour, for the raised design. */
 function drawFace(side: Side, relief: boolean, rotation: number): HTMLCanvasElement {
   const size = 512;
@@ -71,7 +93,6 @@ function drawFace(side: Side, relief: boolean, rotation: number): HTMLCanvasElem
 
   const base = relief ? "#808080" : "#d9a520";
   const raised = relief ? "#ffffff" : "#f6d97a";
-  const sunk = relief ? "#303030" : "#9a6b14";
 
   if (relief) {
     ctx.fillStyle = base;
@@ -109,42 +130,74 @@ function drawFace(side: Side, relief: boolean, rotation: number): HTMLCanvasElem
 
   ctx.fillStyle = raised;
   ctx.strokeStyle = raised;
+  ctx.lineJoin = "round";
+  ctx.lineCap = "round";
+  const cy = c - 26; // the design sits a little above the middle, the word below it
   if (side === "heads") {
-    // A crown.
-    ctx.beginPath();
-    ctx.moveTo(150, 330);
-    ctx.lineTo(130, 190);
-    ctx.lineTo(200, 245);
-    ctx.lineTo(256, 160);
-    ctx.lineTo(312, 245);
-    ctx.lineTo(382, 190);
-    ctx.lineTo(362, 330);
-    ctx.closePath();
-    ctx.fill();
-    for (const [x, y] of [[130, 182], [256, 152], [382, 182]]) {
-      ctx.beginPath();
-      ctx.arc(x, y, 14, 0, Math.PI * 2);
-      ctx.fill();
+    // The five-flame emblem: a gold-rimmed shield of fire, red at the point and glowing orange at the tips.
+    flameEmblem(ctx, c, cy - 18, 280); // sits above the word, with a gap
+    if (relief) {
+      ctx.fillStyle = "#b8b8b8";
+    } else {
+      const g = ctx.createLinearGradient(0, cy - 158, 0, cy + 122);
+      g.addColorStop(0, "#ffc15a");
+      g.addColorStop(0.42, "#f0592a");
+      g.addColorStop(1, "#a8142a");
+      ctx.fillStyle = g;
     }
-    ctx.fillStyle = sunk;
-    ctx.fillRect(160, 300, 192, 12);
+    ctx.fill();
+    ctx.strokeStyle = raised;
+    ctx.lineWidth = 11;
+    ctx.stroke();
   } else {
-    // A five-pointed star.
+    // The five-color wheel: a pentagram joining five gems, white, blue, black, red and green, in the order of the wheel.
+    const R = 112;
+    const pts = Array.from({ length: 5 }, (_, i) => {
+      const a = -Math.PI / 2 + (i * 2 * Math.PI) / 5;
+      return [c + Math.cos(a) * R, cy + Math.sin(a) * R] as const;
+    });
+    ctx.lineWidth = 6;
     ctx.beginPath();
-    for (let i = 0; i < 10; i++) {
-      const r = i % 2 === 0 ? 120 : 52;
-      const a = -Math.PI / 2 + (i * Math.PI) / 5;
-      ctx.lineTo(c + Math.cos(a) * r, c - 20 + Math.sin(a) * r);
-    }
-    ctx.closePath();
-    ctx.fill();
+    ctx.arc(c, cy, R, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.lineWidth = 7;
+    ctx.beginPath();
+    for (const [n, i] of [0, 2, 4, 1, 3, 0].entries()) (n === 0 ? ctx.moveTo : ctx.lineTo).call(ctx, pts[i][0], pts[i][1]);
+    ctx.stroke();
+    const gems = ["#fbf5d6", "#2f86e0", "#40363d", "#e0472b", "#2f9a52"];
+    pts.forEach(([x, y], i) => {
+      // a raised setting, then the gem
+      ctx.fillStyle = raised;
+      ctx.beginPath();
+      ctx.arc(x, y, 40, 0, Math.PI * 2);
+      ctx.fill();
+      if (relief) {
+        ctx.fillStyle = base;
+        ctx.beginPath();
+        ctx.arc(x, y, 31, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = raised;
+        ctx.beginPath();
+        ctx.arc(x - 8, y - 8, 12, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        const g = ctx.createRadialGradient(x - 10, y - 10, 3, x, y, 32);
+        g.addColorStop(0, "#ffffff");
+        g.addColorStop(0.35, gems[i]);
+        g.addColorStop(1, gems[i]);
+        ctx.fillStyle = g;
+        ctx.beginPath();
+        ctx.arc(x, y, 31, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
   }
 
   ctx.fillStyle = raised;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  ctx.font = "bold 74px Georgia, 'Times New Roman', serif";
-  ctx.fillText(side === "heads" ? "HEADS" : "TAILS", c, 392);
+  ctx.font = "800 70px Cinzel, Georgia, 'Times New Roman', serif";
+  ctx.fillText(side === "heads" ? "HEADS" : "TAILS", c, 396);
 
   return canvas;
 }
@@ -194,7 +247,7 @@ export function createCoinScene(canvas: HTMLCanvasElement, opts: { topRotation?:
   const sun = new THREE.DirectionalLight(0xffffff, 2.4);
   sun.position.set(3.5, 9, 5);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(2048, 2048);
+  sun.shadow.mapSize.set(1024, 1024); // a coin-sized shadow does not need more, and every frame redraws it
   sun.shadow.camera.left = sun.shadow.camera.bottom = -4.5;
   sun.shadow.camera.right = sun.shadow.camera.top = 4.5;
   sun.shadow.camera.near = 1;
@@ -235,10 +288,14 @@ export function createCoinScene(canvas: HTMLCanvasElement, opts: { topRotation?:
   coin.castShadow = true;
   scene.add(coin);
 
+  // Once the coin has landed it never moves again: the loop stops after one last frame instead of redrawing a still coin 60 times a second.
+  let stopped = false;
+
   function resize() {
     const w = canvas.clientWidth || 320;
     const h = canvas.clientHeight || 300;
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5)); // a sharp-enough coin without drawing four times the pixels on a 2x screen
+    if (stopped) renderer.render(scene, camera); // the loop is resting: show the new size once
     renderer.setSize(w, h, false);
     camera.aspect = w / h;
     camera.updateProjectionMatrix();
@@ -255,8 +312,9 @@ export function createCoinScene(canvas: HTMLCanvasElement, opts: { topRotation?:
     rz: 0.05 * Math.sin(time * 1.7),
   });
 
-  let flight: { result: Side; startedAt: number; from: FlightStart; onLanded: () => void; landed: boolean } | null = null;
+  let flight: { result: Side; startedAt: number; from: FlightStart; onLanded: () => void; landed: boolean; landedAt: number } | null = null;
   const startedAt = performance.now();
+  let lastDrawn = 0;
 
   renderer.setAnimationLoop((now: number) => {
     let pose: CoinPose;
@@ -265,14 +323,21 @@ export function createCoinScene(canvas: HTMLCanvasElement, opts: { topRotation?:
       pose = p;
       if (p.done && !flight.landed) {
         flight.landed = true;
+        flight.landedAt = now;
         flight.onLanded();
       }
     } else {
+      if (now - lastDrawn < 30) return; // the idle hover is slow and gentle: about 30 frames a second is plenty
       pose = idle((now - startedAt) / 1000);
     }
+    lastDrawn = now;
     coin.position.y = pose.y;
     coin.rotation.set(pose.rx, pose.ry, pose.rz);
     renderer.render(scene, camera);
+    if (flight?.landed && now - flight.landedAt > 400) {
+      stopped = true;
+      renderer.setAnimationLoop(null);
+    }
   });
 
   return {
@@ -284,6 +349,7 @@ export function createCoinScene(canvas: HTMLCanvasElement, opts: { topRotation?:
         from: { y: coin.position.y, rx: coin.rotation.x, ry: coin.rotation.y, rz: coin.rotation.z },
         onLanded,
         landed: false,
+        landedAt: 0,
       };
     },
     dispose() {

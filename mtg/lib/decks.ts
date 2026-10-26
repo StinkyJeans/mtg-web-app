@@ -1,7 +1,8 @@
 import { unplayableCards, validateDeck } from "@mtg/engine";
 import type { CardDef } from "@mtg/engine";
 import { createClient } from "@/lib/supabase/client";
-import { fetchCardsByIds } from "@/lib/cards";
+import { cardImageUrl, fetchCardsByIds } from "@/lib/cards";
+import { forget, preloadImage, remember } from "@/lib/prefetch";
 
 /** card id -> number of copies */
 export type DeckEntries = Record<string, number>;
@@ -155,6 +156,7 @@ export async function getDeck(id: string): Promise<Deck & { official: boolean }>
 
 /** Creates the deck when `id` is missing. Returns the deck id. */
 export async function saveDeck(deck: { id?: string; name: string; entries: DeckEntries }): Promise<string> {
+  forget("deck:"); // what a preview remembered is about to be out of date
   const supabase = createClient();
   const name = deck.name.trim().slice(0, 120) || "Untitled deck";
 
@@ -184,6 +186,7 @@ export async function saveDeck(deck: { id?: string; name: string; entries: DeckE
 }
 
 export async function deleteDeck(id: string): Promise<void> {
+  forget("deck:");
   const { error } = await createClient().from("decks").delete().eq("id", id);
   if (error) throw new Error(error.message);
 }
@@ -236,4 +239,20 @@ export async function getDeckContents(id: string): Promise<DeckContents> {
     board[row.card_id] = (board[row.card_id] ?? 0) + row.qty;
   }
   return { id: d.id, name: d.name, boards };
+}
+
+export type DeckPreviewData = { contents: DeckContents; defs: Record<string, CardDef> };
+
+/**
+ * Everything a deck preview shows: the deck's cards by board, and what each card is. Call it when the pointer rests on a
+ * "view deck" button and the preview opens with the answer already in hand (the card pictures start downloading too).
+ */
+export function loadDeckPreview(id: string): Promise<DeckPreviewData> {
+  return remember(`deck:${id}`, async () => {
+    const contents = await getDeckContents(id);
+    const ids = (["commander", "main", "side"] as const).flatMap((b) => Object.keys(contents.boards[b]));
+    const defs = await fetchCardsByIds(ids);
+    for (const def of Object.values(defs)) if (def.image) preloadImage(cardImageUrl(def.image));
+    return { contents, defs };
+  });
 }

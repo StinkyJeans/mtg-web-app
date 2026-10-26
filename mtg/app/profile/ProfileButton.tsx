@@ -5,8 +5,9 @@ import Link from "next/link";
 import { holdWallpaper } from "../LiveWallpaper";
 import { RowSkeletons, Skeleton } from "../Skeleton";
 import DeckPreview from "../decks/DeckPreview";
-import { deckStatus, listMyDecks, loadDefsFor } from "@/lib/decks";
-import { loadMe, loadStats, saveAvatar, squarePicture } from "@/lib/profile";
+import { deckStatus, listMyDecks, loadDeckPreview, loadDefsFor } from "@/lib/decks";
+import { onIntent } from "@/lib/prefetch";
+import { cleanNickname, loadMe, loadStats, MAX_NICKNAME, saveAvatar, saveNickname, squarePicture } from "@/lib/profile";
 import type { Me, Stats } from "@/lib/profile";
 
 interface DeckLine {
@@ -43,7 +44,7 @@ function Avatar({
       className={`flex shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-amber-300 to-orange-600 font-extrabold text-black ring-2 ring-white/40 ${className}`}
       style={{ width: size, height: size, fontSize: size * 0.42 }}
     >
-      {me.name.charAt(0).toUpperCase()}
+      {(me.nickname || me.name).charAt(0).toUpperCase()}
     </span>
   );
 }
@@ -67,12 +68,12 @@ export default function ProfileButton() {
       <button
         onClick={() => setOpen(true)}
         aria-label="Open your profile"
-        className="fixed left-4 top-14 z-10 flex max-w-[min(20rem,calc(100vw-2rem))] items-center gap-3 rounded-2xl border border-white/25 bg-slate-950/55 py-2 pl-2 pr-4 text-left text-white shadow-xl shadow-black/40 ring-1 ring-inset ring-white/10 transition hover:-translate-y-0.5 hover:bg-slate-900/70"
+        className="z-10 flex max-w-[min(20rem,calc(100vw-2rem))] items-center self-start xl:fixed xl:left-4 xl:top-14 xl:self-auto gap-3 rounded-2xl border border-white/25 bg-slate-950/55 py-2 pl-2 pr-4 text-left text-white shadow-xl shadow-black/40 ring-1 ring-inset ring-white/10 transition hover:-translate-y-0.5 hover:bg-slate-900/70"
       >
         <Avatar me={me} size={44} />
         <span className="min-w-0">
           <span className="block truncate text-[15px] font-bold">
-            {me.name}
+            {me.nickname || me.name}
           </span>
           <span className="block text-xs text-slate-300">
             Profile · record · decks
@@ -185,7 +186,7 @@ function ProfilePopup({
       >
         <div
           onClick={(e) => e.stopPropagation()}
-          className="flex max-h-[92dvh] w-full max-w-2xl flex-col gap-5 overflow-y-auto rounded-3xl border border-white/25 bg-slate-950/65 p-6 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]"
+          className="panel-glass flex max-h-[92dvh] w-full max-w-2xl flex-col gap-6 overflow-y-auto p-6 text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.5)] sm:p-7"
         >
           {/* who you are, and the picture */}
           <header className="flex items-center gap-4">
@@ -212,15 +213,16 @@ function ProfilePopup({
               />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="font-display text-xs font-bold uppercase tracking-[0.25em] text-slate-300">
+              <p className="font-display text-xs font-bold uppercase tracking-[0.3em] text-[#ffe29a]">
                 Profile
               </p>
-              <h2 className="truncate text-3xl font-extrabold">{me.name}</h2>
+              <h2 className="page-title truncate !text-3xl !tracking-wide" style={{ textTransform: "none" }}>{me.nickname || me.name}</h2>
+              {me.nickname && <p className="truncate text-sm text-slate-300">@{me.name}</p>}
               <div className="mt-1 flex flex-wrap items-center gap-3 text-sm">
                 <button
                   onClick={() => file.current?.click()}
                   disabled={busy}
-                  className="rounded-lg bg-amber-400 px-3 py-1 font-bold text-black hover:bg-amber-300 disabled:opacity-50"
+                  className="btn-gold"
                 >
                   {me.avatar ? "Change picture" : "Add a picture"}
                 </button>
@@ -228,7 +230,7 @@ function ProfilePopup({
                   <button
                     onClick={() => void remove()}
                     disabled={busy}
-                    className="text-slate-300 underline hover:text-white disabled:opacity-50"
+                    className="btn-ghost !px-3 !py-1.5"
                   >
                     remove
                   </button>
@@ -241,15 +243,17 @@ function ProfilePopup({
             <button
               onClick={onClose}
               aria-label="Close"
-              className="self-start rounded-lg border border-white/30 bg-white/10 px-3 py-1.5 text-lg leading-none hover:bg-white/20"
+              className="btn-ghost self-start !px-3 !py-1.5 !text-lg leading-none"
             >
               ×
             </button>
           </header>
 
+          <NicknameEditor me={me} onMe={onMe} />
+
           {/* the record */}
           <section aria-label="Your record">
-            <h3 className="mb-2 font-display text-sm font-bold uppercase tracking-widest text-slate-300">
+            <h3 className="mb-2.5 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#ffe29a] after:h-px after:flex-1 after:bg-gradient-to-r after:from-[#f4b43d]/50 after:to-transparent after:content-['']">
               Record
             </h3>
             {stats === "error" ? (
@@ -292,7 +296,7 @@ function ProfilePopup({
                 </div>
                 {total > 0 && (
                   <div
-                    className="mt-3 flex h-2.5 overflow-hidden rounded-full bg-white/10"
+                    className="mt-3 flex h-3 overflow-hidden rounded-full bg-white/10 shadow-inner shadow-black/40"
                     role="img"
                     aria-label={`${stats.wins} wins, ${stats.losses} losses, ${stats.draws} draws`}
                   >
@@ -315,10 +319,10 @@ function ProfilePopup({
                     {stats.recent.map((m) => (
                       <li
                         key={m.id}
-                        className="flex items-center gap-3 rounded-xl border border-white/15 bg-white/5 px-3 py-1.5 text-[15px]"
+                        className="deck-row !flex-nowrap !gap-3 !py-2 text-[15px]" style={{ "--accent": m.result === "win" ? "#34d399" : m.result === "loss" ? "#fb7185" : "#94a3b8" } as React.CSSProperties}
                       >
                         <span
-                          className={`w-14 rounded-full px-2 py-0.5 text-center text-xs font-bold ${m.result === "win" ? "bg-emerald-400/25 text-[#bbf7d0]" : m.result === "loss" ? "bg-rose-400/25 text-[#fecdd3]" : "bg-slate-400/25 text-slate-200"}`}
+                          className={`chip w-16 justify-center ${m.result === "win" ? "chip-ok" : m.result === "loss" ? "!border-rose-400/40 !bg-rose-400/15 !text-[#fecdd3]" : "chip-meta"}`}
                         >
                           {m.result === "win"
                             ? "Win"
@@ -349,18 +353,18 @@ function ProfilePopup({
           {/* the decks */}
           <section aria-label="Your decks">
             <div className="mb-2 flex items-center gap-3">
-              <h3 className="font-display text-sm font-bold uppercase tracking-widest text-slate-300">
+              <h3 className="flex flex-1 items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#ffe29a] after:h-px after:flex-1 after:bg-gradient-to-r after:from-[#f4b43d]/50 after:to-transparent after:content-['']">
                 Saved decks
               </h3>
               <Link
                 href="/decks"
-                className="ml-auto text-sm text-slate-200 underline hover:text-white"
+                className="btn-ghost ml-auto"
               >
                 Manage decks
               </Link>
               <Link
                 href="/decks/new"
-                className="rounded-lg bg-amber-400 px-3 py-1 text-sm font-bold text-black hover:bg-amber-300"
+                className="btn-gold"
               >
                 New deck
               </Link>
@@ -387,16 +391,18 @@ function ProfilePopup({
                   <li key={d.id}>
                     <button
                       onClick={() => setViewing(d)}
-                      className="flex w-full items-center gap-3 rounded-xl border border-white/15 bg-white/10 px-3 py-2 text-left transition hover:bg-white/20"
+                      {...onIntent(() => void loadDeckPreview(d.id).catch(() => undefined))}
+                      className="deck-row w-full !flex-nowrap !gap-3 !py-2.5 text-left"
+                      style={{ "--accent": d.ready ? "#34d399" : "#f4b43d" } as React.CSSProperties}
                     >
-                      <span className="min-w-0 flex-1 truncate text-[15px] font-semibold">
+                      <span className="deck-name min-w-0 flex-1 truncate !text-[15px]">
                         {d.name}
                       </span>
                       <span className="text-sm text-slate-300">
                         {d.cards} cards
                       </span>
                       <span
-                        className={`rounded-full px-2 py-0.5 text-xs font-bold ${d.ready ? "bg-emerald-400/25 text-[#bbf7d0]" : "bg-amber-400/25 text-[#fde68a]"}`}
+                        className={`chip ${d.ready ? "chip-ok" : "chip-warn"}`}
                       >
                         {d.ready
                           ? "Ready to play"
@@ -432,13 +438,64 @@ function Tile({
   tone: string;
 }) {
   return (
-    <div className="rounded-2xl border border-white/20 bg-white/10 px-2 py-3">
-      <div className={`text-3xl font-extrabold tabular-nums ${tone}`}>
+    <div className="rounded-2xl border border-white/15 bg-gradient-to-b from-white/[0.12] to-white/[0.03] px-2 py-4 shadow-lg shadow-black/20">
+      <div className={`font-title text-4xl font-extrabold tabular-nums ${tone}`}>
         {value}
       </div>
       <div className="text-xs font-semibold uppercase tracking-wider text-slate-300">
         {label}
       </div>
     </div>
+  );
+}
+
+/** Choose the name friends and opponents see. The login name never changes. */
+function NicknameEditor({ me, onMe }: { me: Me; onMe: (m: Me) => void }) {
+  const [text, setText] = useState(me.nickname ?? "");
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ text: string; bad?: boolean } | null>(null);
+  const changed = cleanNickname(text) !== me.nickname;
+
+  async function save(value: string) {
+    setBusy(true);
+    setNote(null);
+    try {
+      const kept = await saveNickname(me.id, value);
+      setText(kept ?? "");
+      onMe({ ...me, nickname: kept });
+      setNote({ text: kept ? "Saved. Friends and opponents now see this name." : "Nickname removed. Your login name is shown again." });
+    } catch (e) {
+      setNote({ text: e instanceof Error ? e.message : "Could not save the nickname.", bad: true });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <section aria-label="Nickname">
+      <h3 className="mb-2.5 flex items-center gap-3 text-xs font-bold uppercase tracking-[0.2em] text-[#ffe29a] after:h-px after:flex-1 after:bg-gradient-to-r after:from-[#f4b43d]/50 after:to-transparent after:content-['']">Nickname</h3>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          if (changed) void save(text);
+        }}
+        className="flex flex-wrap items-center gap-2"
+      >
+        <label className="tool-field min-w-[12rem] flex-1">
+          <input value={text} onChange={(e) => setText(e.target.value)} maxLength={MAX_NICKNAME} placeholder={me.name} aria-label="Nickname" autoComplete="off" className="w-full" />
+        </label>
+        <button type="submit" disabled={busy || !changed} className="btn-gold !py-2">
+          {busy ? "Saving…" : "Save"}
+        </button>
+        {me.nickname && (
+          <button type="button" disabled={busy} onClick={() => void save("")} className="btn-ghost !py-2">
+            Reset
+          </button>
+        )}
+      </form>
+      <p className={`mt-1.5 text-sm ${note?.bad ? "text-[#fca5a5]" : "text-slate-300"}`}>
+        {note?.text ?? `Shown to friends and opponents instead of @${me.name}. Your login name stays the same.`}
+      </p>
+    </section>
   );
 }

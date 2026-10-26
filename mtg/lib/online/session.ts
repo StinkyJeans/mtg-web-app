@@ -6,7 +6,7 @@ import type { Room } from "@colyseus/sdk";
 import { createClient } from "@/lib/supabase/client";
 import { setPlayerNames } from "@/app/play/log";
 import { KICKED, MATCH_GONE } from "./protocol";
-import type { ChatLine, LobbyRoomInfo, RoomSnapshot, StartPayload, UpdatePayload } from "./protocol";
+import type { ChatLine, FriendStatus, LobbyRoomInfo, RoomSnapshot, StartPayload, UpdatePayload } from "./protocol";
 
 // The browser's one connection to the live game server: the lobby (the list of rooms) and, at most, one match room.
 // It lives outside React so it survives moving from the dashboard to the play screen.
@@ -24,9 +24,20 @@ export interface OnlineState {
   error: string | null;
   /** The connection to the match was lost (or the server restarted) and the browser is getting back in. */
   reconnecting: boolean;
+  /** The connection that tells friends this player is online (and tells this player how the friends are). */
+  social: "off" | "on";
+  /** How each friend is doing, by account id. */
+  friends: Record<string, FriendStatus>;
+  /** Short messages for the play screen, such as "Sam is spectating your game". */
+  notices: Notice[];
 }
 
-const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null, reconnecting: false };
+export interface Notice {
+  id: number;
+  text: string;
+}
+
+const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null, reconnecting: false, social: "off", friends: {}, notices: [] };
 let state: OnlineState = empty;
 const listeners = new Set<() => void>();
 const set = (patch: Partial<OnlineState>) => {
@@ -89,12 +100,13 @@ export async function connectLobby(): Promise<void> {
         status: meta.status ?? "waiting",
         turn: meta.turn ?? 0,
         bot: meta.bot === true,
+        spectators: Number(meta.spectators ?? 0),
         clients: Number(r.clients ?? 0),
         maxClients: Number(r.maxClients ?? 2),
         locked: meta.locked === true,
       };
     };
-    room.onMessage("rooms", (rooms: Record<string, unknown>[]) => set({ rooms: rooms.filter((r) => r.name === "match").map(info) }));
+    room.onMessage("rooms", (rooms: Record<string, unknown>[]) => set({ rooms: [...new Map(rooms.filter((r) => r.name === "match").map((r) => [String(r.roomId), info(r)])).values()] }));
     room.onMessage("+", ([id, r]: [string, Record<string, unknown>]) => {
       if (r.name !== "match") return;
       set({ rooms: [...state.rooms.filter((x) => x.roomId !== id), info(r)] });
@@ -134,10 +146,10 @@ const keep = (token: string | null) => {
   }
 };
 
-function attach(room: Room) {
+function attach(room: Room, spectating = false) {
   matchRoom = room;
   rejoinFor = null;
-  keep(room.reconnectionToken); // a refreshed page can use this to come back to the same seat
+  keep(spectating ? null : room.reconnectionToken); // a refreshed page can use this to come back to the same seat (a watcher has none)
   queued.length = 0;
   // back in the same match (after a server restart): the screen keeps showing it until the server's copy arrives
   const same = room.roomId === state.matchId;
@@ -154,12 +166,14 @@ function attach(room: Room) {
   room.onMessage("chat", (m: { from: ChatLine["from"]; name: string; text: string }) => set({ chat: [...state.chat, { id: chatId++, ...m }].slice(-80) }));
   room.onMessage("error", (m: { message: string }) => flash(m.message));
   room.onMessage("closed", (m: { message: string }) => flash(m.message));
+  // someone started watching this match: a friend is announced as one
+  room.onMessage("spectator", (m: { name: string; friend: boolean }) => notify(m.friend ? `Your friend ${m.name} is spectating your game right now.` : `${m.name} is spectating your game.`));
   room.onDrop(() => set({ reconnecting: true })); // the SDK first tries to get the same connection back by itself
   room.onReconnect(() => set({ reconnecting: false }));
   room.onLeave((code: number) => {
     if (matchRoom !== room) return;
     matchRoom = null;
-    if (code !== 4000 && code !== KICKED) {
+    if (!spectating && code !== 4000 && code !== KICKED) {
       void rejoin(room.roomId); // the connection was lost, or the server restarted
       return;
     }
@@ -192,6 +206,18 @@ export async function joinRoom(roomId: string, password?: string): Promise<boole
   }
 }
 
+/** Watching a match that is being played: free in an open room, with the password in a locked one. True once watching. */
+export async function spectateRoom(roomId: string, password?: string): Promise<boolean> {
+  set({ error: null });
+  try {
+    attach(await getClient().joinById(roomId, { token: await accessToken(), spectate: true, password }), true);
+    return true;
+  } catch (e) {
+    set({ error: explain(e) });
+    return false;
+  }
+}
+
 export function leaveRoom(): void {
   keep(null);
   rejoinFor = null;
@@ -200,6 +226,67 @@ export function leaveRoom(): void {
   setPlayerNames();
   set({ snapshot: null, game: null, chat: [], reconnecting: false });
   void room?.leave(true);
+}
+
+// ───────── messages for the play screen ─────────
+let noticeId = 0;
+export function notify(text: string): void {
+  const id = noticeId++;
+  set({ notices: [...state.notices, { id, text }].slice(-4) });
+  setTimeout(() => dismissNotice(id), 9000);
+}
+export const dismissNotice = (id: number) => set({ notices: state.notices.filter((n) => n.id !== id) });
+
+// ───────── who is online: the friends' status ─────────
+const SOCIAL_RETRY_MS = 4000;
+const SOCIAL_POLL_MS = 12_000; // also what keeps this player showing as online
+let socialRoom: Room | null = null;
+let wantSocial = false;
+let connectingSocial = false;
+let friendIds: string[] = [];
+let pollTimer: ReturnType<typeof setInterval> | undefined;
+
+const poll = () => socialRoom?.send("statuses", { ids: friendIds });
+
+/** Stays connected on every page while signed in: that is what makes this player show as online to their friends. */
+export async function connectSocial(): Promise<void> {
+  wantSocial = true;
+  if (socialRoom || connectingSocial) return;
+  connectingSocial = true;
+  try {
+    const room = await getClient().joinOrCreate("social", { token: await accessToken() });
+    socialRoom = room;
+    room.onMessage("statuses", (list: FriendStatus[]) => set({ friends: Object.fromEntries(list.map((s) => [s.id, s])) }));
+    room.onLeave(() => {
+      socialRoom = null;
+      clearInterval(pollTimer);
+      set({ social: "off" });
+      if (wantSocial) setTimeout(() => void connectSocial(), SOCIAL_RETRY_MS);
+    });
+    set({ social: "on" });
+    poll();
+    clearInterval(pollTimer);
+    pollTimer = setInterval(poll, SOCIAL_POLL_MS);
+  } catch {
+    if (wantSocial) setTimeout(() => void connectSocial(), SOCIAL_RETRY_MS);
+  } finally {
+    connectingSocial = false;
+  }
+}
+
+export function disconnectSocial(): void {
+  wantSocial = false;
+  clearInterval(pollTimer);
+  void socialRoom?.leave(true);
+  socialRoom = null;
+  friendIds = [];
+  set({ social: "off", friends: {} });
+}
+
+/** The friends whose status to ask for (their account ids). */
+export function watchFriends(ids: string[]): void {
+  friendIds = ids;
+  poll();
 }
 
 // ───────── getting back into a match ─────────

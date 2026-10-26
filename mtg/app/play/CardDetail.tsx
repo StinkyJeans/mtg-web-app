@@ -74,8 +74,8 @@ function Body({ inspected: { def, status } }: { inspected: Inspected }) {
         {helpFor(def.text, 5).length > 0 && (
           <div className="rounded border border-sky-200 bg-sky-50 p-2.5 text-[15px] leading-relaxed text-zinc-800">
             <div className="mb-1.5 text-sm font-semibold uppercase font-display tracking-wide text-sky-700">What this means</div>
-            {helpFor(def.text, 5).map((h) => (
-              <p key={h} className="mb-1 last:mb-0">
+            {helpFor(def.text, 5).map((h, i) => (
+              <p key={`${i}-${h}`} className="mb-1 last:mb-0">
                 ⓘ {h}
               </p>
             ))}
@@ -90,8 +90,8 @@ function Body({ inspected: { def, status } }: { inspected: Inspected }) {
           <span className="text-zinc-700">Cost {def.cost}</span>
           {def.rarity && <span className="capitalize text-zinc-700">{def.rarity}</span>}
           {def.playable === false && <span className="rounded bg-zinc-200 px-2 py-0.5 text-red-600">Not playable yet</span>}
-          {status?.map((s) => (
-            <span key={s} className="rounded bg-sky-100 px-2.5 py-0.5 text-sky-800">
+          {status?.map((s, i) => (
+            <span key={`${i}-${s}`} className="rounded bg-sky-100 px-2.5 py-0.5 text-sky-800">
               {s}
             </span>
           ))}

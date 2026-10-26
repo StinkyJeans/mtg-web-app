@@ -55,15 +55,15 @@ export default function Lobby() {
 
   return (
     <>
-      <aside className="fixed right-4 top-14 z-10 flex w-[min(26rem,calc(100vw-2rem))] flex-col gap-3">
+      <aside className="z-10 order-last flex w-full max-w-md flex-col gap-3 xl:order-none xl:fixed xl:right-4 xl:top-14 xl:w-[min(26rem,calc(100vw-2rem))] xl:max-w-none">
         <LiveMatches online={online} inRoom={room !== null} />
 
         {inMatch ? (
           <button
             onClick={() => router.push("/play/online")}
-            className="rounded-2xl bg-gradient-to-b from-red-400 to-red-600 px-6 py-3 text-lg font-extrabold text-white shadow-lg shadow-red-500/30 transition hover:-translate-y-0.5"
+            className="btn-live"
           >
-            ▶ Return to your match
+            ▶ {room?.spectating ? "Return to the match you are watching" : "Return to your match"}
           </button>
         ) : (
           <form
@@ -74,22 +74,31 @@ export default function Lobby() {
             }}
             className="flex flex-col gap-2"
           >
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              disabled={online.lobby !== "on" || room !== null}
-              maxLength={40}
-              autoComplete="off"
-              placeholder="🔒 Password (optional)"
-              aria-label="Room password (optional)"
-              className="rounded-xl border border-white/25 bg-slate-950/55 px-4 py-2.5 text-[15px] text-white placeholder:text-slate-300 focus:border-amber-300 focus:outline-none disabled:opacity-50"
-            />
+            <label className="tool-field !rounded-2xl !bg-slate-950/60 !px-4 !py-3 text-[15px]">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
+                <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+              </svg>
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                disabled={online.lobby !== "on" || room !== null}
+                maxLength={40}
+                autoComplete="off"
+                placeholder="Password (optional)"
+                aria-label="Room password (optional)"
+                className="w-full disabled:opacity-50"
+              />
+            </label>
             <button
               type="submit"
               disabled={online.lobby !== "on" || room !== null}
-              className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-500 px-6 py-3 text-lg font-extrabold text-black shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 hover:shadow-xl hover:shadow-amber-400/40 disabled:translate-y-0 disabled:opacity-50"
+              className="btn-gold !w-full !rounded-2xl !py-3.5 !text-base"
             >
-              ＋ Create {password ? "locked room" : "room"}
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" aria-hidden="true">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Create {password ? "locked room" : "room"}
             </button>
           </form>
         )}

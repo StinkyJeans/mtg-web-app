@@ -1,6 +1,7 @@
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { defineServer, defineRoom, LobbyRoom, matchMaker, monitor, playground, RedisDriver, RedisPresence, WebSocketTransport } from "colyseus";
 import { MatchRoom } from "./rooms/MatchRoom.js";
+import { SocialRoom } from "./rooms/SocialRoom.js";
 import { botPool } from "./botPool.js";
 import { LIMITS } from "./limits.js";
 import { pruneLive } from "./supabase.js";
@@ -30,6 +31,8 @@ const server = defineServer({
   rooms: {
     lobby: defineRoom(LobbyRoom),
     match: defineRoom(MatchRoom).enableRealtimeListing(),
+    // who is online, for the friends list
+    social: defineRoom(SocialRoom),
   },
 
   express: (app) => {

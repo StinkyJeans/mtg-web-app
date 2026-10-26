@@ -9,6 +9,12 @@ export const KICKED = 4100;
 /** Error code for a restore of a match that has ended or was never saved: the browser stops trying. */
 export const MATCH_GONE = 410;
 
+/** A player's card sleeve and playmat, each "preset:<id>" or "" for their default. */
+export interface Look {
+  sleeve: string;
+  mat: string;
+}
+
 /** What a room looks like to the lobby list. */
 export interface LobbyRoomInfo {
   roomId: string;
@@ -23,6 +29,8 @@ export interface LobbyRoomInfo {
   locked: boolean;
   /** A room with a computer opponent: nobody else can join it. */
   bot: boolean;
+  /** People watching the match. */
+  spectators: number;
 }
 
 /** Where a room stands, as sent to each player in it. */
@@ -34,11 +42,15 @@ export interface RoomSnapshot {
   locked: boolean;
   size: number | null;
   mismatch: boolean;
-  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; bot?: boolean }[];
+  players: { seat: PlayerId; name: string; connected: boolean; voted: number | null; deckReady: boolean; bot?: boolean; look?: Look }[];
   /** `call`, `result` and `winner` stay null until the caller has called heads or tails. */
   coin: { caller: PlayerId; call: "heads" | "tails" | null; result: "heads" | "tails" | null; winner: PlayerId | null; chose: "first" | "second" | null } | null;
   winner: PlayerId | "draw" | null;
   endReason: string | null;
+  /** How many people are watching. */
+  spectators: number;
+  /** True when this player is watching, not playing (`you` is then only the side the board is drawn from). */
+  spectating?: boolean;
 }
 
 /** The match has begun (or the player came back to it): the game as this player sees it. */
@@ -50,6 +62,10 @@ export interface StartPayload {
   deckNames: Record<PlayerId, string>;
   summary: string;
   fresh: boolean;
+  /** True for someone watching: both hands are face down and nothing can be done. */
+  spectator?: boolean;
+  /** Each player's card sleeve and playmat, chosen before the match. */
+  looks?: Record<PlayerId, Look>;
 }
 
 export interface UpdatePayload {
@@ -62,4 +78,12 @@ export interface ChatLine {
   from: PlayerId;
   name: string;
   text: string;
+}
+
+/** How one friend is doing, from the game server (game-server/src/rooms/SocialRoom.ts). */
+export interface FriendStatus {
+  id: string;
+  online: boolean;
+  /** The room this friend is in. A match with status "playing" can be watched. */
+  match: { roomId: string; name: string; locked: boolean; status: Stage; bot: boolean; spectators: number; players: string[] } | null;
 }

@@ -52,6 +52,7 @@ export default function LiveWallpaper({ name = "home" }: { name?: string }) {
   );
   const video = useRef<HTMLVideoElement>(null);
   const [videoReady, setVideoReady] = useState(false);
+  const [videoFailed, setVideoFailed] = useState(false); // neither video file exists: only then are pictures looked for
   const [picture, setPicture] = useState(0); // which picture name is being tried
   const [pictureReady, setPictureReady] = useState(false);
 
@@ -90,11 +91,11 @@ export default function LiveWallpaper({ name = "home" }: { name?: string }) {
         disablePictureInPicture
         onLoadedData={() => setVideoReady(true)}
       >
-        <source src={`/backgrounds/${name}.webm`} type="video/webm" />
         <source src={`/backgrounds/${name}.mp4`} type="video/mp4" />
+        <source src={`/backgrounds/${name}.webm`} type="video/webm" onError={() => setVideoFailed(true)} />
       </video>
       )}
-      {mounted && picture < PICTURES.length && !videoReady && (
+      {mounted && videoFailed && picture < PICTURES.length && !videoReady && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={PICTURES[picture]}

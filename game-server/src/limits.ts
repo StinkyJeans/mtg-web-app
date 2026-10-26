@@ -11,6 +11,8 @@ export const LIMITS = {
   maxRooms: () => num("MAX_ROOMS", 400),
   /** Rooms with a computer opponent at once: the bot is the one expensive thing the server does. */
   maxBotGames: () => num("MAX_BOT_GAMES", 30),
+  /** People who may watch one match at once. */
+  maxSpectators: () => num("MAX_SPECTATORS", 25),
   /** Messages one browser may send per second before it is cut off (people click a few times a second at most). */
   messagesPerSecond: () => num("MAX_MESSAGES_PER_SECOND", 100),
   /** Largest single message from a browser, in bytes. A deck of 60 cards is about 2 KB. */
