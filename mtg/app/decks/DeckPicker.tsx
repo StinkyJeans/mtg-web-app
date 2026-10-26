@@ -40,13 +40,16 @@ export default function DeckPicker({
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const fits = useMemo(() => choices.filter((c) => c.ids.length === size), [choices, size]);
-  const mine = fits.filter((c) => !c.official);
+  // Your own decks are always listed. One that is not 60 cards can't be played yet, so it is shown greyed out with the reason
+  // (it used to vanish from the list, and players thought their decks were gone).
+  const mine = choices.filter((c) => !c.official);
   const official = fits.filter((c) => c.official);
-  const shown = (tab === "mine" ? mine : tab === "official" ? official : fits).filter((c) => c.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const all = [...mine.filter((c) => c.ids.length === size), ...official, ...mine.filter((c) => c.ids.length !== size)];
+  const shown = (tab === "mine" ? mine : tab === "official" ? official : all).filter((c) => c.name.toLowerCase().includes(query.trim().toLowerCase()));
   const picked = fits.find((c) => c.id === value);
-  const skeleton = loading && fits.length === 0; // the decks are on their way: shapes where they will be
+  const skeleton = loading && choices.length === 0; // the decks are on their way: shapes where they will be
   const tabs: { id: Tab; label: string; count: number }[] = [
-    { id: "all", label: "All", count: fits.length },
+    { id: "all", label: "All", count: all.length },
     ...(mine.length > 0 ? [{ id: "mine" as const, label: "My decks", count: mine.length }] : []),
     { id: "official", label: "Ready-made", count: official.length },
   ];
@@ -133,12 +136,12 @@ export default function DeckPicker({
         )}
         {shown.map((d) => (
           <li key={d.id} role="presentation">
-            <Tile selected={value === d.id} disabled={disabled} onPick={() => onChange(d.id)} art={art(d)} wide={wide}>
+            <Tile selected={value === d.id} disabled={disabled || d.ids.length !== size} onPick={() => onChange(d.id)} art={art(d)} wide={wide}>
               <span className="min-w-0 flex-1">
                 <span className={`line-clamp-2 font-bold leading-tight ${wide ? "text-lg" : "text-sm"}`}>{d.name}</span>
                 <span className={`mt-1 flex items-center gap-1.5 text-slate-300 ${wide ? "text-sm" : "text-xs"}`}>
                   <DeckColors colors={d.colors} />
-                  <span className="truncate">{d.official ? (setName(d.code ?? null) ?? "Ready-made") : "Your deck"}</span>
+                  <span className="truncate">{d.ids.length !== size ? `${d.ids.length} cards: needs ${size}` : d.official ? (setName(d.code ?? null) ?? "Ready-made") : "Your deck"}</span>
                 </span>
               </span>
             </Tile>
@@ -146,6 +149,7 @@ export default function DeckPicker({
         ))}
         {!loading && shown.length === 0 && query && <li className="col-span-full py-3 text-center text-sm text-slate-300">No deck matches “{query}”.</li>}
       </ul>
+      {mine.some((c) => c.ids.length !== size) && <p className="text-xs text-slate-400">Greyed-out decks of yours don&apos;t have {size} cards yet. Add cards in the deck editor to play them.</p>}
     </div>
   );
 }
