@@ -22,11 +22,14 @@ export function useBattleFullscreen(active: boolean): void {
       if (!document.fullscreenElement) leftByPlayer.current = true;
     };
     document.addEventListener("fullscreenchange", onChange);
+    const later = () => {
+      window.addEventListener("pointerdown", retry, { once: true });
+      window.addEventListener("keydown", retry, { once: true });
+    };
     if (!document.fullscreenElement) {
-      enter().catch(() => {
-        window.addEventListener("pointerdown", retry, { once: true });
-        window.addEventListener("keydown", retry, { once: true });
-      });
+      // only ask while the browser counts a recent click or key press (else it refuses, and logs it): otherwise wait for the next one
+      if (navigator.userActivation?.isActive === false) later();
+      else enter().catch(later);
     }
     return () => {
       document.removeEventListener("fullscreenchange", onChange);
