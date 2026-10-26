@@ -45,32 +45,44 @@ interface Out {
   out: GainNode;
 }
 
+let ctx: AudioContext | null = null;
 let out: Out | null = null;
-let noiseBuffer: AudioBuffer | null = null;
+let noise1s: AudioBuffer | null = null;
 
-function audio(): Out | null {
-  if (typeof window === "undefined" || !soundEnabled()) return null;
+/** The page's one audio context, shared by the sound effects and the music. Null where there is no audio. */
+export function audioContext(): AudioContext | null {
+  if (typeof window === "undefined") return null;
   try {
-    if (!out) {
-      const ctx = new AudioContext();
-      const master = ctx.createGain();
-      master.gain.value = 0.5;
-      master.connect(ctx.destination);
-      out = { ctx, out: master };
-    }
+    ctx ??= new AudioContext();
     // Browsers keep audio suspended until the page has been clicked; resume() starts it once that has happened.
-    if (out.ctx.state === "suspended") void out.ctx.resume();
-    return out;
+    if (ctx.state === "suspended") void ctx.resume();
+    return ctx;
   } catch {
     return null;
   }
 }
 
-/** Starts the audio on the first click, so the first sound of the game isn't lost to the browser's autoplay block. */
-export function unlockSound(): () => void {
-  const unlock = () => audio();
-  window.addEventListener("pointerdown", unlock, { once: true });
-  return () => window.removeEventListener("pointerdown", unlock);
+/** One second of white noise, made once and reused. */
+export function noiseBuffer(c: AudioContext): AudioBuffer {
+  if (!noise1s) {
+    noise1s = c.createBuffer(1, c.sampleRate, c.sampleRate);
+    const data = noise1s.getChannelData(0);
+    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  }
+  return noise1s;
+}
+
+function audio(): Out | null {
+  if (!soundEnabled()) return null;
+  const c = audioContext();
+  if (!c) return null;
+  if (!out) {
+    const master = c.createGain();
+    master.gain.value = 0.5;
+    master.connect(c.destination);
+    out = { ctx: c, out: master };
+  }
+  return out;
 }
 
 /** A quick rise to `gain`, then an exponential fade to silence over `dur` seconds. */
@@ -118,13 +130,8 @@ interface NoiseOpts {
 /** Filtered white noise: high and narrow it is a swish, low it is a thud. */
 function noise(a: Out, { freq, to, filter = "bandpass", q = 1, at = 0, dur = 0.15, gain = 0.2 }: NoiseOpts) {
   const t = a.ctx.currentTime + at;
-  if (!noiseBuffer) {
-    noiseBuffer = a.ctx.createBuffer(1, a.ctx.sampleRate, a.ctx.sampleRate);
-    const data = noiseBuffer.getChannelData(0);
-    for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-  }
   const src = a.ctx.createBufferSource();
-  src.buffer = noiseBuffer;
+  src.buffer = noiseBuffer(a.ctx);
   const f = a.ctx.createBiquadFilter();
   f.type = filter;
   f.Q.value = q;

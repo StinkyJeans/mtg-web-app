@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { animationsEnabled, setAnimationsEnabled } from "@/lib/motion";
 import { playSound, setSoundEnabled, soundEnabled } from "@/lib/sound";
+import { musicEnabled, setMusicEnabled } from "@/lib/music";
 import { setTheme } from "@/lib/theme";
 import type { Theme } from "@/lib/theme";
 
@@ -14,6 +15,7 @@ export default function UserBar() {
   const [username, setUsername] = useState<string | null>(null);
   const [animations, setAnimations] = useState(animationsEnabled);
   const [sound, setSound] = useState(soundEnabled);
+  const [music, setMusic] = useState(musicEnabled);
   // The page already carries its theme (set before it was drawn); this just follows it.
   const theme = useSyncExternalStore(
     (cb) => {
@@ -63,6 +65,17 @@ export default function UserBar() {
         className="rounded-md border border-white/20 bg-white/10 px-2 py-1 transition hover:bg-white/20"
       >
         Sound: <span className={sound ? "font-semibold text-[#6ee7b7]" : "font-semibold text-slate-400"}>{sound ? "On" : "Off"}</span>
+      </button>
+      <button
+        onClick={() => {
+          setMusicEnabled(!music);
+          setMusic(!music);
+        }}
+        aria-pressed={music}
+        title="Turn the background music on or off"
+        className="rounded-md border border-white/20 bg-white/10 px-2 py-1 transition hover:bg-white/20"
+      >
+        Music: <span className={music ? "font-semibold text-[#6ee7b7]" : "font-semibold text-slate-400"}>{music ? "On" : "Off"}</span>
       </button>
       <button
         onClick={() => setTheme(theme === "dark" ? "light" : "dark")}

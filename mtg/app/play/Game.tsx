@@ -62,7 +62,6 @@ import { KeepRandomDecks } from "./SaveDeck";
 import type { PlayedDeck } from "./SaveDeck";
 import StepBanner from "./StepBanner";
 import { playGameSounds } from "./gameSounds";
-import { unlockSound } from "@/lib/sound";
 import { useOnlineMatch } from "./useOnlineMatch";
 
 const newSeed = () => Date.now() % 2_147_483_647;
@@ -158,8 +157,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [localDecks, setLocalDecks] = useState<Partial<Record<PlayerId, PlayedDeck>>>({});
   const [savedDecks, setSavedDecks] = useState<Partial<Record<PlayerId, string>>>({}); // random decks kept in My decks: the copy's id
   const hotSeat = useHotSeatDecks(!online);
-
-  useEffect(() => unlockSound(), []);
 
   useEffect(() => {
     gameRef.current = game;
