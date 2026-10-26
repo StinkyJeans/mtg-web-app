@@ -48,6 +48,7 @@ export function amountOf(phrase: string, ctx: Ctx): Amount | null {
 
 /** "for each attacking creature you control": singular phrase to a count. */
 export function forEachCount(phrase: string): CountSpec | null {
+  if (phrase === "card discarded this way") return { kind: "x" };
   const otherTyped = /^other ([a-z]+) you control$/.exec(phrase);
   if (otherTyped && !/^(creature|artifact|land|enchantment)$/.test(otherTyped[1])) return { kind: "permanents", what: "subtype", subtype: otherTyped[1], other: true, scope: "you" };
   const atk = /^(other )?attacking ([a-z]+)$/.exec(phrase);

@@ -36,6 +36,11 @@ export function targetSpec(phrase: string): TargetSpec | null {
     const f = { n: Number(stat[2]), op: stat[3] === "less" ? ("max" as const) : ("min" as const) };
     return { ...inner, ...(stat[1] === "power" ? { power: f } : stat[1] === "toughness" ? { toughness: f } : { mv: f }), label: phrase };
   }
+  const exactMV = / with mana value (\d+)$/.exec(phrase);
+  if (exactMV) {
+    const inner = targetSpecBase(phrase.slice(0, exactMV.index));
+    return inner ? { ...inner, mv: { n: Number(exactMV[1]), op: "eq" }, label: phrase } : null;
+  }
   return targetSpecBase(phrase);
 }
 
@@ -56,6 +61,7 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   if (phrase === "target creature or planeswalker") return { kind: "creatureOrPlaneswalker", label: phrase };
   if (phrase === "target planeswalker") return { kind: "planeswalker", label: phrase };
   if (phrase === "target spell") return { kind: "spell", label: phrase };
+  if (phrase === "target creature that crewed it this turn") return { kind: "creature", crewedIt: true, label: phrase };
   if (phrase === "target player") return { kind: "player", label: phrase };
   if (phrase === "target opponent") return { kind: "player", opponentOnly: true, label: phrase };
   if (phrase === "target permanent") return { kind: "permanent", label: phrase };

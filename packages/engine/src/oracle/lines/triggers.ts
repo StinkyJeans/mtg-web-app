@@ -387,20 +387,45 @@ export function readToSolve(line: string, out: ParsedCard): boolean {
   return true;
 }
 
-// "Whenever one or more Goblins / creatures you control attack, ..."
+// "Whenever one or more Goblins / creatures you control attack, ..." / "Whenever you attack, if a Pirate and a Vehicle attacked this combat, ..."
 export function readYouAttack(line: string, out: ParsedCard): boolean {
-  const youAttack = /^whenever one or more ([a-z]+) you control attack,? (.+)$/.exec(line);
-  if (youAttack) {
-    const ctx = newCtx(true);
-    const effects = parseEffectText(youAttack[2].replace(/^it /, "~ "), ctx);
-    if (effects && effects.length > 0) {
-      out.triggers.push({ event: "youAttack", ...(youAttack[1] === "creatures" ? {} : { attackerSubtypes: [singularType(youAttack[1])] }), effects, targets: ctx.targets, text: line });
-      return true;
-    }
+  const youAttack = /^whenever (?:one or more ([a-z]+) you control attack,?|you attack,) (.+)$/.exec(line);
+  if (!youAttack) return false;
+  let body = youAttack[2];
+  const intervening = /^if (.+?), (.+)$/.exec(body);
+  const cond = intervening ? interveningCond(intervening[1]) : null;
+  if (cond) body = intervening![2];
+  const ctx = newCtx(true);
+  const effects = parseEffectText(body.replace(/^it /, "~ "), ctx);
+  if (!effects || effects.length === 0) {
     out.unsupported.push(line);
     return true;
   }
-  return false;
+  const subtype = youAttack[1] && youAttack[1] !== "creatures" ? { attackerSubtypes: [singularType(youAttack[1])] } : {};
+  out.triggers.push({ event: "youAttack", ...subtype, ...(cond ? { cond } : {}), effects, targets: ctx.targets, text: line });
+  return true;
+}
+
+// "Whenever you discard one or more cards, put that many +1/+1 counters on this creature.": once for each batch of cards; X is how many.
+export function readYouDiscard(line: string, out: ParsedCard): boolean {
+  const m = /^whenever you discard one or more cards,? (.+)$/.exec(line);
+  if (!m) return false;
+  const ctx = newCtx(true);
+  const effects = parseEffectText(m[1].replace(/\bput that many \+1\/\+1 counters\b/, "put x +1/+1 counters"), ctx);
+  if (effects && effects.length > 0) out.triggers.push({ event: "youDiscard", effects, targets: ctx.targets, text: line });
+  else out.unsupported.push(line);
+  return true;
+}
+
+// "Whenever one or more creatures your opponents control are dealt excess noncombat damage, create a Treasure token."
+export function readExcessDamage(line: string, out: ParsedCard): boolean {
+  const m = /^whenever one or more creatures your opponents control are dealt excess noncombat damage,? (.+)$/.exec(line);
+  if (!m) return false;
+  const ctx = newCtx(true);
+  const effects = parseEffectText(m[1], ctx);
+  if (effects && effects.length > 0) out.triggers.push({ event: "excessDamage", effects, targets: ctx.targets, text: line });
+  else out.unsupported.push(line);
+  return true;
 }
 
 // "When ~ enters, ...", "Whenever ~ attacks, ...", "When ~ dies, ..."

@@ -63,6 +63,13 @@ export const PERMANENT_EFFECTS = {
       say(`${playerLabel(ctx.controller)} gains control of ${nameOf(state, s.perm)} until end of turn.`);
     }
   },
+  combatDamageDraw({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.damageDraws = [...(s.perm.damageDraws ?? []), { player: ctx.controller, source: ctx.sourceName }];
+      say(`This turn, whenever ${nameOf(state, s.perm)} deals combat damage to a player, ${playerLabel(ctx.controller)} draws a card.`);
+    }
+  },
   crewed({ state, ctx, say }) {
     for (const s of subjectsOf(state, { t: "self" }, ctx)) {
       if (s.k !== "perm") continue;

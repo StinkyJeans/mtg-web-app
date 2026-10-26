@@ -109,6 +109,8 @@ export interface Permanent {
   kicked?: boolean;
   /** A Vehicle that has been crewed this turn: it is an artifact creature until end of turn. */
   crewed?: boolean;
+  /** The creatures that crewed it this turn. */
+  crewedBy?: string[];
   /** Regeneration shields (until end of turn): the next time it would be destroyed it is tapped and healed instead. */
   regenShield?: number;
   /** Hit by something that says it "can't be regenerated" this turn. */
@@ -145,6 +147,8 @@ export interface Permanent {
   usedOnce?: number[];
   /** Until end of turn: "When this creature dies, return it to the battlefield tapped under its owner's control with a +1/+1 counter on it." */
   diesReturn?: boolean;
+  /** Until end of turn: "whenever that creature deals combat damage to a player this turn, you draw a card": who draws, and the card that said so. */
+  damageDraws?: { player: PlayerId; source: string }[];
   /** A finality counter: if it would die, it is exiled instead. */
   finality?: boolean;
   /** Cast for its warp cost: exiled at the beginning of the next end step. */
@@ -172,7 +176,7 @@ export interface PlayerState {
   attackedThisTurn?: boolean;
   /** Cards in exile that may be played: "During any turn you attacked with ~, you may play that card", or a warped card from turn `fromTurn` on. */
   /** `tax`: a spell cast this way costs that much more; `tappedLand`: a land played this way enters tapped (Lightstall Inquisitor). */
-  mayPlay?: { iid: string; source: string; fromTurn?: number; tax?: number; tappedLand?: boolean }[];
+  mayPlay?: { iid: string; source: string; fromTurn?: number; untilTurn?: number; tax?: number; tappedLand?: boolean }[];
   /** Creature cards in the graveyard that may be cast from there until end of turn. */
   yardCastable?: string[];
   /** "If a source you control would deal damage to an opponent this turn, it deals double that damage instead." */

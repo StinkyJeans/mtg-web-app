@@ -60,7 +60,8 @@ export function shiftTargets<T>(value: T, offset: number): T {
 }
 
 /** "Another target creature": fill in which permanent that means (the one the ability belongs to). */
-export const bindSpecs = (specs: TargetSpec[], sourceIid: string): TargetSpec[] => (specs.some((x) => x.other) ? specs.map((x) => (x.other ? { ...x, except: sourceIid } : x)) : specs);
+export const bindSpecs = (specs: TargetSpec[], sourceIid: string): TargetSpec[] =>
+  specs.some((x) => x.other || x.crewedIt) ? specs.map((x) => ({ ...x, ...(x.other ? { except: sourceIid } : {}), ...(x.crewedIt ? { crewOf: sourceIid } : {}) })) : specs;
 
 export const isArtifactDef = (def: CardDef) => def.type === "artifact" || (def.typeLine ?? "").split("—")[0].includes("Artifact");
 

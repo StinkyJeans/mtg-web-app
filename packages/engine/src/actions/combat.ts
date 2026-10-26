@@ -10,6 +10,7 @@ import {
   powerOf,
   putIntoGraveyard,
   qualityOfDef,
+  queueDamageDraws,
   queueTriggers,
   toughnessOf,
 } from "../core.js";
@@ -176,6 +177,7 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
       if (source.sacOnDamage) sacrifice.add(source);
       if (toPlayer && onBoard(source.card.iid)) {
         queueTriggers(state, source.card, source.card.owner, "combatDamagePlayer");
+        queueDamageDraws(state, source);
         // Auras on the creature: "Whenever enchanted creature deals damage to an opponent, ..."
         for (const owner of Object.values(state.players)) {
           for (const aura of owner.battlefield) if (aura.attachedTo === source.card.iid) queueTriggers(state, aura.card, owner.id, "hostDamagesPlayer");

@@ -4,8 +4,9 @@ import type { Amount, Effect, PendingPick, RunContext } from "../../effects.js";
 import { parseCard } from "../../oracle.js";
 import { nextRandom } from "../../state.js";
 import type { CardInstance, GameState, Permanent, PlayerId } from "../../types.js";
-import { findPermanentOrNull, isPlaneswalker, nameOf, playerLabel } from "../permanents.js";
+import { findPermanentOrNull, isPlaneswalker, nameOf, playerLabel, toughnessOf } from "../permanents.js";
 import { changeLife } from "../zones.js";
+import { excessDamageDealt } from "../triggers.js";
 
 /** A spell, ability or creature dealing damage, with what changes how its damage works. */
 export interface DamageSource {
@@ -63,6 +64,9 @@ export function dealDamage(
   } else if (isPlaneswalker(state, target.perm)) {
     target.perm.loyalty = (target.perm.loyalty ?? 0) - amount; // damage to a planeswalker removes that much loyalty
   } else {
+    // Excess damage (rule 120.4a): more than it took to destroy it, counting the damage already marked and deathtouch.
+    const lethal = Math.max(0, toughnessOf(state, target.perm) - target.perm.damage);
+    if (amount > (source.deathtouch ? Math.min(1, lethal) : lethal) && victim) excessDamageDealt(state, victim);
     target.perm.damage += amount;
     if (source.deathtouch) target.perm.deathtouched = true;
   }

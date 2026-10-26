@@ -120,12 +120,12 @@ export const ZONE_EFFECTS = {
     const owner = Object.values(state.players).find((p) => p.graveyard.some((c) => c.iid === ctx.sourceId));
     if (!owner) return;
     const [card] = owner.graveyard.splice(owner.graveyard.findIndex((c) => c.iid === ctx.sourceId), 1);
-    owner.battlefield.push({ card, tapped: effect.tapped === true, summoningSick: true, damage: 0 });
+    owner.battlefield.push({ card, tapped: effect.tapped === true, summoningSick: true, damage: 0, ...(effect.finality ? { finality: true } : {}) });
     events.push({ type: "permanentEntered", player: owner.id, iid: card.iid });
     if (effect.counters) putCounters(state, owner.battlefield[owner.battlefield.length - 1], owner.id, effect.counters);
     queueTriggers(state, card, owner.id, "enters");
     creatureEntered(state, card, owner.id);
-    say(`${getCard(state, card.defId).name} returns to the battlefield${effect.tapped ? " tapped" : ""}.`);
+    say(`${getCard(state, card.defId).name} returns to the battlefield${effect.tapped ? " tapped" : effect.finality ? " with a finality counter" : ""}.`);
   },
   createToken({ state, ctx, events, say, value }, effect) {
     const n = value(effect.amount);

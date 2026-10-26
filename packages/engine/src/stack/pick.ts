@@ -3,6 +3,7 @@ import { getCard } from "../cards.js";
 import {
   askAsEnters,
   bindSpecs,
+  cardsDiscarded,
   changeLife,
   checkStateBasedActions,
   counterStackItem,
@@ -18,6 +19,7 @@ import { parseManaCost, payMana } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import { shuffle } from "../state.js";
 import { OPPONENT } from "../types.js";
+import type { PendingPick } from "../effects.js";
 import type { CardInstance, GameState, PlayerId } from "../types.js";
 import { applyPayment, openRound, rememberMode } from "./shared.js";
 import { afterResolution } from "./resolve.js";
@@ -25,6 +27,21 @@ import { afterResolution } from "./resolve.js";
 // Answering a pending pick: the card, target, color or option a player was asked to choose.
 
 const playerLabelOf = (id: PlayerId) => (id === "p1" ? "Player 1" : "Player 2");
+
+/** "If you do, ..." after paying or discarding. "When you do, ... target ..." is a new ability, whose target is chosen now. */
+function afterYouDo(state: GameState, player: PlayerId, pick: PendingPick, events: GameEvent[]): void {
+  if (!pick.thenEffects || !pick.thenCtx) return;
+  if (!pick.thenSpecs) {
+    runEffects(state, pick.thenEffects, pick.thenCtx, events);
+    checkStateBasedActions(state, events);
+    return;
+  }
+  const ctx = pick.thenCtx;
+  state.triggerQueue.push({
+    specs: pick.thenSpecs,
+    item: { kind: "ability", id: newId(state), controller: player, source: ctx.sourceId, sourceName: ctx.sourceName, effects: pick.thenEffects, targets: [], specs: pick.thenSpecs, text: `${ctx.sourceName}: when you ${pick.kind === "discard" ? "discarded" : "paid"}`, ...(ctx.other ? { other: ctx.other } : {}) },
+  });
+}
 
 /** Answers a PendingPick. `iid` is missing when the player declines (only allowed when the pick is optional). */
 export function pickCard(state: GameState, player: PlayerId, iid: string | undefined, events: GameEvent[]): string | null {
@@ -87,6 +104,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     }
     for (const id of pick.ordered) owner.battlefield.find((p) => p.card.iid === id)!.tapped = true;
     const vehicle = owner.battlefield.find((p) => p.card.iid === pick.vehicle)!;
+    vehicle.crewedBy = [...(vehicle.crewedBy ?? []), ...pick.ordered];
     const name = getCard(state, vehicle.card.defId).name;
     state.stack.push({ kind: "ability", id: newId(state), controller: player, source: vehicle.card.iid, sourceName: name, effects: [{ type: "crewed" }], targets: [], specs: [], text: "Crew" });
     events.push({ type: "abilityActivated", player, iid: vehicle.card.iid, name, text: `Crew ${getCard(state, vehicle.card.defId) && parseCard(getCard(state, vehicle.card.defId)).crew}` });
@@ -119,16 +137,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
         applyPayment(state, player, paid, events);
         if (pick.payLife) changeLife(state, player, -pick.payLife, events);
         state.pendingPick = null;
-        if (pick.thenSpecs) {
-          // "When you do, ... target ...": a new ability goes on the stack, and its target is chosen now.
-          state.triggerQueue.push({
-            specs: pick.thenSpecs,
-            item: { kind: "ability", id: newId(state), controller: player, source: pick.thenCtx.sourceId, sourceName: pick.thenCtx.sourceName, effects: pick.thenEffects, targets: [], specs: pick.thenSpecs, text: `${pick.thenCtx.sourceName}: when you paid`, ...(pick.thenCtx.other ? { other: pick.thenCtx.other } : {}) },
-          });
-        } else {
-          runEffects(state, pick.thenEffects, pick.thenCtx, events);
-          checkStateBasedActions(state, events);
-        }
+        afterYouDo(state, player, pick, events);
         finish();
         return null;
       }
@@ -248,10 +257,13 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     }
     case "discard": {
       owner.graveyard.push(take(owner.hand, iid));
-      events.push({ type: "cardsDiscarded", player: pick.owner, iids: [iid] });
+      pick.ordered.push(iid);
       pick.options = pick.options.filter((o) => o !== iid);
       pick.remaining -= 1;
       if (pick.remaining > 0 && pick.options.length > 0) return null; // the next card
+      cardsDiscarded(state, pick.owner, pick.ordered, events);
+      state.pendingPick = null;
+      afterYouDo(state, player, pick, events);
       break;
     }
     case "rummage": {
@@ -259,7 +271,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
         owner.library.push(take(owner.hand, iid)); // "put a card from your hand on the bottom of your library"
       } else {
         owner.graveyard.push(take(owner.hand, iid));
-        events.push({ type: "cardsDiscarded", player: pick.owner, iids: [iid] });
+        cardsDiscarded(state, pick.owner, [iid], events);
       }
       drawCards(state, pick.owner, 1, events);
       break;

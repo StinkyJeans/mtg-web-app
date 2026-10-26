@@ -80,12 +80,14 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
       perm.regenShield = 0; // "until end of turn"
       perm.usedAbilities = [];
       perm.crewed = false; // a Vehicle stops being a creature at end of turn
+      perm.crewedBy = undefined;
       perm.loyaltyUsed = false;
       perm.cantBlockTurn = false;
       perm.noRegen = false;
       perm.exileOnDeath = undefined;
       perm.mustBeBlocked = undefined;
       perm.diesReturn = undefined;
+      perm.damageDraws = undefined;
     });
   }
   // "Gain control of target creature until end of turn": it goes back to its controller.

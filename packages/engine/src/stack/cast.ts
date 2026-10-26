@@ -3,6 +3,7 @@ import { getCard } from "../cards.js";
 import {
   bindSpecs,
   cardMatches,
+  cardsDiscarded,
   changeLife,
   checkStateBasedActions,
   countFor,
@@ -164,7 +165,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   const [taken] = zone.splice(idx, 1);
   if (parsed.extraDiscard && sacrifice) {
     me.graveyard.push(me.hand.splice(me.hand.findIndex((c) => c.iid === sacrifice), 1)[0]);
-    events.push({ type: "cardsDiscarded", player, iids: [sacrifice] });
+    cardsDiscarded(state, player, [sacrifice], events);
   }
   // Mana from Carnelian Orb of Dragonkind spent on a Dragon creature spell: it gains haste.
   const haste = paid.tap.some((src) => hasteFrom(state, src, def));
@@ -264,7 +265,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     if (ability.costCard.kind === "discard") {
       const hand = state.players[player].hand;
       state.players[player].graveyard.push(hand.splice(hand.findIndex((c) => c.iid === payWith), 1)[0]);
-      events.push({ type: "cardsDiscarded", player, iids: [payWith] });
+      cardsDiscarded(state, player, [payWith], events);
     } else {
       const victim = findPermanentOrNull(state, payWith);
       if (victim) {
@@ -291,7 +292,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
   if (zoneCard && ability.discardSelf) {
     const hand = state.players[player].hand;
     state.players[player].graveyard.push(hand.splice(hand.findIndex((c) => c.iid === iid), 1)[0]);
-    events.push({ type: "cardsDiscarded", player, iids: [iid] });
+    cardsDiscarded(state, player, [iid], events);
   }
   if (zoneCard && ability.exileSelf) {
     const yard = state.players[player].graveyard;
@@ -393,7 +394,7 @@ export function cycleCard(state: GameState, player: PlayerId, iid: string, event
   applyPayment(state, player, paid, events);
   const [card] = me.hand.splice(idx, 1);
   me.graveyard.push(card); // discarding is part of the cost
-  events.push({ type: "cardsDiscarded", player, iids: [iid] });
+  cardsDiscarded(state, player, [iid], events);
   events.push({ type: "abilityActivated", player, iid, name: def.name, text: landcycle ? `Basic landcycling ${cycling}: search for a basic land card.` : `Cycling ${cycling}: draw a card.` });
   state.stack.push({
     kind: "ability",

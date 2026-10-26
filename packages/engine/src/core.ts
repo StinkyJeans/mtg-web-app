@@ -47,7 +47,7 @@ export {
   removeFromBattlefield,
   spellLeavesStack,
 } from "./core/zones.js";
-export { askAsEnters, creatureEntered, landEntered, queueTriggers, queueWard } from "./core/triggers.js";
+export { askAsEnters, cardsDiscarded, creatureEntered, landEntered, queueDamageDraws, queueTriggers, queueWard } from "./core/triggers.js";
 export { isLegalTarget, legalTargets } from "./core/targets.js";
 export { runEffects } from "./core/runEffects.js";
 export { dealDamage } from "./core/handlers/shared.js";

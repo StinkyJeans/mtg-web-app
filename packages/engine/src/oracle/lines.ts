@@ -2,7 +2,7 @@ import type { ParsedCard } from "../effects.js";
 import { readWard, readProtection, readKeywordLine, readNoRulesEffect, readLandwalk, readAttacksEachCombat, readBlockedOnlyBy, readBlockedByOneAtMost, readCantBlock, readBlockedByPower, readAttackOnlyIfDefenderHas, readAttackOnlyWithMoreCreatures, readBlockOnlyWithMoreCreatures, readUnblockableByColor, readCreaturesAttackEachCombat, readTypeAttacksEachCombat, readAllMustBlock, readBlocksOnlyFlyers, readCantAttackOrBlockAlone, readUnblockable } from "./lines/keywords.js";
 import { readStatsEqualToCount, readAuraTarget, readStaticAbility, readCostLessIfYouControl, readIfDrawnCards, readTypedSpellsCostLess, readCheaperOnOtherTurns, readBigSpellsCostLess, readDuringYourTurn, readAsLongAsYouControl, readWhileAttacking, readAttackingAnthem, readPowerEqualToCount, readTargetingTax, readEnteredThisTurnStatic, readGrantedLandMana, readHostBecomes, readTappedCreaturesHave, readLifeTotalStatic, readTwoTypeLord, readLord, readIgnoresHexproof } from "./lines/statics.js";
 import { readEntersWithCounters, readEntersWithMinusCounters, readKickedCounters, readChooseColorOnEnter, readOthersEnterWithCounters, readEntersTappedUnless, readPreventNoncombatDamage, readGrantsLifeGainCounters, readDrawsTwoInstead, readGainLifePlusOne, readGainTwiceLife, readEntersPrepared, readEntersTapped } from "./lines/entering.js";
-import { readLifeGainedTrigger, readLandfall, readAttackWithOthers, readBecomesTarget, readCastSpellTrigger, readDrawCardTrigger, readEnchantedDealsDamage, readPackTactics, readBeginningOfStep, readAnySpellCast, readAllyDies, readCountersPutOnAlly, readAnotherCreatureEntersOrLeaves, readBlocksOrBlocked, readDamagedCreatureDies, readEerie, readReturnWhenHostDies, readTapXOnEnter, readDiesReturnsToBattlefield, readAllyEnters, readYouAttack, readSelfTrigger, readTrigger, readAllyAttacks, readToSolve } from "./lines/triggers.js";
+import { readLifeGainedTrigger, readLandfall, readAttackWithOthers, readBecomesTarget, readCastSpellTrigger, readDrawCardTrigger, readEnchantedDealsDamage, readPackTactics, readBeginningOfStep, readAnySpellCast, readAllyDies, readCountersPutOnAlly, readAnotherCreatureEntersOrLeaves, readBlocksOrBlocked, readDamagedCreatureDies, readEerie, readReturnWhenHostDies, readTapXOnEnter, readDiesReturnsToBattlefield, readAllyEnters, readYouAttack, readYouDiscard, readExcessDamage, readSelfTrigger, readTrigger, readAllyAttacks, readToSolve } from "./lines/triggers.js";
 import { readLoyaltyAbility, readCrew, readEquip, readSacrificeForMana, readLandcycling, readActivatedAbility, readRestrictedMana, readSolvedAbility } from "./lines/activated.js";
 
 // One line of a permanent's text: a keyword, a triggered, activated or static ability, an aura or equipment line.
@@ -89,6 +89,8 @@ const READERS: ((line: string, out: ParsedCard) => boolean)[] = [
   readAllyEnters,
   readAllyAttacks,
   readYouAttack,
+  readYouDiscard,
+  readExcessDamage,
   readUnblockable,
   readEntersTapped,
   readSelfTrigger,

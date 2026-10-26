@@ -156,7 +156,7 @@ const grant: SentenceParser = (s, ctx) => {
 };
 
 const counter: SentenceParser = (s, ctx) => {
-  const m = /^counter (target (?:(?:creature|noncreature|artifact or creature) )?spell)$/.exec(s);
+  const m = /^counter (target (?:(?:creature|noncreature|artifact or creature) )?spell(?: with mana value \d+(?: or (?:less|greater))?)?)$/.exec(s);
   if (!m) return null;
   const what = refFor(m[1], ctx);
   return what ? [{ type: "counter", what }] : null;
@@ -303,7 +303,14 @@ const sacOnDamageGrant: SentenceParser = (s, ctx) => {
   return what ? [{ type: "grant", keyword: "flying", what }, { type: "sacOnDamage", what }] : null;
 };
 
-const exileTopParser: SentenceParser = (s) => (s === "@@exiletopplay@@" ? [{ type: "exileTop", playIfAttacked: true }] : null);
+const exileTopParser: SentenceParser = (s) => (s === "@@exiletopplay@@" ? [{ type: "exileTop", playIfAttacked: true }] : s === "@@exiletopuntil@@" ? [{ type: "exileTop", untilEndStep: true }] : null);
+
+/** "Whenever that creature deals combat damage to a player this turn, you draw a card." (about the creature targeted before it) */
+const damageDraw: SentenceParser = (s, ctx) =>
+  s === "whenever that creature deals combat damage to a player this turn, you draw a card" && ctx.targets.length > 0 ? [{ type: "combatDamageDraw", what: { t: "target", i: ctx.targets.length - 1 } }] : null;
+
+/** "When this Vehicle enters, it becomes an artifact creature until end of turn." */
+const becomeCreature: SentenceParser = (s) => (s === "~ becomes an artifact creature until end of turn" ? [{ type: "crewed" }] : null);
 
 /** Lightstall Inquisitor: "Each opponent exiles a card from their hand and may play that card for as long as it remains exiled. ..." */
 const exileToPlay: SentenceParser = (s) => {
@@ -530,7 +537,10 @@ const diesReturnGrant: SentenceParser = (s, ctx) => {
 };
 
 /** "Return this card from your graveyard to the battlefield tapped." (an ability that works from the graveyard) */
-const returnSelfFromYard: SentenceParser = (s) => (s === "return ~ from your graveyard to the battlefield tapped" ? [{ type: "returnSelfToBattlefield", tapped: true }] : null);
+const returnSelfFromYard: SentenceParser = (s) => {
+  const m = /^return ~ from your graveyard to the battlefield (tapped|with a finality counter on it)$/.exec(s);
+  return m ? [{ type: "returnSelfToBattlefield", ...(m[1] === "tapped" ? { tapped: true } : { finality: true }) }] : null;
+};
 
 /** "~ becomes a Werewolf": the new creature type replaces its others. */
 const becomeSubtype: SentenceParser = (s) => {
@@ -540,7 +550,7 @@ const becomeSubtype: SentenceParser = (s) => {
 
 const explore: SentenceParser = (s, ctx) => {
   if (s === "~ explores") return [{ type: "explore" }];
-  const m = /^(target creature you control) explores$/.exec(s);
+  const m = /^(target creature you control|target creature that crewed it this turn) explores$/.exec(s);
   const what = m ? refFor(m[1], ctx) : null;
   return what ? [{ type: "explore", what }] : null;
 };
@@ -571,7 +581,7 @@ const putSavedCounters: SentenceParser = (s, ctx) => {
 /** A Case of the Uneaten Feast: 'Creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn.' */
 const yardCastable: SentenceParser = (s) => (s === 'creature cards in your graveyard gain "you may cast ~ from your graveyard" until end of turn' ? [{ type: "yardCastable" }] : null);
 
-const PARSERS: SentenceParser[] = [exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
+const PARSERS: SentenceParser[] = [exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, damageDraw, becomeCreature, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
 
 export function parseSimple(s: string, ctx: Ctx): Effect[] | null {
   for (const parse of PARSERS) {

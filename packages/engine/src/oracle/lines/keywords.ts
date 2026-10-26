@@ -9,12 +9,12 @@ const WARD = /^ward (\{[^}]+\}(?:\{[^}]+\})*)$/;
 
 const PROTECTION_PART = /^protection from ((?:white|blue|black|red|green|artifacts)(?:(?:,| and)? (?:and )?(?:from )?(?:white|blue|black|red|green|artifacts))*)$/;
 
-// "Ward {1}", "Flying, ward {2}", "Ward—Pay 3 life"
+// "Ward {1}", "Flying, ward {2}", "Ward—Pay 3 life", "Ward—{2}, Pay 2 life"
 export function readWard(line: string, out: ParsedCard): boolean {
-  const life = /^ward—pay (\d+) life$/.exec(line);
+  const life = /^ward—(?:((?:\{[^}]+\})+), )?pay (\d+) life$/.exec(line);
   if (life) {
-    out.ward = "";
-    out.wardLife = Number(life[1]);
+    out.ward = life[1] ?? "";
+    out.wardLife = Number(life[2]);
     return true;
   }
   const wardParts = line.split(/,\s+(?=[a-z])/);

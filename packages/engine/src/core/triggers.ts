@@ -1,3 +1,4 @@
+import type { GameEvent } from "../actions.js";
 import { getCard } from "../cards.js";
 import type { LastKnown, StackItem, TriggeredAbility } from "../effects.js";
 import { parseCard } from "../oracle.js";
@@ -42,13 +43,13 @@ function triggerCondHolds(state: GameState, controller: PlayerId, trigger: Trigg
   if (trigger.firstOnly && (extra?.castCount ?? 1) !== 1) return false;
   if (trigger.byOpponent && !extra?.byOpponent) return false;
   if (c?.attackPowerAtLeast !== undefined && (extra?.attackers ?? []).reduce((n, iid) => n + Math.max(0, (() => { const p = findPermanentOrNull(state, iid)?.perm; return p ? powerOf(state, p) : 0; })()), 0) < c.attackPowerAtLeast) return false;
-  if (trigger.attackerSubtypes) {
-    const line = (iid: string): string[] => {
-      const perm = findPermanentOrNull(state, iid)?.perm;
-      return perm ? subtypesOf(state, perm) : [];
-    };
-    if (!(extra?.attackers ?? []).some((iid) => trigger.attackerSubtypes!.some((t) => line(iid).includes(t)))) return false;
-  }
+  const typesOf = (iid: string): string[] => {
+    const perm = findPermanentOrNull(state, iid)?.perm;
+    return perm ? subtypesOf(state, perm) : [];
+  };
+  const attackers = extra?.attackers ?? [];
+  if (trigger.attackerSubtypes && !attackers.some((iid) => trigger.attackerSubtypes!.some((t) => typesOf(iid).includes(t)))) return false;
+  if (c?.attackersInclude && !c.attackersInclude.every((t) => attackers.some((iid) => typesOf(iid).includes(t)))) return false;
   return true;
 }
 
@@ -113,7 +114,7 @@ function claimOncePerTurn(perm: Permanent | undefined, n: number): boolean {
  * Queues the card's triggered abilities for `event`. They go on the stack when the game next settles.
  * `subtypes`: the creature types of what the event is about (a creature spell cast, a creature that died or got counters); `self`: it is this card.
  */
-export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown }): void {
+export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown; count?: number }): void {
   const def = getCard(state, card.defId);
   const triggers = parseCard(def).triggers;
   for (let n = 0; n < triggers.length; n++) {
@@ -163,9 +164,38 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
         text: trigger.text,
         ...(extra?.other ? { other: extra.other } : {}),
         ...(died ? { died } : {}),
+        ...(extra?.count !== undefined ? { x: extra.count } : {}),
       },
     });
   }
+}
+
+/**
+ * "Whenever one or more creatures your opponents control are dealt excess noncombat damage": `victim` controls the creature.
+ * Damage dealt by one spell or ability is dealt at the same time, so a trigger already waiting in the queue isn't added again.
+ */
+export function excessDamageDealt(state: GameState, victim: PlayerId): void {
+  const player = OPPONENT[victim];
+  for (const perm of state.players[player].battlefield) {
+    const texts = parseCard(getCard(state, perm.card.defId)).triggers.filter((t) => t.event === "excessDamage").map((t) => t.text);
+    if (texts.length === 0 || state.triggerQueue.some((q) => q.item.source === perm.card.iid && texts.includes(q.item.text))) continue;
+    queueTriggers(state, perm.card, player, "excessDamage");
+  }
+}
+
+/** "Whenever that creature deals combat damage to a player this turn, you draw a card": the draws given to it this turn. */
+export function queueDamageDraws(state: GameState, perm: Permanent): void {
+  for (const draw of perm.damageDraws ?? []) {
+    const text = "Whenever that creature deals combat damage to a player this turn, you draw a card.";
+    state.triggerQueue.push({ specs: [], item: { kind: "ability", id: newId(state), controller: draw.player, source: perm.card.iid, sourceName: draw.source, effects: [{ type: "draw", amount: 1, who: { t: "you" } }], targets: [], specs: [], text } });
+  }
+}
+
+/** A player discarded cards: the event, and their "whenever you discard one or more cards" triggers, once for the whole batch ("that many" is its X). */
+export function cardsDiscarded(state: GameState, player: PlayerId, iids: string[], events: GameEvent[]): void {
+  if (iids.length === 0) return;
+  events.push({ type: "cardsDiscarded", player, iids });
+  for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "youDiscard", { count: iids.length });
 }
 
 /** "As this enters, choose a color" / "choose a creature type": starts the choice (nothing to ask when only one color is allowed). */
@@ -249,7 +279,7 @@ export function queueWard(state: GameState, item: StackItem): void {
     const life = parsed?.wardLife;
     state.triggerQueue.push({
       specs: [],
-      item: { kind: "ability", id: newId(state), controller: found.owner.id, source: found.perm.card.iid, sourceName: name, effects: [{ type: "wardCheck", cost: ward, itemId: item.id, ...(life ? { life } : {}) }], targets: [], specs: [], text: life ? `Ward—Pay ${life} life` : `Ward ${ward}` },
+      item: { kind: "ability", id: newId(state), controller: found.owner.id, source: found.perm.card.iid, sourceName: name, effects: [{ type: "wardCheck", cost: ward, itemId: item.id, ...(life ? { life } : {}) }], targets: [], specs: [], text: life ? `Ward—${ward ? `${ward}, ` : ""}Pay ${life} life` : `Ward ${ward}` },
     });
   });
 }

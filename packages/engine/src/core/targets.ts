@@ -1,5 +1,6 @@
 import { getCard } from "../cards.js";
 import type { Ref, RunContext, StackItem, TargetChoice, TargetSpec } from "../effects.js";
+import { manaCostOf } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { CardInstance, GameState, Permanent, PlayerId } from "../types.js";
@@ -39,9 +40,10 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       // Hexproof: only its controller can target it (unless the targeting player has Nowhere to Run).
       if (found.owner.id !== controller && kw(state, found.perm, "hexproof") && !ignoresHexproof(state, controller)) return false;
       if (spec.except && spec.except === choice.iid) return false; // "another target creature"
+      if (spec.crewOf && !findPermanentOrNull(state, spec.crewOf)?.perm.crewedBy?.includes(choice.iid)) return false;
       if (spec.subtype && !subtypesOf(state, found.perm).includes(spec.subtype)) return false;
       if (spec.notSubtype && subtypesOf(state, found.perm).includes(spec.notSubtype)) return false;
-      if (spec.mv && (spec.mv.op === "min" ? def.cost < spec.mv.n : def.cost > spec.mv.n)) return false;
+      if (!mvFits(spec, def.cost)) return false;
       if (spec.filter === "tapped" && !found.perm.tapped) return false;
       if (spec.kind === "permanent") {
         // "enchant permanent", or "target nonland permanent an opponent controls", or "target creature or enchantment"
@@ -88,7 +90,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (spec.subtypes && !spec.subtypes.some((t) => defSubtypes(def).includes(t))) return false;
       if (spec.notSubtype && defSubtypes(def).includes(spec.notSubtype)) return false;
       if (spec.nonland && def.type === "land") return false;
-      if (spec.mv && (spec.mv.op === "min" ? def.cost < spec.mv.n : def.cost > spec.mv.n)) return false;
+      if (!mvFits(spec, def.cost)) return false;
       return spec.controller !== "you" || owner.id === controller;
     }
     case "none":
@@ -98,12 +100,19 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (!item || item.kind !== "spell") return false;
       if (spec.orSpell) return true; // "target spell or permanent": any spell on the stack
       if (spec.kind !== "spell") return false;
-      if (!spec.spellKind) return true;
       const def = getCard(state, item.card.defId);
+      if (!mvFits(spec, def.cost + (manaCostOf(def)?.x ?? 0) * item.x)) return false; // on the stack, X is the number chosen
+      if (!spec.spellKind) return true;
       const creature = def.type === "creature";
       return spec.spellKind === "creature" ? creature : spec.spellKind === "noncreature" ? !creature : creature || isArtifactDef(def);
     }
   }
+}
+
+/** "With mana value 2 or less / 2 or greater / 2". */
+function mvFits(spec: TargetSpec, mv: number): boolean {
+  if (!spec.mv) return true;
+  return spec.mv.op === "min" ? mv >= spec.mv.n : spec.mv.op === "max" ? mv <= spec.mv.n : mv === spec.mv.n;
 }
 
 /** Everything that could be chosen for `spec`. */

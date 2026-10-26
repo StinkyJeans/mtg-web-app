@@ -147,6 +147,7 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
     .replace(/you may discard a card\. if you do, draw a card/g, "@@rummage@@")
     .replace(/you may put a card from your hand on the bottom of your library\. if you do, draw a card/g, "@@rummagebottom@@")
     .replace(/exile the top card of your library\. during any turn you attacked with ~, you may play that card/g, "@@exiletopplay@@")
+    .replace(/exile the top card of your library\. you may play that card until your next end step/g, "@@exiletopuntil@@")
     .replace(/each opponent exiles a card from their hand and may play that card for as long as it remains exiled\. each spell cast this way costs \{(\d+)\} more to cast\. each land played this way enters tapped/g, "@@exiletoplay $1@@")
     .replace(/you may tap any number of untapped creatures you control\. ~ gets \+1\/\+1 until end of turn for each creature tapped this way/g, "@@tapforbonus@@");
   const whole = parseChoiceText(text, ctx);
@@ -169,6 +170,18 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
     const pay = payMatch && (payMatch[1] || payMatch[2]) && (!payMatch[1] || parseManaCost(payMatch[1])) ? { cost: payMatch[1] ?? "", ...(payMatch[2] ? { life: Number(payMatch[2]) } : {}) } : null;
     const afterPay = /^if you do, (.+)$/.exec(sentences[si + 1] ?? "");
     const reflexive = /^when you do, (?:you may )?(.+)$/.exec(sentences[si + 1] ?? "");
+    if (sentence === "you may discard a card" && reflexive) {
+      // "You may discard a card. When you do, put a +1/+1 counter on target attacking creature. It gains trample until end of turn."
+      // The sentence after it is about the same target, so it is part of the new ability.
+      const more = /^it gains [a-z ]+ until end of turn$/.test(sentences[si + 2] ?? "") ? `. ${sentences[si + 2]}` : "";
+      const inner = newCtx(true);
+      const then = parseEffectText(`${reflexive[1]}${more}`, inner);
+      if (!then || then.length === 0) return null;
+      lastGroup = effects.length;
+      effects.push({ type: "mayDiscard", then, ...(inner.targets.length > 0 ? { thenSpecs: inner.targets } : {}) });
+      si += more ? 2 : 1;
+      continue;
+    }
     if (pay && reflexive) {
       // "You may pay {1}. When you do, you may tap or untap target creature.": the target is chosen after paying.
       const inner = newCtx(true);

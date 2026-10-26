@@ -1,6 +1,7 @@
 import { getCard } from "./cards.js";
 import {
   askAsEnters,
+  cardsDiscarded,
   checkStateBasedActions,
   entersTappedNow,
   exilePlayable,
@@ -475,7 +476,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
         if (idx < 0) return fail("That card is not in your hand.");
         me.graveyard.push(...me.hand.splice(idx, 1));
       }
-      events.push({ type: "cardsDiscarded", player, iids: action.iids });
+      cardsDiscarded(next, player, action.iids, events);
       startNextTurn(next, events);
       break;
     }

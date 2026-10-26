@@ -22,6 +22,7 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
     if (amount === "X") return ctx.x ?? 0;
     if (typeof amount !== "object") return amount;
     const c = amount.count;
+    if (c.kind === "x") return (ctx.x ?? 0) * (amount.times ?? 1);
     const self = findPermanentOrNull(state, ctx.sourceId)?.perm;
     const chosen = (iid?: string) => (iid ? findPermanentOrNull(state, iid)?.perm : undefined);
     const n =

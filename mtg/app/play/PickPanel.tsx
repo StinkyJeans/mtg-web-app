@@ -188,7 +188,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
         </button>
         {pick.optional && (
           <button onClick={() => confirm(undefined)} className="rounded-lg border border-zinc-400 px-3 py-1.5 text-sm hover:bg-zinc-200">
-            {pick.kind === "searchLand" || pick.kind === "searchAny" ? "Don't search" : pick.kind === "crew" ? "Cancel" : pick.kind === "scry" || pick.kind === "surveil" ? "Keep the rest on top" : pick.kind === "revealToHand" ? "Take nothing" : pick.kind === "rummage" ? "Don't discard" : pick.kind === "tapSome" ? "Done" : pick.kind === "handExile" ? "Exile nothing" : "No, leave it"}
+            {pick.kind === "searchLand" || pick.kind === "searchAny" ? "Don't search" : pick.kind === "crew" ? "Cancel" : pick.kind === "scry" || pick.kind === "surveil" ? "Keep the rest on top" : pick.kind === "revealToHand" ? "Take nothing" : pick.kind === "rummage" || pick.kind === "discard" ? "Don't discard" : pick.kind === "tapSome" ? "Done" : pick.kind === "handExile" ? "Exile nothing" : "No, leave it"}
           </button>
         )}
       </div>

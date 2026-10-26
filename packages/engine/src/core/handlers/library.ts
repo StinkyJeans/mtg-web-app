@@ -6,8 +6,8 @@ import { OPPONENT } from "../../types.js";
 import type { Ref, RunContext } from "../../effects.js";
 import type { CardDef, CardInstance, GameState, Permanent, PlayerId } from "../../types.js";
 import { cardMatches, findPermanentOrNull, nameOf, playerLabel } from "../permanents.js";
-import { drawCards, putCounters, removeFromBattlefield } from "../zones.js";
-import { creatureEntered, queueTriggers } from "../triggers.js";
+import { drawCards, nextEndStepTurn, putCounters, removeFromBattlefield } from "../zones.js";
+import { cardsDiscarded, creatureEntered, queueTriggers } from "../triggers.js";
 import { subjectsOf } from "../targets.js";
 import { rngNext, plural, type EffectHandlers } from "./shared.js";
 
@@ -53,7 +53,8 @@ export const LIBRARY_EFFECTS = {
     if (!card) return;
     state.players[ctx.controller].exile.push(card);
     if (effect.playIfAttacked) (state.players[ctx.controller].mayPlay ??= []).push({ iid: card.iid, source: ctx.sourceId });
-    say(`${playerLabel(ctx.controller)} exiles the top card of their library.`);
+    if (effect.untilEndStep) (state.players[ctx.controller].mayPlay ??= []).push({ iid: card.iid, source: ctx.sourceId, untilTurn: nextEndStepTurn(state, ctx.controller) });
+    say(effect.untilEndStep ? `${playerLabel(ctx.controller)} exiles ${getCard(state, card.defId).name} from the top of their library; they may play it until their next end step.` : `${playerLabel(ctx.controller)} exiles the top card of their library.`);
   },
   scryIfMV({ state, ctx, startPick }, effect) {
     const t = ctx.targets[effect.what.t === "target" ? effect.what.i : 0];
@@ -189,14 +190,14 @@ export const LIBRARY_EFFECTS = {
           iids.push(hand[at].iid);
           state.players[s.id].graveyard.push(...hand.splice(at, 1));
         }
-        events.push({ type: "cardsDiscarded", player: s.id, iids });
+        cardsDiscarded(state, s.id, iids, events);
         continue;
       }
       if (effect.chooser === "victim" && count >= hand.length) {
         // Nothing to choose: the whole hand goes.
         const iids = hand.map((c) => c.iid);
         state.players[s.id].graveyard.push(...hand.splice(0));
-        events.push({ type: "cardsDiscarded", player: s.id, iids });
+        cardsDiscarded(state, s.id, iids, events);
         continue;
       }
       startPick({

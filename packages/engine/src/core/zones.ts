@@ -125,12 +125,21 @@ function leaveCombat(state: GameState, perm: Permanent): void {
   if (state.combat) state.combat.attackers = state.combat.attackers.filter((a) => a.attacker !== perm.card.iid);
 }
 
+const atEndStep = (state: GameState) => state.phase === "end" || state.phase === "cleanup";
+
+/** The turn whose end step is the player's next one: this turn if it is theirs and the end step hasn't begun, else their next turn. */
+export function nextEndStepTurn(state: GameState, player: PlayerId): number {
+  if (state.active !== player) return state.turn + 1;
+  return atEndStep(state) ? state.turn + 2 : state.turn;
+}
+
 /** Cards in exile the player may play right now ("During any turn you attacked with ~, you may play that card"). */
 export function exilePlayable(state: GameState, player: PlayerId): CardInstance[] {
   const me = state.players[player];
   return (me.mayPlay ?? []).flatMap((entry) => {
     const card = me.exile.find((c) => c.iid === entry.iid);
     if (entry.fromTurn !== undefined) return card && state.turn >= entry.fromTurn ? [card] : []; // warp: "on a later turn"
+    if (entry.untilTurn !== undefined) return card && (state.turn < entry.untilTurn || (state.turn === entry.untilTurn && !atEndStep(state))) ? [card] : [];
     const source = findPermanentOrNull(state, entry.source)?.perm;
     return source?.attackedThisTurn && card ? [card] : [];
   });

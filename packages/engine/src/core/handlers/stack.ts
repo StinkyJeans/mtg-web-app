@@ -55,12 +55,30 @@ export const STACK_EFFECTS = {
       ...(effect.thenSpecs ? { thenSpecs: effect.thenSpecs } : {}),
     });
   },
+  mayDiscard({ state, ctx, startPick }, effect) {
+    // "You may discard a card. When you do, ...": nothing to ask with an empty hand.
+    const hand = state.players[ctx.controller].hand;
+    if (state.pendingPick || hand.length === 0) return;
+    startPick({
+      player: ctx.controller,
+      prompt: `${ctx.sourceName}: you may discard a card`,
+      kind: "discard",
+      options: hand.map((c) => c.iid),
+      optional: true,
+      owner: ctx.controller,
+      remaining: 1,
+      ordered: [],
+      thenEffects: effect.then,
+      thenCtx: ctx,
+      ...(effect.thenSpecs ? { thenSpecs: effect.thenSpecs } : {}),
+    });
+  },
   wardCheck({ state, events, say, startPick }, effect) {
     const item = state.stack.find((i) => i.id === effect.itemId);
     const cost = parseManaCost(effect.cost);
     if (!item || !cost) return;
     const name = item.kind === "spell" ? getCard(state, item.card.defId).name : item.sourceName;
-    const price = effect.life ? `${effect.life} life` : effect.cost;
+    const price = [effect.cost, effect.life ? `${effect.life} life` : ""].filter(Boolean).join(" and ");
     // Life can be paid only by a player who has at least that much (rule 119.4).
     if (!payMana(state, item.controller, cost).ok || (effect.life ?? 0) > state.players[item.controller].life) {
       say(`${playerLabel(item.controller)} can't pay ${price}: ${name} is countered.`);

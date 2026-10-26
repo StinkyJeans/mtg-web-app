@@ -52,7 +52,7 @@ export type Effect =
   | { type: "revealPut"; n: number; filter: CardFilter; maxMV: number } // reveal the top cards: put every match onto the battlefield, the rest on the bottom in a random order
   | { type: "grantIfPowerBelow"; keyword: Keyword } // "Creatures you control with power less than ~'s power gain indestructible"
   | { type: "doubleDamage" } // damage your sources deal to an opponent is doubled this turn
-  | { type: "exileTop"; playIfAttacked?: boolean } // exile the top card of your library; "during any turn you attacked with ~, you may play that card"
+  | { type: "exileTop"; playIfAttacked?: boolean; untilEndStep?: boolean } // exile the top card of your library; "during any turn you attacked with ~, you may play that card" / "you may play that card until your next end step"
   | { type: "blink"; what: Ref }
   | { type: "sacOnDamage"; what: Ref } // until end of turn: "When this creature deals combat damage, sacrifice it"
   | { type: "tapForBonus" } // "you may tap any number of untapped creatures you control. This gets +1/+1 for each"
@@ -65,6 +65,7 @@ export type Effect =
   | { type: "loseDefender"; what: Ref }
   | { type: "winGame" }
   | { type: "mayPay"; cost: string; life?: number; then: Effect[]; thenSpecs?: TargetSpec[] } // "When you do, ... target ...": the targets are chosen after paying // "you may pay {1}. If you do, ..." (`life`: "pay 2 life")
+  | { type: "mayDiscard"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may discard a card. When you do, ..."
   | { type: "drawUnlessPay"; cost: string } // "you may draw a card unless that player pays {1}" (the opponent who cast the spell)
   | { type: "tapOrUntap"; what: Ref } // you may tap or untap target permanent
   | { type: "bounceOwn"; other: boolean } // "return a creature you control to its owner's hand": the player chooses
@@ -83,6 +84,7 @@ export type Effect =
   | { type: "gainControl"; what: Ref } // until end of turn
   | { type: "cantBlockThisTurn"; what: Ref }
   | { type: "crewed" } // this Vehicle becomes an artifact creature until end of turn
+  | { type: "combatDamageDraw"; what: Ref } // "whenever that creature deals combat damage to a player this turn, you draw a card"
   | { type: "wardCheck"; cost: string; itemId: string; life?: number } // ward: counter the spell or ability unless its controller pays (mana, or `life`)
   | { type: "ifKicked"; then: Effect[]; otherwise?: Effect[] } // "if this spell was kicked, ..." (and "... instead")
   | { type: "surveil"; n: number } // like scry, but the cards you don't keep go to the graveyard
@@ -93,7 +95,7 @@ export type Effect =
   | { type: "ifSubtype"; what: Ref; subtype: string; then: Effect[] } // "if it's a Zombie card, draw a card" (wherever the card is now)
   | { type: "mustBeBlocked"; what: Ref } // "must be blocked this turn if able"
   | { type: "becomeSubtype"; what: Ref; subtype: string } // "~ becomes a Werewolf": the new creature type replaces the others
-  | { type: "returnSelfToBattlefield"; tapped?: boolean; counters?: number } // the card itself, from its owner's graveyard
+  | { type: "returnSelfToBattlefield"; tapped?: boolean; counters?: number; finality?: boolean } // the card itself, from its owner's graveyard
   | { type: "grantDiesReturn"; what: Ref } // until end of turn: "when this dies, return it to the battlefield tapped with a +1/+1 counter"
   | { type: "distributeCounters"; total: number; double?: boolean } // among the chosen targets, the first ones getting any extra; then double them
   | { type: "createToken"; token: TokenSpec; amount: Amount; who?: Ref }
@@ -219,10 +221,13 @@ export interface TargetSpec {
   /** "another target ...": not the permanent the ability belongs to (filled in as `except` when the ability is put on the stack). */
   other?: boolean;
   except?: string;
+  /** "Target creature that crewed it this turn": one that crewed the Vehicle the ability belongs to (filled in as `crewOf`). */
+  crewedIt?: boolean;
+  crewOf?: string;
   /** "...other than that creature": not the creature the trigger is about (also filled in as `except`). */
   notOther?: boolean;
-  /** "with mana value 2 or greater" / "with toughness 4 or greater". */
-  mv?: { n: number; op: "min" | "max" };
+  /** "with mana value 2 or greater" / "with mana value 2" (`eq`). */
+  mv?: { n: number; op: "min" | "max" | "eq" };
   /** "Target artifact, enchantment, or creature with flying": a creature only counts with this keyword. */
   creatureWith?: Keyword;
   /** "Exile up to one target Equipment attached to that creature": it must be attached to the permanent chosen for this target. */
@@ -285,6 +290,7 @@ export type CountSpec =
   | { kind: "opponents" } // the number of opponents you have
   | { kind: "selfPower" } // the power of the permanent the ability belongs to
   | { kind: "selfCounters" } // counters on it
+  | { kind: "x" } // the X of the spell or ability: for "whenever you discard one or more cards", the number discarded
   | { kind: "targetPower"; i: number } // the power of the i-th target
   | { kind: "otherToughness" } // the toughness of "that creature" (the one that entered)
   | { kind: "otherPower" }
@@ -312,7 +318,7 @@ export interface TriggeredAbility {
   ifKicked?: boolean;
   event: "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
     | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
-    | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted";
+    | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted" | "youDiscard" | "excessDamage";
   /** An "intervening if": the trigger only happens when this is true as the event occurs. */
   cond?: {
     lifeGainedAtLeast?: number;
@@ -330,6 +336,8 @@ export interface TriggeredAbility {
     creaturesAtLeast?: number;
     /** A Case's "if unsolved, solve at the beginning of your end step". */
     unsolved?: boolean;
+    /** "If a Pirate and a Vehicle attacked this combat": each of these types is among the attackers. */
+    attackersInclude?: string[];
   };
   /** "Whenever you cast a noncreature or Dragon spell": a creature spell of this type counts too. */
   orSpellSubtype?: string;
@@ -614,7 +622,7 @@ export interface PendingPick {
   owner: PlayerId;
   /** How many more cards are to be chosen (discard two cards). */
   remaining: number;
-  /** Arrange: the cards already placed, top first. */
+  /** Arrange: the cards already placed, top first. Discard: the cards discarded so far. */
   ordered: string[];
   /** Ward: the spell or ability on the stack that is countered unless the cost is paid, and the cost. */
   wardItem?: string;
@@ -640,7 +648,7 @@ export interface PendingPick {
   bottomIids?: string[];
   randomBottom?: boolean;
   restToGraveyard?: boolean;
-  /** MayPay: the effects that happen if the cost is paid. Tax: who draws if it isn't. */
+  /** MayPay / mayDiscard: the effects that happen if the cost is paid or a card is discarded. Tax: who draws if it isn't. */
   thenEffects?: Effect[];
   thenCtx?: RunContext;
   thenSpecs?: TargetSpec[];
