@@ -856,7 +856,7 @@ body.mtg-cursor :is(input:not([type="checkbox"]):not([type="range"]), textarea) 
   display: flex;
   flex-direction: column;
   gap: 0.75rem;
-  min-width: 16rem;
+  min-width: min(100%, 26rem);
   flex: 1;
   padding: 1.1rem 1.2rem 1.2rem;
   border-radius: 1.1rem;
@@ -1051,3 +1051,44 @@ body:has(.victory-backdrop) :is(.castable-glow, .combat-block, .combat-threat, .
   0%, 100% { box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.9), 0 0 18px 4px rgba(251, 191, 36, 0.45); }
   50% { box-shadow: 0 0 0 4px rgba(253, 230, 138, 1), 0 0 34px 10px rgba(251, 191, 36, 0.8); }
 }
+
+/* the logo on the loading screen: it breathes a little */
+.enter-logo { animation: enter-rise 0.9s cubic-bezier(0.2, 0.7, 0.2, 1) both, enter-breathe 3.2s ease-in-out 0.9s infinite; }
+@keyframes enter-breathe { 0%, 100% { transform: scale(0.97); filter: drop-shadow(0 0 16px rgba(244, 180, 61, 0.3)); } 50% { transform: scale(1.03); filter: drop-shadow(0 0 30px rgba(244, 180, 61, 0.6)); } }
+
+/* ───────── glass on the Cards page: frosted panels over soft colored light ───────── */
+.cards-glass .page-atmosphere {
+  background:
+    radial-gradient(26rem 26rem at 10% 12%, rgba(244, 180, 61, 0.45), transparent 65%),
+    radial-gradient(30rem 30rem at 88% 8%, rgba(99, 102, 241, 0.5), transparent 65%),
+    radial-gradient(28rem 28rem at 70% 62%, rgba(236, 72, 153, 0.28), transparent 65%),
+    radial-gradient(32rem 32rem at 18% 78%, rgba(56, 189, 248, 0.35), transparent 65%),
+    linear-gradient(180deg, #070b19 0%, #0a1024 55%, #060912 100%);
+}
+.glass {
+  border-radius: 1.5rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.05));
+  -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  backdrop-filter: blur(18px) saturate(1.5);
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.35), inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+}
+.glass-tile {
+  padding: 0.55rem 0.55rem 0.65rem;
+  border-radius: 1.1rem;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.03));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.25), 0 8px 20px rgba(0, 0, 0, 0.25);
+}
+.glass-tile:hover { border-color: rgba(253, 224, 138, 0.5); }
+
+/* The Cards page never scrolls on a desktop screen: 36 cards in a grid whose card height is worked out from the window. */
+.cards-fit { --cols: 12; --rows: 3; display: grid; grid-template-columns: repeat(var(--cols), minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); overflow: hidden; justify-items: center; align-items: center; gap: 0.35rem 0.5rem; min-height: 0; flex: 1 1 auto;
+  /* what is left of the window height after the header, the pager and the label under each card, shared out by rows; or what the width allows */
+  --card-h: min(calc((100dvh - 17rem) / var(--rows) - 2.7rem), calc(((100vw - 5rem) / var(--cols) - 0.9rem) * 204 / 146)); }
+@media (max-width: 1279px) { .cards-fit { --cols: 9; --rows: 4; --card-h: min(calc((100dvh - 17rem) / var(--rows) - 2.7rem), calc(((100vw - 5rem) / var(--cols) - 0.9rem) * 204 / 146)); } }
+@media (max-width: 1023px) { .cards-fit { --cols: 6; --rows: 6; --card-h: calc(((100vw - 3rem) / var(--cols) - 0.9rem) * 204 / 146); } }
+@media (max-width: 639px) { .cards-fit { --cols: 3; --rows: 12; } }
+.cards-fit .glass-tile { padding: 0.25rem 0.25rem 0.3rem; gap: 0.2rem; }
+.cards-fit .chip { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 0.05rem 0.4rem; font-size: 9px; }
+.cards-fit .card-tile { width: 100%; min-width: 0; }

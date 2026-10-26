@@ -1,5 +1,6 @@
 "use client";
 
+import Logo from "../Logo";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { clearCached } from "@/lib/dashCache";
@@ -119,6 +120,7 @@ export default function LoginForm() {
       <div className="relative flex w-full max-w-md flex-col items-center gap-7">
         <div className="hero-scrim" aria-hidden="true" />
         <div className="relative flex flex-col items-center gap-2 text-center">
+          <Logo size={96} glow className="hero-rise mb-2" />
           <p className="hero-eyebrow hero-rise">A two-player card duel game</p>
           <h1 className="hero-rise flex flex-col items-center gap-2 font-title" style={{ animationDelay: "0.06s" }}>
             <span className="hero-title" style={{ fontSize: "clamp(2.2rem, 9vw, 3.4rem)" }}>DuelRealm</span>

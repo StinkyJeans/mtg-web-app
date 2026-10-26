@@ -1,5 +1,6 @@
 "use client";
 
+import Logo from "./Logo";
 import { useEffect, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -50,8 +51,9 @@ export default function UserBar() {
 
   return (
     <div className="topbar">
-      <Link href="/" className="brand hidden min-[480px]:inline" aria-label="DuelRealm MTG home">
-        DUELREALM
+      <Link href="/" className="flex items-center gap-2" aria-label="DuelRealm MTG home">
+        <Logo size={26} />
+        <span className="brand hidden min-[480px]:inline">DUELREALM</span>
       </Link>
       <span className="flex-1" />
       <button

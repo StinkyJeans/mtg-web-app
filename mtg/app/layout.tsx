@@ -45,6 +45,7 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: "DuelRealm MTG",
   description: "A two-player card duel game. Build a deck, join a room and play.",
+  icons: { icon: [{ url: "/icon.svg", type: "image/svg+xml" }], shortcut: "/icon.svg", apple: "/logo.svg" },
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

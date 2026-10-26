@@ -78,7 +78,7 @@ export default function HotSeatSetup({ decks, loading, error, onStart, look }: {
   return (
     <main className="relative flex flex-1 flex-col items-center justify-center gap-5 p-5 text-slate-100 sm:p-8">
       <div className="page-atmosphere" aria-hidden="true" />
-      <div className="panel-glass flex w-full max-w-3xl flex-col items-center gap-5 p-6 sm:p-8">
+      <div className="panel-glass flex w-full max-w-[88rem] flex-col items-center gap-5 p-6 sm:p-8">
         <div className="flex flex-col items-center gap-2 text-center">
           <h1 className="page-title !text-3xl sm:!text-4xl">Hot-seat duel</h1>
           <p className="text-slate-300">Two players, one screen. Heads or tails decides who goes first.</p>
@@ -93,9 +93,9 @@ export default function HotSeatSetup({ decks, loading, error, onStart, look }: {
               </span>
               <div className="flex flex-col gap-1.5">
                 <span className="field-label">60-card deck</span>
-                <DeckPicker choices={options} size={agreedSize} randomId={RANDOM_ID} value={choice[p]} onChange={(id) => decks.choose(p, id)} compact />
+                <DeckPicker choices={options} size={agreedSize} randomId={RANDOM_ID} value={choice[p]} onChange={(id) => decks.choose(p, id)} wide />
               </div>
-              <LookPicker who={p} sleeve={look.storedSleeve[p]} mat={look.storedMat[p]} onSleeve={(v) => look.choose("sleeve", p, v)} onMat={(v) => look.choose("mat", p, v)} />
+              <LookPicker large who={p} sleeve={look.storedSleeve[p]} mat={look.storedMat[p]} onSleeve={(v) => look.choose("sleeve", p, v)} onMat={(v) => look.choose("mat", p, v)} />
             </div>
           ))}
         </div>

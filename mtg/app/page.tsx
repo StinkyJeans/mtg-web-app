@@ -1,3 +1,4 @@
+import Logo from "./Logo";
 import Link from "next/link";
 import LiveWallpaper from "./LiveWallpaper";
 import Lobby from "./lobby/Lobby";
@@ -16,6 +17,7 @@ export default function Home() {
       <Lobby />
       <section className="relative flex flex-col items-center gap-5 text-center">
         <div className="hero-scrim" aria-hidden="true" />
+        <Logo size={124} glow className="hero-rise" />
         <p className="hero-eyebrow hero-rise">A two-player card duel game</p>
         <h1 className="hero-rise flex flex-col items-center gap-4 font-title" style={{ animationDelay: "0.08s" }}>
           <span className="hero-title">DuelRealm</span>

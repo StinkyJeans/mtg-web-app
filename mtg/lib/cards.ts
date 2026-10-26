@@ -50,7 +50,7 @@ export async function fetchCardsByIds(ids: string[]): Promise<Record<string, Car
   return out;
 }
 
-export const CARDS_PAGE_SIZE = 48;
+export const CARDS_PAGE_SIZE = 36;
 
 export interface CardSearch {
   query: string;

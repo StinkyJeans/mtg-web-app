@@ -32,9 +32,9 @@ export default function CardBrowser() {
   const icon = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true } as const;
 
   return (
-    <main className="relative flex flex-1 flex-col gap-4 p-4 text-slate-100 sm:p-6">
+    <main className="cards-glass relative flex flex-1 flex-col gap-3 p-3 text-slate-100 lg:h-[calc(100dvh-2.7rem)] lg:flex-none lg:overflow-hidden">
       <div className="page-atmosphere" aria-hidden="true" />
-      <div className="panel-glass flex flex-col gap-4 p-4 sm:p-5">
+      <div className="glass flex shrink-0 flex-col gap-3 p-3 sm:p-4">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-3">
           <Link href="/" className="btn-ghost" aria-label="Back to the home page">
             <svg viewBox="0 0 24 24" width="14" height="14" {...icon}>
@@ -96,17 +96,17 @@ export default function CardBrowser() {
         <p className="empty-note">No cards found. If the database is empty, run the card import (see the project notes).</p>
       )}
 
-      {!result && <CardSkeletons count={CARDS_PAGE_SIZE} size="lg" className="card-grid" />}
-      <div className={`card-grid transition-opacity ${loading ? "opacity-50" : ""}`}>
+      {!result && <CardSkeletons count={CARDS_PAGE_SIZE} size="md" className="glass cards-fit p-3" />}
+      <div className={`glass cards-fit p-3 transition-opacity ${loading ? "opacity-50" : ""}`}>
         {result?.cards.map((def, i) => (
-          <div key={def.id} className="card-tile" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide} {...onIntent(() => preloadImage(cardDetailImageUrl(def, "large")))}>
-            <CardView def={def} size="lg" onClick={() => (zoom.hide(), setZoomedIdx(i))} />
+          <div key={def.id} className="card-tile glass-tile" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide} {...onIntent(() => preloadImage(cardDetailImageUrl(def, "large")))}>
+            <CardView def={def} size="md" onClick={() => (zoom.hide(), setZoomedIdx(i))} />
             {def.playable === false ? <span className="chip chip-meta !text-[10px]">Not playable yet</span> : <span className="chip chip-ok !text-[10px]">Playable</span>}
           </div>
         ))}
       </div>
 
-      <div className="flex items-center justify-center gap-3 text-sm">
+      <div className="glass mx-auto flex shrink-0 items-center justify-center gap-3 !rounded-full px-5 py-1.5 text-sm">
         <button disabled={page === 0} onClick={() => setPage(page - 1)} className="pager-btn">
           ← Prev
         </button>
