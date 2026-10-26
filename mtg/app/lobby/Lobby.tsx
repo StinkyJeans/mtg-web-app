@@ -4,9 +4,31 @@ import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { connectLobby, createRoom, disconnectLobby, tryReconnect, useOnline } from "@/lib/online/session";
+import { Skeleton } from "../Skeleton";
 import LiveMatches from "./LiveMatches";
 import RoomPopup from "./RoomPopup";
 import VotePopup from "./VotePopup";
+
+const ASIDE = "z-10 order-last flex w-full max-w-md flex-col gap-3 xl:order-none xl:fixed xl:right-4 xl:top-14 xl:w-[min(26rem,calc(100vw-2rem))] xl:max-w-none";
+
+/** The live matches panel and the Create room button, in their shapes, until it is known who is signed in. */
+function LobbySkeleton() {
+  return (
+    <aside role="status" aria-label="Loading the live matches" className={ASIDE}>
+      <div className="panel-glass flex flex-col gap-3 p-4">
+        <div className="flex items-center gap-2.5">
+          <Skeleton className="h-2.5 w-2.5 !rounded-full" />
+          <Skeleton className="h-4 w-36" />
+          <Skeleton className="ml-auto h-6 w-24 !rounded-full" />
+        </div>
+        <Skeleton className="h-[62px] !rounded-xl" />
+        <Skeleton className="h-[62px] !rounded-xl" />
+      </div>
+      <Skeleton className="h-[52px] !rounded-2xl" />
+      <Skeleton className="h-[56px] !rounded-2xl" />
+    </aside>
+  );
+}
 
 /**
  * The online side of the home page: the live matches (top right), the Create room button under them, and the pop-ups
@@ -50,12 +72,12 @@ export default function Lobby() {
     }
   }, [room?.stage, online.game, router]);
 
-  if (!username) return null;
+  if (!username) return <LobbySkeleton />;
   const inMatch = room?.stage === "playing" || room?.stage === "over";
 
   return (
     <>
-      <aside className="z-10 order-last flex w-full max-w-md flex-col gap-3 xl:order-none xl:fixed xl:right-4 xl:top-14 xl:w-[min(26rem,calc(100vw-2rem))] xl:max-w-none">
+      <aside className={ASIDE}>
         <LiveMatches online={online} inRoom={room !== null} />
 
         {inMatch ? (

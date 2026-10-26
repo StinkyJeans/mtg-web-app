@@ -6,6 +6,7 @@ import Link from "next/link";
 import type { PlayerId } from "@mtg/engine";
 import { OPPONENT } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
+import ConfirmDialog from "../ConfirmDialog";
 import { startConfetti } from "./confetti";
 import { playerName } from "./log";
 
@@ -18,33 +19,67 @@ export function Confetti() {
 
 /** Asks before a player resigns. Resigning ends the game at once and the other player wins. */
 export function ResignDialog({ player, onConfirm, onCancel }: { player: PlayerId; onConfirm: () => void; onCancel: () => void }) {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [onCancel]);
-
   return (
-    <div role="dialog" aria-modal="true" aria-label="Resign" className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-      <div className="w-full max-w-sm rounded-2xl bg-white p-6 text-center shadow-2xl">
-        <h2 className="text-2xl font-bold text-zinc-900">{playerName(player)}, resign?</h2>
-        <p className="mt-2 text-zinc-600">
-          Resigning ends the game right now and <span className="font-semibold">{playerName(OPPONENT[player])}</span> wins.
-        </p>
-        <div className="mt-6 flex justify-center gap-3">
-          <button onClick={onConfirm} className="rounded-lg bg-red-600 px-5 py-2.5 font-semibold text-white hover:bg-red-500">
-            Resign
-          </button>
-          <button onClick={onCancel} autoFocus className="rounded-lg border border-zinc-400 px-5 py-2.5 font-semibold text-zinc-800 hover:bg-zinc-100">
-            Keep playing
-          </button>
-        </div>
-      </div>
-    </div>
+    <ConfirmDialog
+      title={`${playerName(player)}, resign?`}
+      message={`Resigning ends the game right now and ${playerName(OPPONENT[player])} wins.`}
+      confirmLabel="Resign"
+      cancelLabel="Keep playing"
+      onConfirm={onConfirm}
+      onCancel={onCancel}
+    />
   );
 }
 
-/** Shown when the game ends: "You win!" for the winner, with confetti. */
+/** A gold cup: the winner's medal. */
+function Trophy() {
+  return (
+    <svg viewBox="0 0 64 64" width="74" height="74" aria-hidden="true" className="victory-icon">
+      <defs>
+        <linearGradient id="trophy-gold" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#fff3c4" />
+          <stop offset="0.45" stopColor="#f4b43d" />
+          <stop offset="1" stopColor="#b9731a" />
+        </linearGradient>
+      </defs>
+      <path d="M19 9h26v15c0 9.5-5.5 16-13 16s-13-6.5-13-16V9z" fill="url(#trophy-gold)" stroke="#7a4a0e" strokeWidth="1.5" />
+      <path d="M19 13H11c0 9 3.5 14 10 15.5M45 13h8c0 9-3.5 14-10 15.5" fill="none" stroke="url(#trophy-gold)" strokeWidth="3.4" strokeLinecap="round" />
+      <path d="M29 40h6v7h-6z" fill="url(#trophy-gold)" stroke="#7a4a0e" strokeWidth="1.2" />
+      <path d="M22 54h20v4H22zM26 47h12v7H26z" fill="url(#trophy-gold)" stroke="#7a4a0e" strokeWidth="1.2" strokeLinejoin="round" />
+      <path d="M32 15l2.4 5 5.4.7-4 3.7 1 5.3-4.8-2.7-4.8 2.7 1-5.3-4-3.7 5.4-.7z" fill="#fff8dc" opacity="0.92" />
+      <path d="M23 12v14" stroke="#fffbe6" strokeWidth="2" strokeLinecap="round" opacity="0.55" />
+    </svg>
+  );
+}
+
+/** A cracked shield: for the player who lost. */
+function BrokenShield() {
+  return (
+    <svg viewBox="0 0 64 64" width="70" height="70" aria-hidden="true" className="victory-icon">
+      <defs>
+        <linearGradient id="shield-steel" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0" stopColor="#cbd5e1" />
+          <stop offset="1" stopColor="#475569" />
+        </linearGradient>
+      </defs>
+      <path d="M32 7l19 6.5V29c0 12.5-8.2 21-19 25.5C21.2 50 13 41.5 13 29V13.5L32 7z" fill="url(#shield-steel)" stroke="#1e293b" strokeWidth="1.6" strokeLinejoin="round" />
+      <path d="M34 9l-6 14 8 6-7 10 5 8" fill="none" stroke="#fb7185" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Balanced scales: nobody won. */
+function Scales() {
+  return (
+    <svg viewBox="0 0 64 64" width="70" height="70" aria-hidden="true" className="victory-icon" fill="none" stroke="#e2e8f0" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M32 8v44M22 52h20M12 18h40" />
+      <path d="M12 18l-7 16h14zM52 18l-7 16h14z" />
+      <path d="M5 34c0 4 3 6 7 6s7-2 7-6M45 34c0 4 3 6 7 6s7-2 7-6" />
+    </svg>
+  );
+}
+
+/** Shown when the game ends: Victory (with confetti), Defeat, or a Draw. */
 export function VictoryDialog({
   winner,
   reason,
@@ -63,28 +98,30 @@ export function VictoryDialog({
   keep?: ReactNode;
 }) {
   const lost = you !== undefined && winner !== "draw" && winner !== you;
+  const result = winner === "draw" ? "draw" : lost ? "lose" : "win";
+  const title = result === "draw" ? "Draw" : result === "lose" ? "Defeat" : "Victory";
+  const spin = animationsEnabled();
   return (
     <>
-      <div role="dialog" aria-modal="true" aria-label="You win" className="fixed inset-0 z-40 flex items-center justify-center bg-black/60 p-4">
-        <div className={`${animationsEnabled() ? "victory-pop" : ""} w-full max-w-md rounded-2xl bg-white p-8 text-center shadow-2xl`}>
-          <div className="text-6xl" aria-hidden="true">
-            {winner === "draw" ? "🤝" : lost ? "💀" : "🏆"}
-          </div>
-          <h2 className="mt-2 text-5xl font-extrabold text-amber-600">{winner === "draw" ? "Draw!" : lost ? "You lost" : "You win!"}</h2>
-          <p className="mt-2 text-lg font-semibold text-zinc-900">{winner === "draw" ? "It's a draw" : lost ? `${playerName(winner)} wins this one` : `Congratulations, ${playerName(winner)}`}</p>
-          {reason && <p className="mt-1 text-zinc-600">{reason}</p>}
+      <div role="dialog" aria-modal="true" aria-label={result === "win" ? "You win" : result === "lose" ? "You lost" : "Draw"} className="victory-backdrop">
+        <div data-result={result} className={`victory-card ${spin ? "victory-pop" : ""}`}>
+          {result === "win" && <div aria-hidden="true" className={`victory-rays ${spin ? "victory-rays-turn" : ""}`} />}
+          <div className="victory-medal">{result === "draw" ? <Scales /> : result === "lose" ? <BrokenShield /> : <Trophy />}</div>
+          <h2 className="victory-title">{title}</h2>
+          <p className="victory-sub">{result === "draw" ? "Neither player wins this one" : result === "lose" ? `${playerName(winner as PlayerId)} wins this one` : `Congratulations, ${playerName(winner as PlayerId)}!`}</p>
+          {reason && <p className="victory-reason">{reason}</p>}
           {keep}
-          <div className="mt-6 flex justify-center gap-3">
+          <div className="victory-actions">
             {onLeave ? (
-              <button onClick={onLeave} className="rounded-lg bg-amber-500 px-6 py-3 font-semibold text-black hover:bg-amber-400">
+              <button onClick={onLeave} autoFocus className="btn-gold !px-7 !py-3 !text-base">
                 Back to the lobby
               </button>
             ) : (
               <>
-                <button onClick={onPlayAgain} className="rounded-lg bg-amber-500 px-6 py-3 font-semibold text-black hover:bg-amber-400">
+                <button onClick={onPlayAgain} autoFocus className="btn-gold !px-7 !py-3 !text-base">
                   Play again
                 </button>
-                <Link href="/" className="rounded-lg border border-zinc-400 px-6 py-3 font-semibold text-zinc-800 hover:bg-zinc-100">
+                <Link href="/" className="btn-ghost !px-6 !py-3 !text-base">
                   Main menu
                 </Link>
               </>
@@ -92,7 +129,7 @@ export function VictoryDialog({
           </div>
         </div>
       </div>
-      {winner !== "draw" && !lost && <Confetti />}
+      {result === "win" && <Confetti />}
     </>
   );
 }

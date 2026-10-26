@@ -114,7 +114,7 @@ function claimOncePerTurn(perm: Permanent | undefined, n: number): boolean {
  * Queues the card's triggered abilities for `event`. They go on the stack when the game next settles.
  * `subtypes`: the creature types of what the event is about (a creature spell cast, a creature that died or got counters); `self`: it is this card.
  */
-export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown; count?: number }): void {
+export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { spellColors?: string[]; spellSubtypes?: string[]; castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown; count?: number; token?: boolean }): void {
   const def = getCard(state, card.defId);
   const triggers = parseCard(def).triggers;
   for (let n = 0; n < triggers.length; n++) {
@@ -122,6 +122,10 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
     if (trigger.event !== event) continue;
     // A creature spell only counts for "a noncreature or Dragon spell" when it is a Dragon.
     if (event === "noncreatureSpell" && extra?.subtypes && !(trigger.orSpellSubtype && extra.subtypes.includes(trigger.orSpellSubtype))) continue;
+    // "Whenever you cast a red spell" / "a Lesson spell"
+    if (trigger.spellColor && !(extra?.spellColors ?? []).includes(trigger.spellColor)) continue;
+    if (trigger.spellSubtype && !(extra?.spellSubtypes ?? []).includes(trigger.spellSubtype)) continue;
+    if (event === "anyDies" && trigger.nontoken && extra?.token) continue; // "another nontoken creature"
     if (trigger.other && extra?.self) continue;
     if (trigger.selfOnly && !extra?.self) continue;
     if ((event === "allyDies" || event === "allyAttacks") && trigger.subtypes && !trigger.subtypes.some((t) => extra?.subtypes?.includes(t))) continue;

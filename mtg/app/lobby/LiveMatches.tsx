@@ -4,6 +4,7 @@ import { useState } from "react";
 import { joinRoom } from "@/lib/online/session";
 import type { LobbyRoomInfo, Stage } from "@/lib/online/protocol";
 import type { OnlineState } from "@/lib/online/session";
+import { RowSkeletons } from "../Skeleton";
 import WatchButton from "./WatchButton";
 
 const STATUS: Record<Stage, { label: string; chip: string }> = {
@@ -28,9 +29,9 @@ export default function LiveMatches({ online, inRoom }: { online: OnlineState; i
         <span className="count-chip ml-auto">{live} playing now</span>
       </header>
 
-      {online.lobby !== "on" && (
-        <p className="empty-note text-[15px]">{online.lobby === "connecting" ? "Connecting to the game server…" : "Not connected to the game server."}</p>
-      )}
+      {/* "off" with no error is just the moment before the first connection starts */}
+      {(online.lobby === "connecting" || (online.lobby === "off" && !online.error)) && <RowSkeletons count={2} className="h-[62px]" label="Connecting to the game server" />}
+      {online.lobby === "off" && online.error && <p className="empty-note text-[15px]">Not connected to the game server.</p>}
 
       {online.lobby === "on" && rooms.length === 0 && (
         <div className="empty-note flex flex-col items-center gap-1.5 text-[15px]">

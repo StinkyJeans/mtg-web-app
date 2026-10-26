@@ -123,7 +123,7 @@ export function parseCard(def: CardDef): ParsedCard {
         result.costReduction = { n: Number(perSpell[1]), perOpponentSpell: true };
         return false;
       }
-      const ifTapped = /^~ costs \{(\d+)\} less to cast if it targets a tapped permanent\.?$/.exec(line);
+      const ifTapped = /^~ costs \{(\d+)\} less to cast if it targets a tapped (?:permanent|creature)\.?$/.exec(line);
       if (ifTapped) {
         result.costReduction = { n: Number(ifTapped[1]), ifTargetsTapped: true };
         return false;
@@ -148,9 +148,10 @@ export function parseCard(def: CardDef): ParsedCard {
         result.extraSacrificeType = typedSac[1];
         return false;
       }
-      const landcycling = /^basic landcycling (\{[^}]+\}(?:\{[^}]+\})*)\.?$/.exec(line);
-      if (landcycling && parseManaCost(landcycling[1])) {
-        result.landcycling = landcycling[1];
+      const landcycling = /^(?:basic landcycling|(plains|island|swamp|mountain|forest)cycling) (\{[^}]+\}(?:\{[^}]+\})*)\.?$/.exec(line);
+      if (landcycling && parseManaCost(landcycling[2])) {
+        result.landcycling = landcycling[2];
+        if (landcycling[1]) result.landcyclingType = landcycling[1];
         return false;
       }
       const cycling = /^cycling (\{[^}]+\}(?:\{[^}]+\})*)\.?$/.exec(line);

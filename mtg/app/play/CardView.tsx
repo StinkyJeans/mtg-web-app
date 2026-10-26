@@ -38,6 +38,8 @@ interface Props {
   toughness?: number;
   /** In hand: you can play this right now with the mana you have. Gets a green glow and a badge. */
   castable?: boolean;
+  /** Replaces "✓ Castable" when the card can only be cast a special way (e.g. "✓ Warp only"). */
+  castLabel?: string;
   /** In hand: you can't play this right now. The card is dimmed, `hint` says why. */
   dim?: boolean;
   hint?: string;
@@ -61,7 +63,7 @@ interface Props {
   onZoom?: () => void;
 }
 
-function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness, tags, castable, dim, hint, ring = "", note, size = "sm", iid, attacking, onClick, onHover, onZoom }: Props) {
+function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness, tags, castable, castLabel, dim, hint, ring = "", note, size = "sm", iid, attacking, onClick, onHover, onZoom }: Props) {
   const tokenArt = useTokenArt(def); // tokens have no stored art: it comes from Scryfall
   const imageUrl = def.image ? cardImageUrl(def.image) : tokenArt?.small || null;
   const tokenFrame = !imageUrl && isTokenDef(def); // a token Scryfall has no picture of: we draw the card ourselves
@@ -77,7 +79,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
   const badge = combat ? (
     <span className={`absolute left-1 top-1 z-10 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold shadow ${COMBAT_BADGE[combat.tone] ?? "bg-zinc-700 text-white"}`}>{combat.label}</span>
   ) : castable ? (
-    <span className="absolute left-1 top-1 z-10 rounded-full bg-emerald-500 px-1.5 py-0.5 text-[10px] font-bold text-white shadow">✓ Castable</span>
+    <span className={`absolute left-1 top-1 z-10 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white shadow ${castLabel ? "bg-amber-600" : "bg-emerald-500"}`}>{castLabel ?? "✓ Castable"}</span>
   ) : null;
 
   // Real card art already shows name, cost, text and P/T: only add the live game status on top.

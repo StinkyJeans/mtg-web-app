@@ -4,7 +4,7 @@ import type { TargetSpec } from "../effects.js";
 import { addCosts, parseManaCost, payMana, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
-import { canCastNow, holdsPriority, sorceryTiming } from "./shared.js";
+import { abilityManaCost, canCastNow, holdsPriority, sorceryTiming } from "./shared.js";
 import { castCostOf, costChoices, crewers, tapPair } from "./cast.js";
 
 // What a player could do right now (for the screen and for auto-passing).
@@ -40,8 +40,9 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
   if (!isPermanentCard(def) && def.type !== "instant" && def.type !== "sorcery") return null;
   const parsed = parseCard(def);
   const printed = castCostOf(state, player, def);
-  const tax = zone === "exile" ? exilePlayTerms(state, player, iid).tax : 0;
-  const cost = printed && tax > 0 ? { ...printed, generic: printed.generic + tax } : printed;
+  const terms = zone === "exile" ? exilePlayTerms(state, player, iid) : null;
+  const tax = terms?.tax ?? 0;
+  const cost = terms?.payGeneric !== undefined ? (parseManaCost(`{${terms.payGeneric}}`) ?? printed) : printed && tax > 0 ? { ...printed, generic: printed.generic + tax } : printed; // airbend: {2} rather than the mana cost
   if (!parsed.ok || !cost || !canCastNow(state, player, def)) return null;
   const warpCost = parsed.warp && zone === undefined ? parseManaCost(parsed.warp) : null;
   const canWarp = warpCost !== null && payMana(state, player, warpCost, def).ok;
@@ -210,7 +211,7 @@ export function getActivatable(state: GameState, player: PlayerId): Activatable[
       if (ability.zone) return;
       if (ability.tap && (perm.tapped || (isCreature(state, perm) && perm.summoningSick && !kw(state, perm, "haste")))) return;
       if (ability.mana) {
-        const cost = parseManaCost(ability.mana);
+        const cost = abilityManaCost(state, perm, ability);
         if (!cost || !payMana(state, player, cost).ok) return;
       }
       if (bindSpecs(ability.targets, perm.card.iid).some((spec) => legalTargets(state, spec, player).length === 0)) return;
@@ -242,7 +243,7 @@ export function abilityLockReason(state: GameState, player: PlayerId, perm: Perm
   if (ability.tap && perm.tapped) return "it is tapped";
   if (ability.tap && isCreature(state, perm) && perm.summoningSick && !kw(state, perm, "haste")) return "it just arrived (summoning sick)";
   if (ability.mana) {
-    const cost = parseManaCost(ability.mana);
+    const cost = abilityManaCost(state, perm, ability);
     if (!cost || !payMana(state, player, cost).ok) return "not enough mana";
   }
   if (bindSpecs(ability.targets, perm.card.iid).some((spec) => legalTargets(state, spec, player).length === 0)) return "there is nothing it could target right now";

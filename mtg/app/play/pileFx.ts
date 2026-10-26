@@ -299,10 +299,58 @@ export async function untilBattlefieldShown(): Promise<void> {
   while (Date.now() - start < 8000 && document.querySelector('.enter-overlay[data-leaving="false"]')) await new Promise((r) => setTimeout(r, 50));
 }
 
-/** The opening hand (or a mulligan's new one): the cards are dealt from the library straight into the hand, one after another. */
-export async function playDeal(draws: Draw[]): Promise<void> {
-  if (draws.length === 0) return;
+/**
+ * A stack of cards is riffle-shuffled in front of the player: it splits into two halves that drop back together one card at a time,
+ * twice, and ends as one stack again. `src` is the picture of the stack (it is hidden while its copies do the shuffling).
+ * Plays the shuffle sound. `big`: how much the stack grows while it is shuffled.
+ */
+export async function riffleElement(src: HTMLElement, big = 1.25): Promise<void> {
   playSound("shuffle");
+  if (!animationsEnabled()) return;
+  const r = src.getBoundingClientRect();
+  if (r.width === 0) return;
+  const ghosts = Array.from({ length: 8 }, () => {
+    const g = src.cloneNode(true) as HTMLElement;
+    g.removeAttribute("data-sleeve-pile");
+    Object.assign(g.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: "75", pointerEvents: "none", transition: "none", transform: "none" });
+    document.body.appendChild(g);
+    return g;
+  });
+  const before = src.style.visibility;
+  src.style.visibility = "hidden";
+  try {
+    for (let round = 0; round < 2; round++) {
+      await Promise.all(
+        ghosts.map((g, i) => {
+          const side = i % 2 === 0 ? -1 : 1; // even cards come from the left half, odd ones from the right: they interleave
+          const rest = "translate(0, 0) rotate(0deg) scale(1)";
+          const apart = `translate(${side * r.width * 0.55 * big}px, ${-r.height * 0.2}px) rotate(${side * 9}deg) scale(${big})`;
+          const together = `translate(0, ${-r.height * 0.2}px) rotate(0deg) scale(${big})`;
+          const hold = 0.35 + i * 0.045; // each card waits a little longer than the one before, then drops onto the stack
+          return g.animate(
+            [
+              { transform: round === 0 ? rest : together, offset: 0 }, // round 1 lifts out of the stack, round 2 ends back in it
+              { transform: apart, offset: 0.3 },
+              { transform: apart, offset: hold },
+              { transform: `translate(0, ${-r.height * 0.35}px) rotate(0deg) scale(${big})`, offset: hold + 0.13 },
+              { transform: together, offset: Math.min(hold + 0.25, 0.93) },
+              { transform: round === 1 ? rest : together, offset: 1 },
+            ],
+            { duration: 720, easing: "ease-in-out", fill: "forwards" },
+          ).finished;
+        }),
+      );
+    }
+  } finally {
+    ghosts.forEach((g) => g.remove());
+    src.style.visibility = before;
+  }
+}
+
+/** The opening hand (or a mulligan's new one): the cards are dealt from the library straight into the hand, one after another. */
+export async function playDeal(draws: Draw[], shuffleSound = true): Promise<void> {
+  if (draws.length === 0) return;
+  if (shuffleSound) playSound("shuffle");
   if (!animationsEnabled()) return;
   draws.forEach((_, i) => playSound("draw", 0.35 + i * 0.11));
   busy = true;

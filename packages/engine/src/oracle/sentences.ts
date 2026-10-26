@@ -273,6 +273,13 @@ const stunCounter: SentenceParser = (s, ctx) => {
 
 const unblockable = creatureVerb(/^(.+) can't be blocked this turn$/, (what) => ({ type: "unblockable", what }));
 
+/** "Airbend target nonland permanent." (also "up to one other target nonland permanent", through the "up to" reading) */
+const airbend: SentenceParser = (s, ctx) => {
+  const m = /^airbend (.+)$/.exec(s);
+  const what = m ? refFor(m[1], ctx) : null;
+  return what?.t === "target" && isPermanentRef(what, ctx) ? [{ type: "airbend", what }] : null;
+};
+
 /** "Exile target nonland permanent an opponent controls until ~ leaves the battlefield." (also "up to one target ...") */
 const exileUntil: SentenceParser = (s, ctx) => {
   const m = /^exile (.+?) until ~ leaves the battlefield$/.exec(s);
@@ -303,7 +310,7 @@ const sacOnDamageGrant: SentenceParser = (s, ctx) => {
   return what ? [{ type: "grant", keyword: "flying", what }, { type: "sacOnDamage", what }] : null;
 };
 
-const exileTopParser: SentenceParser = (s) => (s === "@@exiletopplay@@" ? [{ type: "exileTop", playIfAttacked: true }] : s === "@@exiletopuntil@@" ? [{ type: "exileTop", untilEndStep: true }] : null);
+const exileTopParser: SentenceParser = (s) => (s === "@@exiletopplay@@" ? [{ type: "exileTop", playIfAttacked: true }] : s === "@@exiletopuntil@@" ? [{ type: "exileTop", untilEndStep: true }] : s === "@@exiletopnext@@" ? [{ type: "exileTop", throughNextTurn: true }] : null);
 
 /** "Whenever that creature deals combat damage to a player this turn, you draw a card." (about the creature targeted before it) */
 const damageDraw: SentenceParser = (s, ctx) =>
@@ -497,6 +504,20 @@ const exileAttachedEquipment: SentenceParser = (s, ctx) => {
 };
 
 /** "If it's a Zombie card, draw a card." (about the card the spell returned) */
+/** "If you control another Hero, you gain 2 life." */
+const ifControlOther: SentenceParser = (s, ctx) => {
+  const m = /^if you control another ([a-z]+), (.+)$/.exec(s);
+  const then = m ? parseClause(m[2], ctx) : null;
+  return m && then ? [{ type: "ifControlOther", subtype: m[1], then }] : null;
+};
+
+/** "~ connives" / "it connives" (the creature that entered, in "whenever another Villain enters, it connives"). */
+const connive: SentenceParser = (s, ctx) => {
+  const m = /^(it|~) connives$/.exec(s);
+  if (!m) return null;
+  return [{ type: "connive", what: m[1] === "it" && ctx.itIsOther ? { t: "other" } : { t: "self" } }];
+};
+
 const ifSubtypeThen: SentenceParser = (s, ctx) => {
   const m = /^if it's an? ([a-z]+) card, (.+)$/.exec(s);
   if (!m || ctx.targets.length === 0) return null;
@@ -581,7 +602,7 @@ const putSavedCounters: SentenceParser = (s, ctx) => {
 /** A Case of the Uneaten Feast: 'Creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn.' */
 const yardCastable: SentenceParser = (s) => (s === 'creature cards in your graveyard gain "you may cast ~ from your graveyard" until end of turn' ? [{ type: "yardCastable" }] : null);
 
-const PARSERS: SentenceParser[] = [exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, damageDraw, becomeCreature, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
+const PARSERS: SentenceParser[] = [connive, ifControlOther, airbend, exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, damageDraw, becomeCreature, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
 
 export function parseSimple(s: string, ctx: Ctx): Effect[] | null {
   for (const parse of PARSERS) {

@@ -176,7 +176,8 @@ export interface PlayerState {
   attackedThisTurn?: boolean;
   /** Cards in exile that may be played: "During any turn you attacked with ~, you may play that card", or a warped card from turn `fromTurn` on. */
   /** `tax`: a spell cast this way costs that much more; `tappedLand`: a land played this way enters tapped (Lightstall Inquisitor). */
-  mayPlay?: { iid: string; source: string; fromTurn?: number; untilTurn?: number; tax?: number; tappedLand?: boolean }[];
+  /** `throughTurn`: playable up to and including the end of that turn ("until the end of your next turn"). `always` + `payGeneric`: airbend, playable while it stays exiled, for that much generic mana instead of its cost. */
+  mayPlay?: { iid: string; source: string; fromTurn?: number; untilTurn?: number; throughTurn?: number; always?: boolean; payGeneric?: number; tax?: number; tappedLand?: boolean }[];
   /** Creature cards in the graveyard that may be cast from there until end of turn. */
   yardCastable?: string[];
   /** "If a source you control would deal damage to an opponent this turn, it deals double that damage instead." */
@@ -190,11 +191,14 @@ export interface PlayerState {
 export interface GameState {
   /** Definitions of every card used in this game, so the state is self-contained. */
   cards: Record<string, CardDef>;
+  /** The excess of the last damage dealt to a creature (damage beyond what it took to destroy it): "you gain life equal to the excess damage dealt this way". */
+  lastExcess?: number;
   players: Record<PlayerId, PlayerState>;
   /** The player who takes the first turn (rule 103.1). */
   startingPlayer: PlayerId;
   /** Mulligan progress; null once the game has started. */
-  opening: { taken: Record<PlayerId, number>; kept: Record<PlayerId, boolean> } | null;
+  /** `shuffled`: the shuffle step before keeping or mulliganing: each player shuffles the OTHER player's library (set with the `shuffleStep` option). */
+  opening: { taken: Record<PlayerId, number>; kept: Record<PlayerId, boolean>; shuffled?: Record<PlayerId, boolean> } | null;
   active: PlayerId;
   turn: number;
   phase: Phase;

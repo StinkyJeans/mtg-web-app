@@ -169,6 +169,7 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
         target.loyalty = (target.loyalty ?? 0) - amount; // damage to a planeswalker removes loyalty
       } else {
         target.damage += amount;
+        queueTriggers(state, target.card, target.card.owner, "damaged"); // "Whenever ~ is dealt damage"
         (target.damagedBy ??= []).push(source.card.iid);
         if (kw(state, source, "deathtouch")) target.deathtouched = true;
       }

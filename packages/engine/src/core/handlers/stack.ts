@@ -109,6 +109,10 @@ export const STACK_EFFECTS = {
     const self = findPermanentOrNull(state, ctx.sourceId)?.perm;
     if (self && powerOf(state, self) === effect.n) nested(effect.then);
   },
+  ifControlOther({ state, ctx, nested }, effect) {
+    const mine = state.players[ctx.controller].battlefield;
+    if (mine.some((p) => p.card.iid !== ctx.sourceId && defSubtypes(getCard(state, p.card.defId)).includes(effect.subtype))) nested(effect.then);
+  },
   ifSubtype({ state, ctx, nested }, effect) {
     // "If it's a Zombie card, ...": the card is looked at wherever the spell put it.
     const t = effect.what.t === "target" ? ctx.targets[effect.what.i] : undefined;

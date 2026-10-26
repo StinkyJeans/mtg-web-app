@@ -276,8 +276,8 @@ function invariants(s: GameState, initial: Record<PlayerId, number>): string[] {
   if (s.pendingPick) {
     const p = s.pendingPick;
     const where = new Set([...s.players[p.owner].hand, ...s.players[p.owner].library, ...s.players[p.owner].battlefield.map((x) => x.card)].map((c) => c.iid));
-    // ward ("pay") and mode (an index) picks aren't cards
-    if (!["ward", "mode", "color", "mayPay", "tax", "toggle", "topBottom"].includes(p.kind)) for (const o of p.options) if (!where.has(o)) problems.push(`a pick offers ${o}, which is not in the hand, library or battlefield`);
+    // ward ("pay"), mode (an index), color and creature type picks are not cards
+    if (!["ward", "mode", "color", "creatureType", "mayPay", "tax", "toggle", "topBottom"].includes(p.kind)) for (const o of p.options) if (!where.has(o)) problems.push(`a pick offers ${o}, which is not in the hand, library or battlefield`);
   }
   if (s.priority && s.stack.length === 0 && !s.priority.then && !s.pendingPick && !s.pendingChoice) problems.push("priority is open with an empty stack and nothing to do next");
   return problems;
@@ -373,7 +373,9 @@ const used = new Map<string, number>(); // how often each card was actually in a
 for (let g = 0; g < games; g++) {
   const seed = firstSeed + g;
   const rng = rngFrom(seed);
-  const decks = { p1: buildDeck(rng), p2: buildDeck(rng) };
+  // FUZZ_DECK=file.json (a list of card ids): both players play exactly that deck, to test one official deck.
+  const fixed: string[] | null = process.env.FUZZ_DECK ? JSON.parse(fs.readFileSync(process.env.FUZZ_DECK, "utf8")) : null;
+  const decks = fixed ? { p1: [...fixed], p2: [...fixed] } : { p1: buildDeck(rng), p2: buildDeck(rng) };
   let state: GameState;
   try {
     state = createGame(decks, seed * 7919, defs, { startingPlayer: rng() < 0.5 ? "p1" : "p2" });
@@ -382,7 +384,7 @@ for (let g = 0; g < games; g++) {
     crashes++;
     continue;
   }
-  const initial = { p1: 40, p2: 40 };
+  const initial = { p1: decks.p1.length, p2: decks.p2.length };
   let failedInARow = 0;
   let steps = 0;
   const trail: string[] = [];

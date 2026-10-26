@@ -7,6 +7,7 @@ import { holdWallpaper } from "../LiveWallpaper";
 import { RowSkeletons, Skeleton } from "../Skeleton";
 import DeckPreview from "../decks/DeckPreview";
 import { deckStatus, listMyDecks, loadDeckPreview, loadDefsFor } from "@/lib/decks";
+import { useCached, writeCached } from "@/lib/dashCache";
 import { onIntent } from "@/lib/prefetch";
 import { cleanNickname, loadMe, loadStats, MAX_NICKNAME, saveAvatar, saveNickname, squarePicture } from "@/lib/profile";
 import type { Me, Stats } from "@/lib/profile";
@@ -50,20 +51,48 @@ function Avatar({
   );
 }
 
+/** The profile button's shape, while it loads for the first time. */
+function ProfileSkeleton() {
+  return (
+    <div role="status" aria-label="Loading your profile" className="z-20 flex items-center gap-2 self-start xl:fixed xl:left-4 xl:top-14 xl:self-auto">
+      <div className="flex w-[15.5rem] items-center gap-3 rounded-2xl border border-white/25 bg-slate-950/55 py-2 pl-2 pr-4 shadow-xl shadow-black/40 ring-1 ring-inset ring-white/10">
+        <Skeleton className="h-11 w-11 shrink-0 !rounded-full" />
+        <span className="flex flex-1 flex-col gap-2">
+          <Skeleton className="h-3.5 w-24" />
+          <Skeleton className="h-3 w-32" />
+        </span>
+      </div>
+      <Skeleton className="h-[60px] w-[60px] shrink-0 !rounded-2xl" />
+    </div>
+  );
+}
+
 /** Top left of the dashboard: your picture and name. Click it for your profile: picture, record and decks. */
 export default function ProfileButton() {
-  const [me, setMe] = useState<Me | null>(null);
+  const cached = useCached<Me>("me"); // what was here last time: shown at once while the fresh copy loads
+  const [fetched, setFetched] = useState<Me | null>(null);
+  const [signedOut, setSignedOut] = useState(false);
   const [open, setOpen] = useState(false);
+  const me = fetched ?? cached;
+  const setMe = (m: Me) => {
+    setFetched(m);
+    writeCached("me", m);
+  };
 
   useEffect(() => {
     let alive = true;
-    void loadMe().then((m) => alive && setMe(m));
+    void loadMe().then((m) => {
+      if (!alive) return;
+      if (m) setMe(m);
+      else setSignedOut(true);
+    });
     return () => {
       alive = false;
     };
   }, []);
 
-  if (!me) return null;
+  if (signedOut) return null;
+  if (!me) return <ProfileSkeleton />;
   return (
     <>
       <div className="z-20 flex items-center gap-2 self-start xl:fixed xl:left-4 xl:top-14 xl:self-auto">

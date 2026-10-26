@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import type { CardDef } from "@mtg/engine";
-import { deckColors, mixEntries, saveDeck } from "@/lib/decks";
+import { deckColors, mixEntries, saveDeck, setName } from "@/lib/decks";
 import type { OfficialDeck } from "@/lib/decks";
 import DeckColors from "./DeckColors";
 import DeckPreview from "./DeckPreview";
@@ -11,7 +11,7 @@ import DeckPreview from "./DeckPreview";
 const chip = (on: boolean) =>
   `flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-sm transition ${on ? "border-amber-400 bg-amber-400/25 font-semibold" : "border-white/25 bg-white/10 hover:bg-white/20"}`;
 
-/** Pick any two of the Beginner Box packs, look at them together, and make them one deck of your own. */
+/** Pick any three of the packs, look at them together, and make them one 60-card deck of your own. */
 export default function MixPacks({ packs, defs }: { packs: OfficialDeck[]; defs: Record<string, CardDef> }) {
   const router = useRouter();
   const [picked, setPicked] = useState<OfficialDeck[]>([]);
@@ -19,12 +19,16 @@ export default function MixPacks({ packs, defs }: { packs: OfficialDeck[]; defs:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // A third pick replaces the older of the two.
+  // A fourth pick replaces the oldest of the three.
   const toggle = (pack: OfficialDeck) =>
-    setPicked((now) => (now.some((p) => p.id === pack.id) ? now.filter((p) => p.id !== pack.id) : [...now, pack].slice(-2)));
+    setPicked((now) => (now.some((p) => p.id === pack.id) ? now.filter((p) => p.id !== pack.id) : [...now, pack].slice(-3)));
 
-  const ready = picked.length === 2;
-  const name = picked.map((p) => p.name).join(" + ");
+  // packs from different sets can share a name ("Goblins (1)"): then the set is said too
+  const label = (p: OfficialDeck) => (picked.filter((q) => q.name === p.name).length > 1 ? `${p.name} (${setName(p.code) ?? p.code ?? "?"})` : p.name);
+  const groups = [...Map.groupBy(packs, (p) => p.code ?? "")].sort((a, b) => (setName(a[0]) ?? a[0]).localeCompare(setName(b[0]) ?? b[0]));
+
+  const ready = picked.length === 3;
+  const name = picked.map(label).join(" + ");
   const entries = mixEntries(...picked.map((p) => p.entries));
   const count = Object.values(entries).reduce((n, q) => n + q, 0);
 
@@ -42,20 +46,25 @@ export default function MixPacks({ packs, defs }: { packs: OfficialDeck[]; defs:
   return (
     <div className="flex flex-col gap-3 rounded-xl border border-white/15 bg-white/10 p-3">
       <div className="flex flex-wrap items-baseline gap-2">
-        <h3 className="font-semibold">Mix two packs</h3>
-        <span className="text-sm text-slate-300">Pick any two of the {packs.length} packs for a 40-card deck of your own.</span>
+        <h3 className="font-semibold">Mix three packs</h3>
+        <span className="text-sm text-slate-300">Pick any three of the {packs.length} packs for a 60-card deck of your own.</span>
       </div>
-      <div className="flex flex-wrap gap-2">
-        {packs.map((pack) => {
-          const on = picked.some((p) => p.id === pack.id);
-          return (
-            <button key={pack.id} onClick={() => toggle(pack)} aria-pressed={on} className={chip(on)}>
-              {pack.name}
-              <DeckColors colors={deckColors(defs, pack.entries)} />
-            </button>
-          );
-        })}
-      </div>
+      {groups.map(([code, list]) => (
+        <div key={code} className="flex flex-col gap-1.5">
+          <h4 className="text-xs font-bold uppercase tracking-widest text-slate-300">{setName(code) ?? (code || "Other")}</h4>
+          <div className="flex flex-wrap gap-2">
+            {list.map((pack) => {
+              const on = picked.some((p) => p.id === pack.id);
+              return (
+                <button key={pack.id} onClick={() => toggle(pack)} aria-pressed={on} className={chip(on)}>
+                  {pack.name}
+                  <DeckColors colors={deckColors(defs, pack.entries)} />
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ))}
       <div className="flex flex-wrap items-center gap-2 text-sm">
         {ready ? (
           <>
@@ -64,7 +73,7 @@ export default function MixPacks({ packs, defs }: { packs: OfficialDeck[]; defs:
             <DeckColors colors={deckColors(defs, entries)} />
           </>
         ) : (
-          <span className="text-slate-300">{picked.length === 0 ? "Pick two packs." : "Pick one more pack."}</span>
+          <span className="text-slate-300">{picked.length === 0 ? "Pick three packs." : `Pick ${3 - picked.length} more pack${picked.length === 2 ? "" : "s"}.`}</span>
         )}
         <span className="ml-auto flex gap-2">
           <button disabled={!ready} onClick={() => setViewing(true)} className="rounded border border-white/25 px-3 py-1 text-xs hover:bg-white/20 disabled:opacity-40">

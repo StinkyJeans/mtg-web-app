@@ -6,7 +6,7 @@ import { nextRandom } from "../../state.js";
 import type { CardInstance, GameState, Permanent, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isPlaneswalker, nameOf, playerLabel, toughnessOf } from "../permanents.js";
 import { changeLife } from "../zones.js";
-import { excessDamageDealt } from "../triggers.js";
+import { excessDamageDealt, queueTriggers } from "../triggers.js";
 
 /** A spell, ability or creature dealing damage, with what changes how its damage works. */
 export interface DamageSource {
@@ -58,6 +58,7 @@ export function dealDamage(
     events.push({ type: "effect", text: `The damage to ${target.k === "player" ? playerLabel(target.id) : nameOf(state, target.perm)} is prevented.` });
     return;
   }
+  state.lastExcess = 0; // only damage to a creature has an excess
   if (target.k === "player") {
     if (state.players[source.controller].doubleDamage && target.id !== source.controller) amount *= 2; // "it deals double that damage instead"
     changeLife(state, target.id, -amount, events);
@@ -66,9 +67,12 @@ export function dealDamage(
   } else {
     // Excess damage (rule 120.4a): more than it took to destroy it, counting the damage already marked and deathtouch.
     const lethal = Math.max(0, toughnessOf(state, target.perm) - target.perm.damage);
-    if (amount > (source.deathtouch ? Math.min(1, lethal) : lethal) && victim) excessDamageDealt(state, victim);
+    const needed = source.deathtouch ? Math.min(1, lethal) : lethal;
+    state.lastExcess = Math.max(0, amount - needed); // "you gain life equal to the excess damage dealt this way"
+    if (amount > needed && victim) excessDamageDealt(state, victim);
     target.perm.damage += amount;
     if (source.deathtouch) target.perm.deathtouched = true;
+    if (victim) queueTriggers(state, target.perm.card, victim, "damaged"); // "Whenever ~ is dealt damage"
   }
   events.push({ type: "damage", source: source.name, target: target.k === "player" ? target.id : target.perm.card.iid, amount });
   if (source.lifelink) changeLife(state, source.controller, amount, events);

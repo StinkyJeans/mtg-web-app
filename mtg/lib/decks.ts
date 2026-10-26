@@ -79,11 +79,16 @@ export const DECK_PAGE_SIZE = 13;
 /** The sections of the official decks, in order. A deck of any other type gets a section of its own after these. */
 export const OFFICIAL_SECTIONS: { deckType: string; title: string; blurb: string }[] = [
   { deckType: "Theme Deck", title: "Theme decks", blurb: "Ready-to-play decks built around one idea." },
-  { deckType: "Foundations", title: "Foundations pairs", blurb: "Two Foundations Beginner Box packs shuffled together: 40 cards." },
+  { deckType: "Starter Deck", title: "Starter decks", blurb: "Classic ready-made decks." },
+  { deckType: "Foundations", title: "Foundations trios", blurb: "Three Foundations Beginner Box packs shuffled together: 60 cards." },
+  { deckType: "Jumpstart trio", title: "Jumpstart trios", blurb: "Three Jumpstart packs of different colors shuffled together: 60 cards." },
+  { deckType: "Beginner Box trio", title: "Beginner Box trios", blurb: "Three Beginner Box decks shuffled together: 60 cards." },
 ];
 
-/** The single 20-card Beginner Box packs. They aren't decks of their own: players mix two of them. */
-export const PACK_TYPE = "Foundations pack";
+/** The single 20-card packs (Jumpstart, Beginner Box). They aren't decks of their own: players mix three of them. */
+export const PACK_TYPE = "Jumpstart pack";
+/** Is this one of those packs? (The older name is still recognised until the decks are imported again.) */
+export const isPack = (d: { deckType: string | null }) => d.deckType === PACK_TYPE || d.deckType === "Foundations pack";
 
 /** Several decks shuffled into one: the copies of each card added up. */
 export function mixEntries(...parts: DeckEntries[]): DeckEntries {
@@ -92,8 +97,10 @@ export function mixEntries(...parts: DeckEntries[]): DeckEntries {
   return out;
 }
 
-const SET_NAMES: Record<string, string> = { SOS: "Secrets of Strixhaven", ECL: "Lorwyn Eclipse", FDN: "Foundations" };
+const SET_NAMES: Record<string, string> = { SOS: "Secrets of Strixhaven", ECL: "Lorwyn Eclipse", FDN: "Foundations", JMP: "Jumpstart", J22: "Jumpstart 2022", J25: "Jumpstart 2025", S99: "Starter 1999", MSH: "Marvel Super Heroes", TLA: "Avatar: The Last Airbender" };
 export const setName = (code: string | null) => (code ? (SET_NAMES[code] ?? code) : null);
+
+const DECKS_PER_REQUEST = 8; // 8 decks of up to ~100 cards stay under the 1000-row limit of one answer
 
 /** The official decks the game can fully play, newest first. Decks with cards the game can't play yet aren't listed. */
 export async function listOfficialDecks(): Promise<OfficialDeck[]> {
@@ -108,10 +115,16 @@ export async function listOfficialDecks(): Promise<OfficialDeck[]> {
   if (error) throw new Error(`${error.message}. To list the official decks, run supabase/03-playable-decks.sql once in the Supabase SQL editor.`);
   const rows = data as { id: string; name: string; deck_type: string | null; code: string | null; release_date: string | null }[];
   if (rows.length === 0) return [];
-  const cards = await supabase.from("deck_cards").select("deck_id, card_id, qty, board").in("deck_id", rows.map((d) => d.id));
-  if (cards.error) throw new Error(cards.error.message);
+  // The database answers at most 1000 rows at a time, and 89 decks have more cards than that: ask for a few decks at a time
+  // (a deck has up to about 100 cards), or the decks at the end of the list come back empty.
+  const ids = rows.map((d) => d.id);
+  const batches = Array.from({ length: Math.ceil(ids.length / DECKS_PER_REQUEST) }, (_, i) => ids.slice(i * DECKS_PER_REQUEST, (i + 1) * DECKS_PER_REQUEST));
+  const answers = await Promise.all(batches.map((batch) => supabase.from("deck_cards").select("deck_id, card_id, qty, board").in("deck_id", batch).limit(1000)));
   const byDeck = new Map<string, DeckCardRow[]>();
-  for (const c of cards.data as (DeckCardRow & { deck_id: string })[]) byDeck.set(c.deck_id, [...(byDeck.get(c.deck_id) ?? []), c]);
+  for (const answer of answers) {
+    if (answer.error) throw new Error(answer.error.message);
+    for (const c of answer.data as (DeckCardRow & { deck_id: string })[]) byDeck.set(c.deck_id, [...(byDeck.get(c.deck_id) ?? []), c]);
+  }
   return rows.map((d) => ({ id: d.id, name: d.name, deckType: d.deck_type, code: d.code, releaseDate: d.release_date, entries: toEntries(byDeck.get(d.id) ?? []) }));
 }
 
@@ -138,7 +151,7 @@ export async function listPlayableDecks(): Promise<{ choices: DeckChoice[]; hidd
   const ready = (d: Deck) => deckStatus(defs, d.entries).ready;
   const choice = (d: Deck, isOfficial: boolean): DeckChoice => ({ id: d.id, name: d.name, ids: expandDeck(d.entries), official: isOfficial });
   return {
-    choices: [...mine.filter(ready).map((d) => choice(d, false)), ...official.filter((d) => d.deckType !== PACK_TYPE && ready(d)).map((d) => choice(d, true))],
+    choices: [...mine.filter(ready).map((d) => choice(d, false)), ...official.filter((d) => !isPack(d) && ready(d)).map((d) => choice(d, true))],
     hidden: mine.filter((d) => !ready(d)).length,
   };
 }

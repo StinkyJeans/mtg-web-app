@@ -4,6 +4,7 @@ import { getDamageAssignments, MAX_HAND_SIZE, MAX_MULLIGANS, OPPONENT, powerOf, 
 import type { Action, GameState, PlayerId } from "@mtg/engine";
 import { playerName } from "./log";
 import { PLAYER_STYLE } from "./theme";
+import { shufflePending } from "./shuffleStep";
 import Tip from "./Tip";
 
 const PHASES = [
@@ -49,7 +50,7 @@ export interface Selection {
 
 /** The one big button that moves the game on, or null while something else has to be answered first. */
 export function primaryAction(state: GameState, actor: PlayerId, mine: boolean, sel: Selection): Primary | null {
-  if (state.winner || state.priority || state.pendingChoice || state.pendingPick || !mine) return null;
+  if (state.winner || state.priority || state.pendingChoice || state.pendingPick || !mine || shufflePending(state)) return null;
   const mulligansTaken = state.opening?.taken[actor] ?? 0;
   if (state.phase === "mulligan") {
     return {
@@ -144,7 +145,7 @@ export default function CommandBar({ state, actor, mine, primary, skipping, conf
               </button>
             </Tip>
           )}
-          {mine && state.phase === "mulligan" && (
+          {mine && state.phase === "mulligan" && !shufflePending(state) && (
             <Tip text={mulliganTip(mulligansTaken)}>
               <button
                 onClick={() => onAct({ type: "mulligan" })}

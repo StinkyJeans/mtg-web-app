@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { CardDef } from "@mtg/engine";
-import { copyOfficialDeck, DECK_PAGE_SIZE, deckColors, deckStatus, deleteDeck, listMyDecks, listOfficialDecks, loadDeckPreview, loadDefsFor, OFFICIAL_SECTIONS, PACK_TYPE, setName } from "@/lib/decks";
+import { copyOfficialDeck, DECK_PAGE_SIZE, deckColors, deckStatus, deleteDeck, listMyDecks, listOfficialDecks, loadDeckPreview, loadDefsFor, isPack, OFFICIAL_SECTIONS, PACK_TYPE, setName } from "@/lib/decks";
 import type { Deck, DeckEntries, OfficialDeck } from "@/lib/decks";
 import { cardImageUrl } from "@/lib/cards";
 import { onIntent } from "@/lib/prefetch";
@@ -12,6 +12,7 @@ import ConfirmDialog from "../ConfirmDialog";
 import LiveWallpaper from "../LiveWallpaper";
 import { RowSkeletons, Skeleton } from "../Skeleton";
 import DeckColors from "./DeckColors";
+import DeckFilterBar, { deckMatches, NO_FILTERS, setChoices, typeOf } from "./DeckFilters";
 import DeckPreview from "./DeckPreview";
 import MixPacks from "./MixPacks";
 
@@ -98,6 +99,7 @@ function MyDecks() {
   const [version, setVersion] = useState(0);
   const [deleting, setDeleting] = useState<Deck | null>(null); // the deck the "are you sure?" pop-up is about
   const [shown, setShown] = useState(0);
+  const [filters, setFilters] = useState(NO_FILTERS);
   const [data, setData] = useState<{ version: number; decks: Deck[]; defs: Record<string, CardDef>; error?: string } | null>(null);
 
   useEffect(() => {
@@ -121,12 +123,22 @@ function MyDecks() {
       </p>
     );
 
-  const pages = Math.max(1, Math.ceil(data.decks.length / DECK_PAGE_SIZE));
+  const visible = data.decks.filter((d) => deckMatches(filters, { name: d.name }, deckColors(data.defs, d.entries), deckStatus(data.defs, d.entries).ready));
+  const pages = Math.max(1, Math.ceil(visible.length / DECK_PAGE_SIZE));
   const current = Math.min(shown, pages - 1);
   return (
     <>
+    <DeckFilterBar value={filters} onChange={(f) => (setFilters(f), setShown(0))} status shown={visible.length} total={data.decks.length} />
+    {visible.length === 0 && (
+      <p className="empty-note">
+        No decks match these filters.{" "}
+        <button onClick={() => setFilters(NO_FILTERS)} className="underline hover:text-[#ffe29a]">
+          Clear the filters
+        </button>
+      </p>
+    )}
     <ul className="flex flex-col gap-2.5">
-      {data.decks.slice(current * DECK_PAGE_SIZE, (current + 1) * DECK_PAGE_SIZE).map((deck) => {
+      {visible.slice(current * DECK_PAGE_SIZE, (current + 1) * DECK_PAGE_SIZE).map((deck) => {
         const status = deckStatus(data.defs, deck.entries);
         return (
           <li key={deck.id} className="deck-row" style={{ "--accent": status.ready ? "#34d399" : "#f4b43d" } as React.CSSProperties}>
@@ -180,6 +192,7 @@ function OfficialDecks() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<OfficialDeck | null>(null); // deck being looked at before copying
+  const [filters, setFilters] = useState(NO_FILTERS);
   const [data, setData] = useState<{ decks: OfficialDeck[]; defs: Record<string, CardDef>; error?: string } | null>(null);
 
   useEffect(() => {
@@ -215,19 +228,32 @@ function OfficialDecks() {
   if (data.error) return <p className="text-sm text-[#fca5a5]">Could not load decks: {data.error}</p>;
   if (data.decks.length === 0) return <p className="empty-note">No ready-made decks yet.</p>;
 
-  const packs = data.decks.filter((d) => d.deckType === PACK_TYPE).sort((a, b) => a.name.localeCompare(b.name));
-  const known = new Set([...OFFICIAL_SECTIONS.map((s) => s.deckType), PACK_TYPE]);
+  // the filters narrow everything below: the tiles of each section, and the packs to mix
+  const decks = data.decks.filter((d) => deckMatches(filters, d, deckColors(data.defs, d.entries)));
+  const packs = decks.filter(isPack).sort((a, b) => a.name.localeCompare(b.name));
+  const known = new Set([...OFFICIAL_SECTIONS.map((s) => s.deckType), PACK_TYPE, "Foundations pack"]);
   const others = [...new Set(data.decks.map((d) => d.deckType ?? "Other"))].filter((t) => !known.has(t));
   const sections = [...OFFICIAL_SECTIONS, ...others.map((t) => ({ deckType: t, title: t, blurb: "" }))]
-    .map((s) => ({ ...s, decks: data.decks.filter((d) => (d.deckType ?? "Other") === s.deckType) }))
+    .map((s) => ({ ...s, decks: decks.filter((d) => (d.deckType ?? "Other") === s.deckType) }))
     .filter((s) => s.decks.length > 0);
+  const typeLabels = new Map([...OFFICIAL_SECTIONS.map((s) => [s.deckType, s.title] as const), [PACK_TYPE, "Jumpstart packs"] as const]);
+  const types = [...new Set(data.decks.map((d) => typeOf(d.deckType)))].map((t) => ({ value: t, label: typeLabels.get(t) ?? t }));
 
   return (
     <>
       <p className="text-sm text-slate-300">
         Every card in these decks works in the game. Pick one when a game asks for your deck, or copy it to your decks to change cards.
       </p>
+      <DeckFilterBar value={filters} onChange={setFilters} types={types} sets={setChoices(data.decks)} shown={decks.length} total={data.decks.length} />
       {error && <p className="text-sm text-[#fca5a5]">{error}</p>}
+      {decks.length === 0 && (
+        <p className="empty-note">
+          No decks match these filters.{" "}
+          <button onClick={() => setFilters(NO_FILTERS)} className="underline hover:text-[#ffe29a]">
+            Clear the filters
+          </button>
+        </p>
+      )}
       {sections.map((section) => (
         <section key={section.deckType} className="flex flex-col gap-2">
           <div className="flex flex-wrap items-baseline gap-2">
@@ -247,9 +273,17 @@ function OfficialDecks() {
               />
             ))}
           </ul>
-          {section.deckType === "Foundations" && packs.length >= 2 && <MixPacks packs={packs} defs={data.defs} />}
         </section>
       ))}
+      {packs.length >= 1 && (
+        <section className="flex flex-col gap-2">
+          <div className="flex flex-wrap items-baseline gap-2">
+            <h2 className="font-title text-base font-extrabold uppercase tracking-[0.16em] text-[#ffe29a]">Make your own trio</h2>
+            <span className="text-sm text-slate-300">Prefer a different combination? Mix any three packs into a 60-card deck, like Jumpstart.</span>
+          </div>
+          <MixPacks packs={packs} defs={data.defs} />
+        </section>
+      )}
 
       {preview && <DeckPreview deck={preview} busy={busy === preview.id} onCopy={() => copy(preview)} onClose={() => setPreview(null)} />}
     </>

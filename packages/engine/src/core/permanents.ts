@@ -241,6 +241,9 @@ export function playerToAct(state: GameState): PlayerId {
   if (state.phase === "mulligan" && state.opening) {
     // Starting player decides first (rule 103.5), then the other player.
     const order = [state.startingPlayer, OPPONENT[state.startingPlayer]];
+    // Before that, each player shuffles the other's library, the starting player first.
+    const shuffled = state.opening.shuffled;
+    if (shuffled && !(shuffled.p1 && shuffled.p2)) return order.find((p) => !shuffled[p]) ?? state.active;
     return order.find((p) => !state.opening!.kept[p]) ?? state.active;
   }
   return state.phase === "blockers" ? OPPONENT[state.active] : state.active;

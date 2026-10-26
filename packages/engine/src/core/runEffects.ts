@@ -28,6 +28,7 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
     const n =
       c.kind === "selfPower" ? (self ? Math.max(0, powerOf(state, self)) : 0)
       : c.kind === "selfCounters" ? (self?.counters ?? 0)
+      : c.kind === "excessDamage" ? (state.lastExcess ?? 0)
       : c.kind === "targetPower" ? (() => {
           const t = ctx.targets[c.i];
           const p = t?.kind === "permanent" ? chosen(t.iid) : undefined;

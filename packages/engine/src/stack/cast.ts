@@ -27,7 +27,7 @@ import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payMana, w
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
-import { applyPayment, canCastNow, checkTargets, holdsPriority, openRound, sorceryTiming, timingError } from "./shared.js";
+import { abilityManaCost, applyPayment, canCastNow, checkTargets, holdsPriority, openRound, sorceryTiming, timingError } from "./shared.js";
 
 // Casting spells and activating abilities: each puts something on the stack and opens a round of priority.
 
@@ -87,7 +87,11 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
     cost = parseManaCost(parsed.warp);
   }
   if (!parsed.ok || !cost) return `${def.name} can't be played yet.`;
-  if (from === "exile") cost = { ...cost, generic: cost.generic + exilePlayTerms(state, player, iid).tax }; // "each spell cast this way costs {1} more"
+  if (from === "exile") {
+    const terms = exilePlayTerms(state, player, iid);
+    // airbend: {2} rather than the mana cost; otherwise "each spell cast this way costs {1} more"
+    cost = terms.payGeneric !== undefined ? (parseManaCost(`{${terms.payGeneric}}`) ?? cost) : { ...cost, generic: cost.generic + terms.tax };
+  }
   if (!canCastNow(state, player, def)) return timingError(state, def);
 
   let specs = parsed.spell?.targets ?? [];
@@ -184,7 +188,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "noncreatureSpell", def.type === "creature" ? { subtypes: spellTypes } : undefined);
   if (def.type === "instant" || def.type === "sorcery") for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "instantOrSorcery");
   me.spellsCastThisTurn = (me.spellsCastThisTurn ?? 0) + 1;
-  for (const perm of me.battlefield) queueTriggers(state, perm.card, player, "youCast", { castCount: me.spellsCastThisTurn });
+  for (const perm of me.battlefield) queueTriggers(state, perm.card, player, "youCast", { castCount: me.spellsCastThisTurn, spellColors: def.colors ?? [], spellSubtypes: spellTypes });
   for (const perm of state.players[OPPONENT[player]].battlefield) queueTriggers(state, perm.card, OPPONENT[player], "opponentCasts");
   openRound(state, OPPONENT[player]);
   return null;
@@ -254,7 +258,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
   if (targetError) return targetError;
 
   if (ability.mana) {
-    const cost = parseManaCost(ability.mana);
+    const cost = abilityManaCost(state, found.perm, ability);
     if (!cost) return `${def.name}'s ability can't be used yet.`;
     const paid = payMana(state, player, cost);
     if (!paid.ok) return `Not enough mana for ${def.name}'s ability (${ability.mana}).`;
@@ -395,17 +399,19 @@ export function cycleCard(state: GameState, player: PlayerId, iid: string, event
   const [card] = me.hand.splice(idx, 1);
   me.graveyard.push(card); // discarding is part of the cost
   cardsDiscarded(state, player, [iid], events);
-  events.push({ type: "abilityActivated", player, iid, name: def.name, text: landcycle ? `Basic landcycling ${cycling}: search for a basic land card.` : `Cycling ${cycling}: draw a card.` });
+  const landType = parsed.landcyclingType; // "Plainscycling {2}": a Plains card; plain "Basic landcycling": any basic land
+  const landName = landType ? `${landType.charAt(0).toUpperCase()}${landType.slice(1)}` : null;
+  events.push({ type: "abilityActivated", player, iid, name: def.name, text: landcycle ? (landName ? `${landName}cycling ${cycling}: search for a ${landName} card.` : `Basic landcycling ${cycling}: search for a basic land card.`) : `Cycling ${cycling}: draw a card.` });
   state.stack.push({
     kind: "ability",
     id: newId(state),
     controller: player,
     source: iid,
     sourceName: def.name,
-    effects: landcycle ? [{ type: "search", for: "basicLand", to: "hand", reveal: true }] : [{ type: "draw", amount: 1, who: { t: "you" } }],
+    effects: landcycle ? [landType ? { type: "search", for: "any", to: "hand", reveal: true, filters: [{ basic: true, subtypes: [landType] }], label: `${landName} card` } : { type: "search", for: "basicLand", to: "hand", reveal: true }] : [{ type: "draw", amount: 1, who: { t: "you" } }],
     targets: [],
     specs: [],
-    text: landcycle ? "Basic landcycling: search for a basic land card" : "Cycling: draw a card",
+    text: landcycle ? (landName ? `${landName}cycling: search for a ${landName} card` : "Basic landcycling: search for a basic land card") : "Cycling: draw a card",
   });
   openRound(state, OPPONENT[player]);
   return null;

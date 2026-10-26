@@ -45,6 +45,7 @@ export type DamageAssignment = { attacker: string; blocker: string; amount: numb
 export type Action =
   | { type: "mulligan" }
   | { type: "keepHand"; bottom: string[] }
+  | { type: "shuffleDeck" } // before keeping or mulliganing: shuffle the OTHER player's library
   | { type: "playLand"; iid: string }
   | { type: "castCreature"; iid: string }
   | { type: "castSpell"; iid: string; targets?: TargetChoice[]; x?: number; kicked?: boolean; from?: "graveyard" | "exile" | "prepared"; modes?: number[]; sacrifice?: string; warp?: boolean }
@@ -65,6 +66,7 @@ export type Action =
 export type GameEvent =
   | { type: "mulliganTaken"; player: PlayerId; count: number }
   | { type: "handKept"; player: PlayerId; bottomed: number }
+  | { type: "deckShuffled"; player: PlayerId; owner: PlayerId } // `player` shuffled `owner`'s library
   | { type: "landPlayed"; player: PlayerId; iid: string }
   | { type: "creatureCast"; player: PlayerId; iid: string; tapped: string[] }
   | { type: "phaseChanged"; phase: GameState["phase"] }
@@ -137,8 +139,22 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
   };
 
   switch (action.type) {
+    case "shuffleDeck": {
+      const opening = next.opening;
+      if (next.phase !== "mulligan" || !opening?.shuffled) return fail("There is nothing to shuffle right now.");
+      if (opening.shuffled[player]) return fail("You already shuffled your opponent's deck.");
+      const owner = OPPONENT[player];
+      const [shuffledLibrary, rng] = shuffle(next.players[owner].library, next.rng);
+      next.rng = rng;
+      next.players[owner].library = shuffledLibrary;
+      opening.shuffled[player] = true;
+      events.push({ type: "deckShuffled", player, owner });
+      break;
+    }
+
     case "mulligan": {
       if (next.phase !== "mulligan" || !next.opening) return fail("Mulligans are only taken before the game starts.");
+      if (next.opening.shuffled && !(next.opening.shuffled.p1 && next.opening.shuffled.p2)) return fail("Both decks are shuffled first.");
       if (next.opening.taken[player] >= MAX_MULLIGANS) return fail("You can't mulligan any more.");
       // Rule 103.5: shuffle your hand back, draw a new seven; you bottom cards when you keep.
       const [shuffled, rng] = shuffle([...me.hand, ...me.library], next.rng);
@@ -152,6 +168,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
 
     case "keepHand": {
       if (next.phase !== "mulligan" || !next.opening) return fail("You can only keep your hand before the game starts.");
+      if (next.opening.shuffled && !(next.opening.shuffled.p1 && next.opening.shuffled.p2)) return fail("Both decks are shuffled first.");
       const taken = next.opening.taken[player];
       const unique = new Set(action.bottom);
       if (action.bottom.length !== taken || unique.size !== taken) {
@@ -600,6 +617,8 @@ export function getLegalActions(state: GameState, player: PlayerId): Action[] {
     return [{ type: "passPriority" }, ...getCastable(state, player).map((c): Action => ({ type: "castSpell", iid: c.iid, targets: [] }))];
   }
   if (state.phase === "mulligan") {
+    const shuffled = state.opening?.shuffled;
+    if (shuffled && !(shuffled.p1 && shuffled.p2)) return [{ type: "shuffleDeck" }];
     const taken = state.opening?.taken[player] ?? 0;
     return [
       ...(taken < MAX_MULLIGANS ? [{ type: "mulligan" } as Action] : []),

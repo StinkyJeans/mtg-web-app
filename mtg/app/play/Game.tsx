@@ -29,6 +29,8 @@ import EnterBattlefield from "./EnterBattlefield";
 import { attackersIn, isCombatPlaying, playCombat } from "./combatFx";
 import { ResignDialog, VictoryDialog } from "./EndDialogs";
 import { GraveyardDialog, Pile } from "./Piles";
+import ShuffleStage from "./ShuffleStage";
+import { shufflePending } from "./shuffleStep";
 import { handDraws, hideDrawn, holdPiles, isPileBusy, playDeal, playDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
 import type { Draw } from "./pileFx";
 import { announcementsFrom, describeEvents, endReason, playerName } from "./log";
@@ -164,6 +166,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [abilitiesOpen, setAbilitiesOpen] = useState(false); // the abilities pop-up
   const [viewingYard, setViewingYard] = useState<{ owner: PlayerId; zone: "graveyard" | "exile" } | null>(null); // whose graveyard or exile is open
   const [endNote, setEndNote] = useState<string | null>(null); // how the game ended, for the win popup
+  const [stageSeen, setStageSeen] = useState(false); // the shuffle step was on screen
+  const [stageDone, setStageDone] = useState(false); // ...and the decks are back at their libraries
+  const stageDoneRef = useRef(false);
   const [welcome, setWelcome] = useState(false); // "Welcome to the Battle Field, Now Duel!" while it is on screen
   const [turnSplash, setTurnSplash] = useState(0); // online: counts "Your turn" splashes, 0 while none is on screen
 
@@ -259,8 +264,11 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         caller="p1"
         onBack={() => setPending(null)}
         onDone={(first, summary) => {
-          const fresh = createGame(pending.decks, newSeed(), pending.cards, { startingPlayer: first, mulligan: true });
+          const fresh = createGame(pending.decks, newSeed(), pending.cards, { startingPlayer: first, mulligan: true, shuffleStep: true });
+          stageDoneRef.current = false;
           flushSync(() => {
+            setStageSeen(false);
+            setStageDone(false);
             setGame(fresh);
             setLog([summary]);
             setChat([]);
@@ -286,6 +294,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   if (!game) return <HotSeatSetup decks={hotSeat} loading={loading} error={error} onStart={startGame} look={look} />;
 
   const state = game;
+  if (shufflePending(state) && !stageSeen) setStageSeen(true); // the shuffle step starts
   const actor = seat ?? playerToAct(state);
   /** Hot-seat: always true. Online: only while the game is waiting for this player. */
   const mine = !online || (!watching && playerToAct(state) === actor);
@@ -438,6 +447,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     } finally {
       release();
     }
+    // The decks are shuffled across the table first (each player shuffles the other's; clicks must work meanwhile), then the hands are dealt.
+    const giveUp = Date.now() + 10 * 60_000;
+    while (Date.now() < giveUp && gameRef.current?.opening?.shuffled && !stageDoneRef.current) await new Promise((r) => setTimeout(r, 60));
     await playDeal(hand);
   }
 
@@ -955,6 +967,20 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       )}
 
       {welcome && <WelcomeSplash />}
+      {stageSeen && !stageDone && !welcome && state.opening?.shuffled && (
+        <ShuffleStage
+          state={state}
+          viewer={online ? seat : null}
+          watching={watching}
+          actor={actor}
+          sleeve={look.sleeve}
+          onShuffle={(who) => void act({ type: "shuffleDeck" }, who)}
+          onDone={() => {
+            stageDoneRef.current = true;
+            setStageDone(true);
+          }}
+        />
+      )}
       {turnSplash > 0 && !state.winner && <TurnSplash key={turnSplash} />}
       {online && net.reconnecting && (
         <div role="status" className="pointer-events-none fixed inset-x-0 top-3 z-30 flex justify-center px-4">

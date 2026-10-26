@@ -57,7 +57,7 @@ export function createGame(
   decks: Record<PlayerId, string[]>,
   seed: number,
   cardDefs: Record<string, CardDef> = CARDS,
-  options: { startingPlayer?: PlayerId; mulligan?: boolean } = {},
+  options: { startingPlayer?: PlayerId; mulligan?: boolean; shuffleStep?: boolean } = {},
 ): GameState {
   const [p1, rng1] = makePlayer("p1", decks.p1, seed, cardDefs);
   const [p2, rng2] = makePlayer("p2", decks.p2, rng1, cardDefs);
@@ -70,7 +70,7 @@ export function createGame(
     players: { p1, p2 },
     startingPlayer: options.startingPlayer ?? "p1",
     opening: options.mulligan
-      ? { taken: { p1: 0, p2: 0 }, kept: { p1: false, p2: false } }
+      ? { taken: { p1: 0, p2: 0 }, kept: { p1: false, p2: false }, ...(options.shuffleStep ? { shuffled: { p1: false, p2: false } } : {}) }
       : null,
     active: options.startingPlayer ?? "p1",
     turn: 1,

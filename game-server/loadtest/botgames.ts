@@ -12,6 +12,9 @@ const SECONDS = Number(process.argv[3] ?? 40);
 const deckOf = (land: string, creature: string) => [...Array(8).fill(land), ...Array(12).fill(creature)];
 
 /** A person who plays quickly and simply (nothing here is expensive: the load must come from the server's bot). */
+/** The opening: first each player shuffles the other's library, then they keep their hand. */
+const openingMove = (s: GameState): Action => (s.opening?.shuffled && !(s.opening.shuffled.p1 && s.opening.shuffled.p2) ? { type: "shuffleDeck" } : { type: "keepHand", bottom: [] });
+
 function choose(s: GameState, seat: PlayerId): Action | null {
   if (playerToAct(s) !== seat) return null;
   if (s.pendingPick) return s.pendingPick.optional ? { type: "pick" } : { type: "pick", iid: s.pendingPick.options[0] };
@@ -20,7 +23,7 @@ function choose(s: GameState, seat: PlayerId): Action | null {
   const me = s.players[seat];
   switch (s.phase) {
     case "mulligan":
-      return { type: "keepHand", bottom: [] };
+      return openingMove(s);
     case "cleanup":
       return { type: "discard", iids: me.hand.slice(0, me.hand.length - MAX_HAND_SIZE).map((c) => c.iid) };
     case "damage":

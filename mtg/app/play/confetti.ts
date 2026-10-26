@@ -31,8 +31,9 @@ export function startConfetti(canvas: HTMLCanvasElement, durationMs = 4800): () 
 
   let w = 0;
   let h = 0;
+  let dpr = 1;
   const resize = () => {
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     w = canvas.clientWidth;
     h = canvas.clientHeight;
     canvas.width = w * dpr;
@@ -56,7 +57,7 @@ export function startConfetti(canvas: HTMLCanvasElement, durationMs = 4800): () 
       flip: rand(0, Math.PI * 2),
       vflip: rand(0.08, 0.3),
       color: COLORS[Math.floor(Math.random() * COLORS.length)],
-      round: Math.random() < 0.25,
+      round: false,
     });
 
   /** A cannon: `deg` is the direction (90 = straight up), fired with a spread. */
@@ -68,11 +69,11 @@ export function startConfetti(canvas: HTMLCanvasElement, durationMs = 4800): () 
     }
   };
 
-  burst(w * 0.04, h + 10, 66, 110);
-  burst(w * 0.96, h + 10, 114, 110);
+  burst(w * 0.04, h + 10, 66, 70);
+  burst(w * 0.96, h + 10, 114, 70);
   const second = window.setTimeout(() => {
-    burst(w * 0.04, h + 10, 72, 70);
-    burst(w * 0.96, h + 10, 108, 70);
+    burst(w * 0.04, h + 10, 72, 40);
+    burst(w * 0.96, h + 10, 108, 40);
   }, 450);
 
   const start = performance.now();
@@ -83,11 +84,14 @@ export function startConfetti(canvas: HTMLCanvasElement, durationMs = 4800): () 
     const k = Math.min((now - last) / 16.67, 3); // 1 = one frame at 60 fps, so speed doesn't depend on refresh rate
     last = now;
 
-    if (now - start < RAIN_MS) {
-      for (let i = 0; i < 3; i++) add(rand(0, w), -12, rand(-1.5, 1.5), rand(1.5, 4));
+    // A slow frame means the machine is struggling: stop adding paper until it catches up.
+    if (now - start < RAIN_MS && k < 1.5 && pieces.length < 260) {
+      for (let i = 0; i < 2; i++) add(rand(0, w), -12, rand(-1.5, 1.5), rand(1.5, 4));
     }
 
-    ctx.clearRect(0, 0, w, h);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    let fill = "";
     for (let i = pieces.length - 1; i >= 0; i--) {
       const p = pieces[i];
       p.vx *= Math.pow(0.991, k);
@@ -100,20 +104,15 @@ export function startConfetti(canvas: HTMLCanvasElement, durationMs = 4800): () 
         pieces.splice(i, 1);
         continue;
       }
-      ctx.save();
-      ctx.translate(p.x, p.y);
-      ctx.rotate(p.rot);
-      ctx.scale(1, Math.cos(p.flip));
-      ctx.fillStyle = p.color;
-      if (p.round) {
-        ctx.beginPath();
-        ctx.arc(0, 0, p.h * 0.6, 0, Math.PI * 2);
-        ctx.fill();
-      } else {
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-      }
-      ctx.restore();
+      // one setTransform per piece (instead of save/translate/rotate/scale/restore), and only touch fillStyle when it changes
+      const c = Math.cos(p.rot);
+      const sn = Math.sin(p.rot);
+      const f = Math.cos(p.flip);
+      ctx.setTransform(c * dpr, sn * dpr, -sn * f * dpr, c * f * dpr, p.x * dpr, p.y * dpr);
+      if (p.color !== fill) ctx.fillStyle = fill = p.color;
+      ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
     }
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
 
     if (now - start < durationMs || pieces.length > 0) raf = requestAnimationFrame(tick);
   };

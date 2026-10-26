@@ -32,7 +32,7 @@ function enterBattlefield(state: GameState, card: CardInstance, controller: Play
   const counters = (entering === "X" ? x : (entering ?? 0)) + (kicked ? (parsed.kickedCounters ?? 0) : 0);
   const minus = parsed.entersWithMinus ?? 0;
   const remembered = {
-    ...(parsed.statics?.some((st) => st.cond?.enteredThisTurn) ? { enteredTurn: state.turn } : {}),
+    ...(parsed.statics?.some((st) => st.cond?.enteredThisTurn) || parsed.activated.some((a) => a.powerUp) ? { enteredTurn: state.turn } : {}),
     ...(x > 0 && parsed.triggers.some((t) => t.xTargets) ? { xPaid: x } : {}),
     ...(parsed.entersPrepared && parsed.prepare ? { prepared: parsed.prepare.id } : {}),
   };

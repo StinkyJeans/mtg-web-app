@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { playSound } from "@/lib/sound";
 import { acceptRequest, displayName, listLinks, removeLink } from "@/lib/friends";
 import type { Link, Person } from "@/lib/friends";
 import { dismissCameOnline, dismissInvite, inviteFriend, joinRoom, liveInvites, useOnline } from "@/lib/online/session";
@@ -40,6 +41,8 @@ export default function NotificationBell({ meId, meName }: { meId: string; meNam
   const [busy, setBusy] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
 
+  const [loaded, setLoaded] = useState(false); // the friend requests have been looked up at least once
+  const heard = useRef<Set<string> | null>(null); // the notifications already known, so only a new one makes a sound
   const [version, setVersion] = useState(0); // bumped after accepting or declining, to look again at once
   const refresh = () => setVersion((v) => v + 1);
 
@@ -47,7 +50,7 @@ export default function NotificationBell({ meId, meName }: { meId: string; meNam
     let alive = true;
     const load = () =>
       listLinks(meId)
-        .then((l) => alive && setLinks(l))
+        .then((l) => alive && (setLinks(l), setLoaded(true)))
         .catch(() => undefined); // friends are not set up, or the network is down: no requests to show
     void load();
     const timer = setInterval(() => void load(), REFRESH_MS);
@@ -84,6 +87,29 @@ export default function NotificationBell({ meId, meName }: { meId: string; meNam
     }),
   ];
   const unseen = items.filter((i) => !seen.has(i.key));
+
+  // a sound for each new notification (not for the ones already waiting when the page opened)
+  useEffect(() => {
+    if (!loaded) return;
+    const keys = items.map((i) => i.key);
+    if (heard.current === null) {
+      heard.current = new Set(keys);
+      return;
+    }
+    const fresh = keys.filter((k) => !heard.current!.has(k));
+    keys.forEach((k) => heard.current!.add(k));
+    if (fresh.length > 0) playSound("notify");
+  });
+
+  // the tab says how many are new, so it can be noticed from another tab: "(2) DuelRealm MTG"
+  const count = unseen.length;
+  useEffect(() => {
+    const base = document.title.replace(/^\(\d+\)\s*/, "");
+    document.title = count > 0 ? `(${count}) ${base}` : base;
+    return () => {
+      document.title = base;
+    };
+  }, [count]);
   const newest = unseen[0];
 
   // a small bubble says what just arrived, for a few seconds
@@ -128,8 +154,11 @@ export default function NotificationBell({ meId, meName }: { meId: string; meNam
           <path d="M10 19.5a2 2 0 0 0 4 0" />
         </svg>
         {unseen.length > 0 && (
-          <span className="absolute -right-1.5 -top-1.5 grid min-w-[1.35rem] place-items-center rounded-full bg-red-500 px-1 text-xs font-extrabold text-white shadow-lg ring-2 ring-slate-950">
-            {unseen.length > 9 ? "9+" : unseen.length}
+          <span className="absolute -right-2 -top-2 grid h-6 min-w-6 place-items-center">
+            <span aria-hidden="true" className="absolute inset-0 animate-ping rounded-full bg-red-500/60" />
+            <span className="relative grid h-6 min-w-6 place-items-center rounded-full bg-red-500 px-1.5 text-[13px] font-extrabold leading-none text-white shadow-lg ring-2 ring-slate-950">
+              {unseen.length > 9 ? "9+" : unseen.length}
+            </span>
           </span>
         )}
       </button>

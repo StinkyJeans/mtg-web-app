@@ -24,6 +24,8 @@ export function normalizeText(def: CardDef): string {
     if (name.length >= 3) text = text.replace(new RegExp(escapeRegex(name), "gi"), "~");
   }
   text = text.replace(/\bthis (creature|permanent|spell|artifact|enchantment|land|aura|equipment|vehicle|card|token)\b/gi, "~").toLowerCase();
+  text = text.replace(/(^|, |\. )(?:he|she) (deals|gets|gains|loses) /g, "$1~ $2 "); // "When Momo enters, he deals 4 damage to ..."
+  text = text.replace(/ on (?:him|her)(?=\.?\s*$)/gm, " on ~"); // "put a +1/+1 counter on her"
   text = text.replace(/\{([^}]+)\}/g, (_, symbol: string) => `{${symbol.toUpperCase()}}`).replace(/\u2212/g, "-"); // a real minus sign in loyalty costs
   return text
     .split("\n")
@@ -35,6 +37,7 @@ export function normalizeText(def: CardDef): string {
 /** "the number of goblins you control", "that creature's power", "~'s power": a number worked out when the effect happens. */
 export function amountOf(phrase: string, ctx: Ctx): Amount | null {
   let m: RegExpExecArray | null;
+  if (phrase === "the excess damage dealt this way") return { count: { kind: "excessDamage" } }; // Razor Rings
   if ((m = /^the number of (.+)$/.exec(phrase))) {
     const c = parseCount(m[1]);
     return c ? { count: c } : null;

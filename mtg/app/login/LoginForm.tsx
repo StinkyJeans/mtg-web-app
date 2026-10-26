@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { clearCached } from "@/lib/dashCache";
 import LiveWallpaper from "../LiveWallpaper";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -103,6 +104,7 @@ export default function LoginForm() {
       }
     }
 
+    clearCached(); // whatever an earlier player left on this computer
     router.replace("/");
     router.refresh();
     // signed in, but the next page is slow to open: let the button come back rather than hang

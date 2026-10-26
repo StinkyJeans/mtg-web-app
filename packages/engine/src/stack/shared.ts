@@ -3,7 +3,8 @@ import { getCard } from "../cards.js";
 import { changeLife, findPermanentOrNull, isLegalTarget, isPermanentCard, isToken, playerToAct } from "../core.js";
 import type { TargetChoice, TargetSpec } from "../effects.js";
 import { hasKeyword } from "../keywords.js";
-import { manaAbilitySacrifices } from "../mana.js";
+import { manaAbilitySacrifices, manaCostOf, parseManaCost } from "../mana.js";
+import type { ManaCost } from "../mana.js";
 import type { CardDef, GameState, PlayerId } from "../types.js";
 
 // Timing, payment and target checks shared by casting, activating and resolving.
@@ -96,4 +97,22 @@ export function checkTargets(state: GameState, specs: TargetSpec[], targets: Tar
 export function rememberMode(state: GameState, source: string, mode: number): void {
   const perm = findPermanentOrNull(state, source)?.perm;
   if (perm) perm.chosenModes = [...(perm.chosenModes ?? []), mode];
+}
+
+/**
+ * The mana an activated ability costs right now. Power-up: "reduce the cost by its mana cost if it entered this turn".
+ */
+export function abilityManaCost(state: GameState, perm: { card: { defId: string }; enteredTurn?: number }, ability: { mana: string; powerUp?: boolean }): ManaCost | null {
+  const cost = parseManaCost(ability.mana);
+  if (!cost || !ability.powerUp || perm.enteredTurn !== state.turn) return cost;
+  const printed = manaCostOf(getCard(state, perm.card.defId));
+  if (!printed) return cost;
+  const colored = { ...cost.colored };
+  let generic = cost.generic;
+  for (const [color, n] of Object.entries(printed.colored) as [keyof ManaCost["colored"], number][]) {
+    const taken = Math.min(colored[color] ?? 0, n);
+    colored[color] = (colored[color] ?? 0) - taken;
+  }
+  generic = Math.max(0, generic - printed.generic);
+  return { ...cost, generic, colored };
 }

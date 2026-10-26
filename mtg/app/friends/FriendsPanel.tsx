@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
 } from "react";
+import { useCached, writeCached } from "@/lib/dashCache";
 import { holdWallpaper } from "../LiveWallpaper";
 import { RowSkeletons } from "../Skeleton";
 import {
@@ -95,6 +96,8 @@ function Names({ person, line }: { person: Person; line?: string }) {
 export default function FriendsPanel() {
   const [me, setMe] = useState<string | null>(null);
   const [links, setLinks] = useState<Link[] | null>(null);
+  const cachedLinks = useCached<Link[]>("friends"); // the list as it was last time: shown at once while the fresh one loads
+  const shown = links ?? cachedLinks;
   const [problem, setProblem] = useState<string | null>(null);
   const [setup, setSetup] = useState(false);
   // wide screens show the list; on a small screen it starts folded, so the page isn't pushed down (until the player opens it)
@@ -115,7 +118,9 @@ export default function FriendsPanel() {
 
   const load = useCallback(async (id: string) => {
     try {
-      setLinks(await listLinks(id));
+      const fresh = await listLinks(id);
+      setLinks(fresh);
+      writeCached("friends", fresh);
       setProblem(null);
       setSetup(false);
     } catch (e) {
@@ -153,7 +158,7 @@ export default function FriendsPanel() {
   }, [me, setup, load]);
 
   // the server answers about these friends (and counts this player as online while asking)
-  const friendKey = (links ?? [])
+  const friendKey = (shown ?? [])
     .filter((l) => l.relation === "friend")
     .map((l) => l.person.id)
     .join(",");
@@ -161,16 +166,16 @@ export default function FriendsPanel() {
     watchFriends(friendKey ? friendKey.split(",") : []);
   }, [friendKey]);
 
-  if (!me) return null;
-  const friends = (links ?? []).filter((l) => l.relation === "friend");
-  const incoming = (links ?? []).filter((l) => l.relation === "incoming");
-  const outgoing = (links ?? []).filter((l) => l.relation === "outgoing");
+  const friends = (shown ?? []).filter((l) => l.relation === "friend");
+  const incoming = (shown ?? []).filter((l) => l.relation === "incoming");
+  const outgoing = (shown ?? []).filter((l) => l.relation === "outgoing");
 
   async function act(job: () => Promise<void>) {
+    if (!me) return; // still finding out who this is
     setProblem(null);
     try {
       await job();
-      await load(me!);
+      await load(me);
     } catch (e) {
       setProblem(e instanceof Error ? e.message : "That did not work.");
     }
@@ -247,7 +252,7 @@ export default function FriendsPanel() {
                 {problem}
               </p>
             )}
-            {links === null && (
+            {shown === null && (
               <RowSkeletons
                 count={3}
                 className="h-[46px]"
@@ -411,10 +416,10 @@ export default function FriendsPanel() {
         )}
       </section>
 
-      {adding && (
+      {adding && me && (
         <AddFriends
           me={me}
-          links={links ?? []}
+          links={shown ?? []}
           onChanged={() => load(me)}
           onClose={() => setAdding(false)}
         />

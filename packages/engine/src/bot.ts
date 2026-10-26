@@ -260,6 +260,7 @@ function plainAction(s: GameState): Action | null {
   if (s.priority) return { type: "passPriority" };
   switch (s.phase) {
     case "mulligan":
+      if (s.opening?.shuffled && !s.opening.shuffled[who]) return { type: "shuffleDeck" };
       return { type: "keepHand", bottom: [] };
     case "cleanup": {
       const hand = s.players[who].hand;
@@ -309,6 +310,7 @@ function keepValue(s: GameState, id: PlayerId, defId: string): number {
 }
 
 function chooseMulligan(s: GameState, me: PlayerId): Action {
+  if (s.opening?.shuffled && !s.opening.shuffled[me]) return { type: "shuffleDeck" }; // first, shuffle the other player's library
   const hand = s.players[me].hand;
   const taken = s.opening?.taken[me] ?? 0;
   const lands = hand.filter((c) => s.cards[c.defId]?.type === "land").length;

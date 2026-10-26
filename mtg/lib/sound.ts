@@ -59,6 +59,7 @@ export type Sound =
   | "counter"
   | "discard"
   | "turn"
+  | "notify"
   | "win"
   | "lose";
 
@@ -233,6 +234,8 @@ const RECIPES: Record<Sound, (a: Out, at: number) => void> = {
     tone(a, { freq: 880, dur: 0.9, gain: 0.12, at });
     tone(a, { freq: 1320, dur: 0.9, gain: 0.1, at: at + 0.14 });
   },
+  // a new notification: two short rising notes, softer than the turn bell
+  notify: (a, at) => notes(a, [988, 1319], 0.11, { type: "sine", dur: 0.4, gain: 0.13 }, at),
   win: (a, at) => {
     notes(a, [523, 659, 784], 0.12, { type: "triangle", dur: 0.3, gain: 0.18 }, at);
     tone(a, { freq: 1047, type: "triangle", dur: 0.9, gain: 0.2, at: at + 0.36 });

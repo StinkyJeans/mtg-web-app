@@ -17,6 +17,9 @@ const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 const deckOf = (size: number, land: string, creature: string) => [...Array(Math.round(size * 0.4)).fill(land), ...Array(size - Math.round(size * 0.4)).fill(creature)];
 
+/** The opening: first each player shuffles the other's library, then they keep their hand. */
+const openingMove = (s: GameState): Action => (s.opening?.shuffled && !(s.opening.shuffled.p1 && s.opening.shuffled.p2) ? { type: "shuffleDeck" } : { type: "keepHand", bottom: [] });
+
 /** A very simple player: it reads only the view it was sent, exactly like a browser would. */
 function choose(s: GameState, seat: PlayerId): Action | null {
   if (playerToAct(s) !== seat) return null;
@@ -29,7 +32,7 @@ function choose(s: GameState, seat: PlayerId): Action | null {
   const me = s.players[seat];
   switch (s.phase) {
     case "mulligan":
-      return { type: "keepHand", bottom: [] };
+      return openingMove(s);
     case "cleanup":
       return { type: "discard", iids: me.hand.slice(0, me.hand.length - MAX_HAND_SIZE).map((c) => c.iid) };
     case "damage":
@@ -452,9 +455,9 @@ describe("a live match", function () {
     await until("the flip", () => snap.ivy.coin?.winner != null);
     (snap.ivy.coin!.winner === "p1" ? ivy : jack).send("order", { first: true });
     await until("playing", () => snap.ivy.stage === "playing");
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 4; i++) {
       const s = room.debugGame()!;
-      (playerToAct(s) === "p1" ? ivy : jack).send("action", { action: { type: "keepHand", bottom: [] } });
+      (playerToAct(s) === "p1" ? ivy : jack).send("action", { action: openingMove(s) });
       await until("a hand kept", () => room.debugGame() !== s);
     }
     assert.notEqual(room.debugGame()!.phase, "mulligan");
@@ -580,9 +583,9 @@ describe("a live match", function () {
     await until("the flip", () => snap.lee.coin?.winner != null);
     (snap.lee.coin!.winner === "p1" ? lee : max).send("order", { first: true });
     await until("playing", () => snap.lee.stage === "playing");
-    for (let i = 0; i < 2; i++) {
+    for (let i = 0; i < 4; i++) {
       const s = room.debugGame()!;
-      (playerToAct(s) === "p1" ? lee : max).send("action", { action: { type: "keepHand", bottom: [] } });
+      (playerToAct(s) === "p1" ? lee : max).send("action", { action: openingMove(s) });
       await until("a hand kept", () => room.debugGame() !== s);
     }
 
@@ -663,7 +666,7 @@ describe("a live match", function () {
     await m.until("the host is told", () => m.notices.length === 1);
     assert.deepEqual(m.notices[0], { name: "walt", friend: false });
     await m.until("the count", () => m.snap()?.spectators === 1);
-    m.client.send("action", { action: { type: "keepHand", bottom: [] } }); // the host moves, so the game has something to report
+    m.client.send("action", { action: { type: "shuffleDeck" } }); // the host moves, so the game has something to report
     await m.until("the watcher follows the game", () => got.updates.length > 0);
     assert.ok(got.updates.every((v) => [...v.players.p1.hand, ...v.players.p2.hand].every((x) => x.defId === HIDDEN_CARD_ID)), "no update ever shows a hand");
     await c.leave();

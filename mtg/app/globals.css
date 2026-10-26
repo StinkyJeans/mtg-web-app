@@ -963,3 +963,91 @@ body.mtg-cursor :is(input:not([type="checkbox"]):not([type="range"]), textarea) 
 
 /* the greeting over the battlefield when a match begins (players only) */
 .welcome-splash { animation: turn-splash 2.3s cubic-bezier(0.2, 0.8, 0.3, 1) both; }
+
+/* ───────── the result screen when a game ends ───────── */
+.victory-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1rem;
+  background: radial-gradient(circle at 50% 38%, rgba(60, 46, 20, 0.9), rgba(3, 6, 16, 0.94) 62%); /* no backdrop blur: it re-blurs the whole board every frame */
+}
+/* the board under the result screen is hidden: stop its pulsing glows from repainting */
+body:has(.victory-backdrop) :is(.castable-glow, .combat-block, .combat-threat, .combat-free, .combat-best, .combat-safe, .combat-good, .combat-risky, .combat-trade, .combat-chump) { animation-play-state: paused; }
+.victory-card {
+  --accent: #f4b43d;
+  --glow: rgba(244, 180, 61, 0.3);
+  position: relative;
+  width: 100%;
+  max-width: 28rem;
+  overflow: hidden;
+  padding: 2.3rem 1.8rem 1.8rem;
+  text-align: center;
+  color: #fff;
+  border-radius: 1.75rem;
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  background: linear-gradient(180deg, rgba(16, 22, 48, 0.97), rgba(6, 10, 26, 0.98));
+  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.7), 0 0 90px var(--glow), inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+.victory-card[data-result="lose"] { --accent: #fb7185; --glow: rgba(251, 113, 133, 0.18); }
+.victory-card[data-result="draw"] { --accent: #cbd5e1; --glow: rgba(148, 163, 184, 0.22); }
+.victory-card::before { content: ""; position: absolute; left: 1.6rem; right: 1.6rem; top: 0; height: 3px; border-radius: 0 0 4px 4px; background: var(--accent); box-shadow: 0 0 16px var(--accent); }
+.victory-rays {
+  position: absolute;
+  left: 50%;
+  top: 4.4rem;
+  width: 34rem;
+  height: 34rem;
+  transform: translate(-50%, -50%);
+  pointer-events: none;
+  will-change: transform;
+  background: repeating-conic-gradient(from 0deg, rgba(244, 180, 61, 0.28) 0 7deg, transparent 7deg 20deg);
+  -webkit-mask-image: radial-gradient(circle, #000 0 14%, transparent 60%);
+  mask-image: radial-gradient(circle, #000 0 14%, transparent 60%);
+}
+.victory-rays-turn { animation: victory-spin 48s linear infinite; }
+@keyframes victory-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
+.victory-medal {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 7rem;
+  height: 7rem;
+  margin: 0 auto 0.6rem;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, color-mix(in srgb, var(--accent) 38%, transparent), color-mix(in srgb, var(--accent) 6%, transparent) 70%);
+  border: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  box-shadow: 0 0 44px var(--glow), inset 0 0 24px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+.victory-icon { filter: drop-shadow(0 4px 10px rgba(0, 0, 0, 0.55)); }
+.victory-title {
+  position: relative;
+  will-change: auto;
+  font-family: var(--font-cinzel), "Cinzel", Georgia, serif;
+  font-size: clamp(2.4rem, 10vw, 3.5rem);
+  font-weight: 900;
+  line-height: 1.1;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  background: linear-gradient(180deg, #fffbe9 0%, #ffe29a 40%, #f4b743 75%, #c9822a 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  filter: drop-shadow(0 3px 10px rgba(244, 180, 61, 0.4));
+}
+.victory-card[data-result="lose"] .victory-title { background-image: linear-gradient(180deg, #ffe4e8 0%, #fda4af 45%, #e11d48 100%); filter: drop-shadow(0 2px 0 rgba(76, 5, 25, 0.6)) drop-shadow(0 6px 22px rgba(251, 113, 133, 0.3)); }
+.victory-card[data-result="draw"] .victory-title { background-image: linear-gradient(180deg, #ffffff 0%, #cbd5e1 50%, #64748b 100%); filter: drop-shadow(0 2px 0 rgba(15, 23, 42, 0.6)); }
+.victory-sub { position: relative; margin-top: 0.4rem; font-size: 1.1rem; font-weight: 700; color: #f1f5f9; }
+.victory-reason { position: relative; display: inline-block; margin-top: 0.7rem; padding: 0.3rem 0.95rem; border-radius: 999px; font-size: 0.9rem; color: #cbd5e1; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.16); }
+.victory-actions { position: relative; display: flex; flex-wrap: wrap; justify-content: center; gap: 0.75rem; margin-top: 1.6rem; }
+
+/* the deck waiting to be shuffled: it breathes gold so it is clear it can be clicked */
+.shuffle-ready { animation: shuffle-ready 1.3s ease-in-out infinite; border-radius: 6px; }
+.shuffle-ready:hover { transform: scale(1.06); }
+@keyframes shuffle-ready {
+  0%, 100% { box-shadow: 0 0 0 3px rgba(251, 191, 36, 0.9), 0 0 18px 4px rgba(251, 191, 36, 0.45); }
+  50% { box-shadow: 0 0 0 4px rgba(253, 230, 138, 1), 0 0 34px 10px rgba(251, 191, 36, 0.8); }
+}

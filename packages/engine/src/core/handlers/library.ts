@@ -54,7 +54,9 @@ export const LIBRARY_EFFECTS = {
     state.players[ctx.controller].exile.push(card);
     if (effect.playIfAttacked) (state.players[ctx.controller].mayPlay ??= []).push({ iid: card.iid, source: ctx.sourceId });
     if (effect.untilEndStep) (state.players[ctx.controller].mayPlay ??= []).push({ iid: card.iid, source: ctx.sourceId, untilTurn: nextEndStepTurn(state, ctx.controller) });
-    say(effect.untilEndStep ? `${playerLabel(ctx.controller)} exiles ${getCard(state, card.defId).name} from the top of their library; they may play it until their next end step.` : `${playerLabel(ctx.controller)} exiles the top card of their library.`);
+    // "Until the end of your next turn": through the next turn of theirs (two turns on from their own turn, one on from the opponent's)
+    if (effect.throughNextTurn) (state.players[ctx.controller].mayPlay ??= []).push({ iid: card.iid, source: ctx.sourceId, throughTurn: state.active === ctx.controller ? state.turn + 2 : state.turn + 1 });
+    say(effect.untilEndStep || effect.throughNextTurn ? `${playerLabel(ctx.controller)} exiles ${getCard(state, card.defId).name} from the top of their library; they may play it ${effect.throughNextTurn ? "until the end of their next turn" : "until their next end step"}.` : `${playerLabel(ctx.controller)} exiles the top card of their library.`);
   },
   scryIfMV({ state, ctx, startPick }, effect) {
     const t = ctx.targets[effect.what.t === "target" ? effect.what.i : 0];
@@ -96,6 +98,18 @@ export const LIBRARY_EFFECTS = {
       wardCost: effect.cost,
       taxFor: ctx.controller,
     });
+  },
+  // Connive: draw a card, then discard a card; a nonland card discarded puts a +1/+1 counter on the creature (the discard waits for the player).
+  connive({ state, ctx, events, say, startPick }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm" || state.pendingPick) continue;
+      const player = s.owner;
+      say(`${nameOf(state, s.perm)} connives.`);
+      drawCards(state, player, 1, events);
+      const hand = state.players[player].hand;
+      if (hand.length === 0) continue;
+      startPick({ player, prompt: `${nameOf(state, s.perm)} connives: discard a card (a nonland card gives it a +1/+1 counter)`, kind: "discard", options: hand.map((c) => c.iid), optional: false, owner: player, remaining: 1, ordered: [], conniver: s.perm.card.iid });
+    }
   },
   rummage({ state, ctx, startPick }, effect) {
     const hand = state.players[ctx.controller].hand;

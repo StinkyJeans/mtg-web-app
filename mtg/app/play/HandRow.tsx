@@ -1,6 +1,6 @@
 "use client";
 
-import { castCostOf, payMana } from "@mtg/engine";
+import { castCostOf, getCastable, payMana } from "@mtg/engine";
 import type { CardDef, CardInstance, GameState, PlayerId } from "@mtg/engine";
 import CardView from "./CardView";
 
@@ -28,7 +28,7 @@ export default function HandRow({ state, actor, mine, playable, handPick, onClic
 
   const card = (c: CardInstance) => {
     const def = state.cards[c.defId];
-    const notes = handNotes(state, actor, c.defId, playable.has(c.iid));
+    const notes = handNotes(state, actor, c.iid, c.defId, playable.has(c.iid));
     return (
       <div key={c.iid} className="shrink-0" onMouseEnter={(e) => onPreview(def, e.currentTarget)} onMouseLeave={onUnpreview}>
         <CardView
@@ -36,6 +36,7 @@ export default function HandRow({ state, actor, mine, playable, handPick, onClic
           def={def}
           ring={handPick.includes(c.iid) ? "ring-2 ring-red-400" : choosing && !lookOnly && (state.phase === "mulligan" || state.phase === "cleanup") ? "ring-2 ring-emerald-400" : ""}
           castable={notes.castable}
+          castLabel={notes.castLabel}
           dim={notes.dim}
           hint={notes.hint}
           onClick={lookOnly ? undefined : () => onClick(c.iid, c.defId)}
@@ -72,10 +73,21 @@ export default function HandRow({ state, actor, mine, playable, handPick, onClic
  * What the hand should show for a card: castable (green, with a badge), or dimmed with the reason why not.
  * Only while playing normally: during the mulligan and the discard the hand is for choosing cards, not casting.
  */
-function handNotes(state: GameState, actor: PlayerId, defId: string, ok: boolean): { castable?: boolean; dim?: boolean; hint?: string } {
+function handNotes(state: GameState, actor: PlayerId, iid: string, defId: string, ok: boolean): { castable?: boolean; castLabel?: string; dim?: boolean; hint?: string } {
   if (state.phase === "mulligan" || state.phase === "cleanup" || state.pendingPick || state.winner) return {};
-  if (ok) return { castable: true };
   const def = state.cards[defId];
+  if (ok) {
+    // Warp: when the full cost can't be paid but the warp cost can, say so, or the card looks castable "normally" and isn't.
+    const warp = getCastable(state, actor).find((c) => c.iid === iid && !c.zone)?.warp;
+    if (warp?.length && getCastable(state, actor).find((c) => c.iid === iid && !c.zone)?.warpOnly) {
+      return {
+        castable: true,
+        castLabel: "✓ Warp only",
+        hint: `You can't pay its full cost (${def.manaCost ?? def.cost}) yet, but you can cast it with Warp ${warp}: it is exiled at the next end step, and you may cast it from exile after that.`,
+      };
+    }
+    return { castable: true };
+  }
   if (def.type === "land") {
     return { dim: true, hint: state.players[actor].landsPlayedThisTurn >= 1 ? "You already played a land this turn." : "You can only play a land in your own main phase." };
   }

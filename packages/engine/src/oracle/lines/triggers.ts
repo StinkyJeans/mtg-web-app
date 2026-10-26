@@ -1,5 +1,5 @@
 import type { Effect, ParsedCard, TriggeredAbility } from "../../effects.js";
-import { singularType } from "../words.js";
+import { COLOR_OF, singularType } from "../words.js";
 import { newCtx } from "../targets.js";
 import { parseEffectText } from "../effectText.js";
 import { interveningCond } from "../abilities.js";
@@ -179,6 +179,21 @@ export function readBeginningOfStep(line: string, out: ParsedCard): boolean {
   return false;
 }
 
+// ── "Whenever you cast a red spell, ..." / "Whenever you cast a Lesson spell, ...": a spell of that color or subtype
+export function readCastKindSpell(line: string, out: ParsedCard): boolean {
+  const m = /^whenever you cast an? ([a-z]+) spell,? (.+)$/.exec(line);
+  if (!m || ["noncreature", "instant", "creature", "nonland"].includes(m[1])) return false;
+  const color = COLOR_OF[m[1]];
+  const ctx = newCtx(true);
+  const effects = parseEffectText(m[2].replace(/^it /, "~ ").replace(/ on it$/, " on ~"), ctx);
+  if (effects && effects.length > 0) {
+    out.triggers.push({ event: "youCast", effects, targets: ctx.targets, text: line, ...(color ? { spellColor: color } : { spellSubtype: m[1] }) });
+    return true;
+  }
+  out.unsupported.push(line);
+  return true;
+}
+
 // ── "Whenever you cast a spell during an opponent's turn", "Whenever an opponent casts a spell, ..."
 export function readAnySpellCast(line: string, out: ParsedCard): boolean {
   const castAny = /^whenever you cast (a|your first) spell( during (?:an opponent's turn|each opponent's turn))?,? (.+)$/.exec(line);
@@ -278,6 +293,25 @@ export function readBlocksOrBlocked(line: string, out: ParsedCard): boolean {
   return false;
 }
 
+// "Whenever Mockingbird is dealt damage, put a +1/+1 counter on her." / "Whenever ~ or another nontoken creature dies, you create a 2/1 Villain token."
+export function readDamageAndAnyDies(line: string, out: ParsedCard): boolean {
+  const dealt = /^whenever ~ is dealt damage,? (.+)$/.exec(line);
+  const dies = /^whenever (~ or )?another( nontoken)? creature dies,? (.+)$/.exec(line);
+  if (!dealt && !dies) return false;
+  const ctx = newCtx(true);
+  const effects = parseEffectText((dealt ? dealt[1] : dies![3]).replace(/^you create /, "create "), ctx);
+  if (effects && effects.length > 0) {
+    out.triggers.push(
+      dealt
+        ? { event: "damaged", effects, targets: ctx.targets, text: line }
+        : { event: "anyDies", ...(dies![1] ? {} : { other: true }), ...(dies![2] ? { nontoken: true } : {}), effects, targets: ctx.targets, text: line },
+    );
+    return true;
+  }
+  out.unsupported.push(line);
+  return true;
+}
+
 export function readDamagedCreatureDies(line: string, out: ParsedCard): boolean {
   const damagedDies = /^whenever a creature dealt damage by ~ this turn dies,? (.+)$/.exec(line);
   if (damagedDies) {
@@ -353,6 +387,7 @@ export function readAllyEnters(line: string, out: ParsedCard): boolean {
         ...(withSelf || (ally && ally[2] === "a") ? {} : { other: true }),
         ...(ally?.[3] ? { nontoken: true } : {}),
         ...(ally?.[4] ? { maxPower: Number(ally[4]) } : {}),
+        ...(/do this only once each turn$/.test(line) ? { oncePerTurn: true } : {}),
         ...(creatureOrArtifact ? { artifacts: true } : allyTyped && !ally ? { subtypes: allyTyped[2].split(/, or |, | or /).map((n) => singularType(n.trim())) } : {}),
         effects,
         targets: ctx.targets,

@@ -6,6 +6,7 @@ import { playerName } from "./log";
 import { ManaText } from "./ManaSymbols";
 import { BANNER } from "./theme";
 import type { BannerMode } from "./theme";
+import { shufflePending } from "./shuffleStep";
 import Tip from "./Tip";
 
 interface Props {
@@ -71,6 +72,7 @@ function hintFor(state: GameState, actor: PlayerId, waiting: boolean): string {
   if (state.pendingPick) return "Choose a card.";
   if (state.pendingChoice) return "Choose a target for the triggered ability.";
   if (state.priority) return state.stack.length === 0 ? "Before combat damage: cast an instant or use an ability, or pass to continue." : "Something is on the stack. Respond or pass.";
+  if (shufflePending(state)) return "Shuffle time: each player shuffles the other's deck. Click the deck on your mat to shuffle it.";
   if (state.phase === "mulligan") {
     return mulligansTaken
       ? `Click ${mulligansTaken} card${mulligansTaken > 1 ? "s" : ""} in your hand to put on the bottom of your library, then keep.`

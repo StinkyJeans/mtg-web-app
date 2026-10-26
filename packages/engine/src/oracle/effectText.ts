@@ -147,7 +147,9 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
     .replace(/you may discard a card\. if you do, draw a card/g, "@@rummage@@")
     .replace(/you may put a card from your hand on the bottom of your library\. if you do, draw a card/g, "@@rummagebottom@@")
     .replace(/exile the top card of your library\. during any turn you attacked with ~, you may play that card/g, "@@exiletopplay@@")
+    .replace(/you may have it connive\. do this only once each turn/g, "it connives") // the once-a-turn limit is read by the trigger
     .replace(/exile the top card of your library\. you may play that card until your next end step/g, "@@exiletopuntil@@")
+    .replace(/exile the top card of your library\. until the end of your next turn, you may play that card/g, "@@exiletopnext@@")
     .replace(/each opponent exiles a card from their hand and may play that card for as long as it remains exiled\. each spell cast this way costs \{(\d+)\} more to cast\. each land played this way enters tapped/g, "@@exiletoplay $1@@")
     .replace(/you may tap any number of untapped creatures you control\. ~ gets \+1\/\+1 until end of turn for each creature tapped this way/g, "@@tapforbonus@@");
   const whole = parseChoiceText(text, ctx);

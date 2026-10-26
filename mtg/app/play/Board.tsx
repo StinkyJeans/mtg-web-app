@@ -15,6 +15,7 @@ export function Side({ label, children, player, tone, grow, mat, zones, overlay 
     // A playmat: the player's chosen surface, and the library and graveyard in their own zones on the right.
     return (
       <section
+        data-mat={player}
         className={`playmat relative flex flex-col gap-1 rounded-2xl border-2 border-black/60 px-3 py-1.5 text-white ${grow ? "min-h-0 flex-1 overflow-hidden" : "shrink-0"}`}
         style={{ background: `linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), ${mat}` }}
       >

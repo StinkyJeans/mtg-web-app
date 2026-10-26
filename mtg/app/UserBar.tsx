@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { animationsEnabled, setAnimationsEnabled } from "@/lib/motion";
 import { connectSocial, disconnectSocial } from "@/lib/online/session";
+import { clearCached } from "@/lib/dashCache";
 import { setTheme } from "@/lib/theme";
 import AudioMenu from "./AudioMenu";
 import type { Theme } from "@/lib/theme";
@@ -30,7 +31,10 @@ export default function UserBar() {
       setUsername(session ? ((session.user.user_metadata.username as string | undefined) ?? "player") : null);
       // signed in: friends can see this player is online, on whatever page they are
       if (session) void connectSocial();
-      else disconnectSocial();
+      else {
+        disconnectSocial();
+        clearCached(); // the next person on this computer must not see this player's name
+      }
     });
     return () => data.subscription.unsubscribe();
   }, []);
@@ -38,6 +42,7 @@ export default function UserBar() {
   if (!username) return null;
 
   async function signOut() {
+    clearCached();
     await createClient().auth.signOut();
     router.replace("/login");
     router.refresh();

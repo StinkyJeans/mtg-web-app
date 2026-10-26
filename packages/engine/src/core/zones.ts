@@ -102,6 +102,12 @@ export function putIntoGraveyard(state: GameState, perm: Permanent, controller: 
   queueTriggers(state, perm.card, controller, "dies", { died: lki }); // as it was on the battlefield ("if it was a creature")
   // "Whenever a Vampire you control dies" / "whenever this creature or another creature you control dies": the dying creature looks back too.
   if (creature) for (const other of [perm, ...battlefield]) queueTriggers(state, other.card, controller, "allyDies", { subtypes: types, self: other === perm });
+  // "Whenever this creature or another nontoken creature dies" (any player's): the dying creature looks back too.
+  if (creature) {
+    for (const owner of Object.values(state.players)) {
+      for (const other of owner.id === controller ? [perm, ...battlefield] : owner.battlefield) queueTriggers(state, other.card, owner.id, "anyDies", { self: other === perm, token: isToken(perm.card) });
+    }
+  }
   if (perm.diesReturn) {
     const text = "When this creature dies, return it to the battlefield tapped under its owner's control with a +1/+1 counter on it.";
     state.triggerQueue.push({ specs: [], item: { kind: "ability", id: newId(state), controller, source: perm.card.iid, sourceName: nameOf(state, perm), effects: [{ type: "returnSelfToBattlefield", tapped: true, counters: 1 }], targets: [], specs: [], text } });
@@ -138,6 +144,8 @@ export function exilePlayable(state: GameState, player: PlayerId): CardInstance[
   const me = state.players[player];
   return (me.mayPlay ?? []).flatMap((entry) => {
     const card = me.exile.find((c) => c.iid === entry.iid);
+    if (entry.always) return card ? [card] : []; // airbend: for as long as it stays exiled
+    if (entry.throughTurn !== undefined) return card && state.turn <= entry.throughTurn ? [card] : []; // "until the end of your next turn"
     if (entry.fromTurn !== undefined) return card && state.turn >= entry.fromTurn ? [card] : []; // warp: "on a later turn"
     if (entry.untilTurn !== undefined) return card && (state.turn < entry.untilTurn || (state.turn === entry.untilTurn && !atEndStep(state))) ? [card] : [];
     const source = findPermanentOrNull(state, entry.source)?.perm;
@@ -146,9 +154,9 @@ export function exilePlayable(state: GameState, player: PlayerId): CardInstance[
 }
 
 /** Playing an exiled card: what a spell cast from there costs more (Lightstall Inquisitor's {1}) and whether a land enters tapped. */
-export function exilePlayTerms(state: GameState, player: PlayerId, iid: string): { tax: number; tappedLand: boolean } {
+export function exilePlayTerms(state: GameState, player: PlayerId, iid: string): { tax: number; tappedLand: boolean; payGeneric?: number } {
   const entry = state.players[player].mayPlay?.find((e) => e.iid === iid);
-  return { tax: entry?.tax ?? 0, tappedLand: entry?.tappedLand ?? false };
+  return { tax: entry?.tax ?? 0, tappedLand: entry?.tappedLand ?? false, ...(entry?.payGeneric !== undefined ? { payGeneric: entry.payGeneric } : {}) };
 }
 
 /** "Until this leaves the battlefield": what it was keeping in exile comes back under its owner's control (a card from a hand goes back to the hand). */

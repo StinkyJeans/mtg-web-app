@@ -12,6 +12,7 @@ import {
   landEntered,
   newId,
   powerOf,
+  putCounters,
   removeFromBattlefield,
   runEffects,
 } from "../core.js";
@@ -263,6 +264,13 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       if (pick.remaining > 0 && pick.options.length > 0) return null; // the next card
       cardsDiscarded(state, pick.owner, pick.ordered, events);
       state.pendingPick = null;
+      // Connive: a nonland card discarded puts a +1/+1 counter on the conniving creature.
+      const conniver = pick.conniver ? findPermanentOrNull(state, pick.conniver) : undefined;
+      const discarded = pick.ordered[0] ? owner.graveyard.find((c) => c.iid === pick.ordered[0]) : undefined;
+      if (conniver && discarded && getCard(state, discarded.defId).type !== "land") {
+        putCounters(state, conniver.perm, conniver.owner.id, 1);
+        events.push({ type: "effect", text: `${getCard(state, conniver.perm.card.defId).name} gets a +1/+1 counter.` });
+      }
       afterYouDo(state, player, pick, events);
       break;
     }

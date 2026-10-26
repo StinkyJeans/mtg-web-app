@@ -1,7 +1,7 @@
 import { getCard } from "../../cards.js";
 import type { CardInstance, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isCreature, kw, nameOf, playerLabel } from "../permanents.js";
-import { makeToken, putCounters, putIntoGraveyard, regenerateInstead, removeFromBattlefield, spellLeavesStack } from "../zones.js";
+import { isToken, makeToken, putCounters, putIntoGraveyard, regenerateInstead, removeFromBattlefield, spellLeavesStack } from "../zones.js";
 import { creatureEntered, queueTriggers } from "../triggers.js";
 import { subjectsOf } from "../targets.js";
 import { plural, type EffectHandlers } from "./shared.js";
@@ -24,6 +24,22 @@ export const ZONE_EFFECTS = {
         state.players[card.owner].exile.push(card);
         say(`${getCard(state, card.defId).name} is exiled.`);
       }
+    }
+  },
+  // Airbend: exile it; while it stays exiled its owner may cast it for {2} rather than its mana cost (a token just ceases to exist).
+  airbend({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      const name = nameOf(state, s.perm);
+      const card = removeFromBattlefield(state, s.perm, s.owner);
+      if (!card) continue;
+      if (isToken(card)) {
+        say(`${name} is exiled and ceases to exist.`);
+        continue;
+      }
+      state.players[card.owner].exile.push(card);
+      (state.players[card.owner].mayPlay ??= []).push({ iid: card.iid, source: "airbend", always: true, payGeneric: 2 });
+      say(`${name} is airbent: its owner may cast it for {2} while it is exiled.`);
     }
   },
   bounce({ state, ctx, say }, effect) {

@@ -119,7 +119,7 @@ function graveyardCardSpec(phrase: string): TargetSpec | null {
     if (m[2]) spec.notSubtype = m[2];
     return m[3] ? { ...spec, subtype: m[3].trim() } : spec;
   }
-  const typed = /^target ((?:[a-z]+, )+or [a-z]+|[a-z]+ or [a-z]+) card from your graveyard$/.exec(phrase);
+  const typed = /^target ((?:[a-z]+, )+or [a-z]+|[a-z]+ or [a-z]+|[a-z]+) card from your graveyard$/.exec(phrase);
   if (!typed || byPower) return null;
   const subtypes = typed[1].split(/, or |, | or /);
   if (subtypes.some((t) => CARD_TYPES.includes(t))) return null;
@@ -178,7 +178,8 @@ export function refFor(phrase: string, ctx: Ctx): Ref | null {
     case "other attacking creatures you control":
       return { t: "attackingCreatures", other: true };
     case "each other creature you control":
-      return ctx.targets.length > 0 ? { t: "allCreatures", scope: "yours", except: ctx.targets.length - 1 } : null;
+      if (ctx.targets.length > 0) return { t: "allCreatures", scope: "yours", except: ctx.targets.length - 1 };
+      return ctx.allowSelf ? { t: "allCreatures", scope: "yours", notSelf: true } : null; // "when ~ enters, put a +1/+1 counter on each other creature you control"
     case "all other creatures":
     case "each other creature":
       return ctx.allowSelf ? { t: "allCreatures", scope: "all", notSelf: true } : null;

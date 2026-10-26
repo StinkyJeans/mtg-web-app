@@ -283,42 +283,73 @@ async function importImages() {
   if (failed) console.log(`${failed} failed. Run the same command again to retry them.`);
 }
 
-// The official decks players pick from: theme decks, and ready-made Foundations Jumpstart pairs (two 20-card packs make
-// a 40-card deck; the packs themselves aren't offered). Any other official deck in the database is removed by `decks`.
+// The official decks players pick from. Every deck is 60 cards:
+//   - the theme decks (60 cards already),
+//   - trios: three 20-card packs (Foundations, Jumpstart, the Beginner Boxes) of different colors shuffled together,
+//   - a 40-card starter deck, topped up with 20 basic lands in its own colors,
+//   - any other 60-card official deck the game can play completely.
+// A pack the game can play is also kept on its own, so players can mix any three of them (lib/decks.ts PACK_TYPE).
+// The list grows by itself as the engine learns more cards: run `decks` again after a `cards` import. Any official deck in
+// the database that is not in that list is removed by `decks`.
 const KEEP_DECKS = new Set(["Eerie_SOS", "Lifegain_SOS", "Angels_ECL", "Pirates_ECL"]);
-const FOUNDATIONS_PAIRS = [
-  ["Vampires", "Healing"],
-  ["Cats", "Healing"],
-  ["Cats", "Inferno"],
-  ["Elves", "Primal"],
-  ["Pirates", "Undead"],
-  ["Wizards", "Inferno"],
-  ["Goblins", "Inferno"],
-  ["Vampires", "Undead"],
-];
 const isFoundationsPack = (meta) => meta.code === "FDN" && meta.type === "Jumpstart";
-// The single packs are kept too, so players can mix any two of them (lib/decks.ts PACK_TYPE).
-const PACK_TYPE = "Foundations pack";
+const PACK_TYPE = "Jumpstart pack";
+const DECK_SIZE = 60; // every deck offered is this many cards
+const PACK_SIZE = 20; // a pack: three of them make a deck
+const BASICS = { W: "plains", U: "island", B: "swamp", R: "mountain", G: "forest" };
+/** What kind of trio a set's packs make (the deck type, which the Decks page shows as a section). */
+const trioType = (meta) => (meta.code === "FDN" ? "Foundations" : meta.type === "Jumpstart" ? "Jumpstart trio" : "Beginner Box trio");
 
-/** The Foundations pairs, each as one deck: the cards of both packs added up. */
-function foundationsPairs(packs) {
-  const byName = new Map(packs.map((p) => [p.meta.name, p]));
-  return FOUNDATIONS_PAIRS.flatMap(([a, b]) => {
-    const [first, second] = [byName.get(a), byName.get(b)];
-    if (!first || !second) {
-      console.warn(`  no ${a} + ${b}: the ${first ? b : a} pack is missing`);
-      return [];
+/**
+ * Trios: each set's packs in threes, packs of different colors together, so every pack is part of a ready-made 60-card deck.
+ * `colorsOf` says which colors a pack uses. A set with fewer than three playable packs makes none (its packs can still be mixed).
+ */
+function trios(packs, colorsOf) {
+  const bySet = Map.groupBy(packs, (p) => `${p.meta.code}|${trioType(p.meta)}`);
+  const out = [];
+  for (const [, list] of bySet) {
+    if (list.length < 3) continue;
+    const sorted = [...list].sort((a, b) => a.meta.name.localeCompare(b.meta.name) || a.meta.fileName.localeCompare(b.meta.fileName));
+    const used = new Map(sorted.map((p) => [p, 0]));
+    const share = (a, b) => [...colorsOf(a)].some((c) => colorsOf(b).has(c));
+    const leastUsed = (pool) => [...pool].sort((a, b) => used.get(a) - used.get(b) || a.meta.name.localeCompare(b.meta.name))[0];
+    const seen = new Set();
+    for (const anchor of sorted) {
+      if (used.get(anchor) > 0) continue; // already part of a trio
+      const others = sorted.filter((p) => p !== anchor);
+      const apart = others.filter((p) => !share(anchor, p));
+      const partner = leastUsed(apart.length > 0 ? apart : others);
+      const rest = others.filter((p) => p !== partner);
+      const apartFromBoth = rest.filter((p) => !share(anchor, p) && !share(partner, p));
+      const apartFromAnchor = rest.filter((p) => !share(anchor, p));
+      const third = leastUsed(apartFromBoth.length > 0 ? apartFromBoth : apartFromAnchor.length > 0 ? apartFromAnchor : rest);
+      const group = [anchor, partner, third];
+      const key = group.map((x) => x.meta.fileName).sort().join("+");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      for (const g of group) used.set(g, used.get(g) + 1);
+      const counts = new Map();
+      for (const g of group) for (const [k, qty] of g.counts) counts.set(k, (counts.get(k) ?? 0) + qty);
+      out.push({
+        meta: { name: group.map((x) => x.meta.name).join(" + "), type: trioType(anchor.meta), code: anchor.meta.code, releaseDate: anchor.meta.releaseDate, fileName: group.map((x) => x.meta.fileName).join("+") },
+        counts,
+      });
     }
-    const counts = new Map(first.counts);
-    for (const [key, qty] of second.counts) counts.set(key, (counts.get(key) ?? 0) + qty);
-    return [{ meta: { name: `${a} + ${b}`, type: "Foundations", code: "FDN", releaseDate: first.meta.releaseDate, fileName: `${a}+${b}_FDN` }, counts }];
-  });
+  }
+  return out;
 }
 
 async function importDecks() {
-  const oracleToId = new Map(buildRows(await loadOracle(), dryRun ? new Map() : await loadExistingIds()).map((r) => [r.oracle_id, r.id]));
-  const list = (await getJson("https://mtgjson.com/api/v5/DeckList.json")).data.filter((d) => KEEP_DECKS.has(d.fileName) || isFoundationsPack(d));
-  console.log(`${list.length} decks to download.`);
+  const cardRowsAll = buildRows(await loadOracle(), dryRun ? new Map() : await loadExistingIds());
+  const oracleToId = new Map(cardRowsAll.map((r) => [r.oracle_id, r.id]));
+  const playableIds = new Set(cardRowsAll.filter((r) => r.playable).map((r) => r.id));
+  const isLand = new Map(cardRowsAll.map((r) => [r.id, r.type === "land"]));
+  const nameOf = new Map(cardRowsAll.map((r) => [r.id, r.name]));
+  const colorsById = new Map(cardRowsAll.map((r) => [r.id, r.colors ?? []]));
+  const basicOracle = new Map(cardRowsAll.filter((r) => Object.values(BASICS).includes(r.id)).map((r) => [r.id, r.oracle_id])); // plains -> its oracle id
+  // every official deck is looked at (the files are kept in .import-cache, so after the first time this is quick)
+  const list = (await getJson("https://mtgjson.com/api/v5/DeckList.json")).data;
+  console.log(`${list.length} official decks to look at.`);
 
   const downloaded = [];
   let missing = 0;
@@ -353,16 +384,59 @@ async function importDecks() {
     if (++done % 100 === 0) console.log(`downloaded ${done}/${list.length}`);
   });
 
-  const packs = downloaded.filter((d) => isFoundationsPack(d.meta));
+  // can the game play every card of the main deck (and commander), and what size is it?
+  const mainSize = (d) => [...d.counts].reduce((n, [key, qty]) => (key.endsWith("|side") ? n : n + qty), 0);
+  const playsFully = (d) => [...d.counts.keys()].every((key) => key.endsWith("|side") || playableIds.has(key.split("|")[0]));
+  // a deck of nothing but basic lands (the "Land Pack" boxes) is not something to play
+  const spells = (d) => [...d.counts].reduce((n, [key, qty]) => (key.endsWith("|side") || isLand.get(key.split("|")[0]) ? n : n + qty), 0);
+  const worthPlaying = (d) => spells(d) >= 8 && playsFully(d);
+  const colorsOfPack = (d) => new Set([...d.counts.keys()].flatMap((k) => colorsById.get(k.split("|")[0]) ?? []));
+
+  /** A 40-card deck topped up to 60 with basic lands, in the proportion of the colors of its spells. */
+  const withLands = (d) => {
+    const need = DECK_SIZE - mainSize(d);
+    const weight = { W: 0, U: 0, B: 0, R: 0, G: 0 };
+    for (const [key, qty] of d.counts) if (!key.endsWith("|side") && !isLand.get(key.split("|")[0])) for (const c of colorsById.get(key.split("|")[0]) ?? []) weight[c] += qty;
+    const total = Object.values(weight).reduce((a, b) => a + b, 0);
+    const colors = Object.keys(weight).filter((c) => weight[c] > 0);
+    const share = Object.fromEntries((total > 0 ? colors : ["W"]).map((c) => [c, total > 0 ? (weight[c] / total) * need : need]));
+    const lands = Object.fromEntries(Object.entries(share).map(([c, x]) => [c, Math.floor(x)]));
+    let left = need - Object.values(lands).reduce((a, b) => a + b, 0);
+    for (const [c] of Object.entries(share).sort((a, b) => (b[1] % 1) - (a[1] % 1))) if (left-- > 0) lands[c]++; // the biggest remainders get the extras
+    const counts = new Map(d.counts);
+    for (const [c, n] of Object.entries(lands)) {
+      const id = oracleToId.get(basicOracle.get(BASICS[c]));
+      if (id && n > 0) counts.set(`${id}|main`, (counts.get(`${id}|main`) ?? 0) + n);
+    }
+    return { ...d, counts };
+  };
+
+  const ready = downloaded.filter((d) => worthPlaying(d) || KEEP_DECKS.has(d.meta.fileName));
+  const packs = ready.filter((d) => mainSize(d) === PACK_SIZE && (d.meta.type === "Jumpstart" || d.meta.type === "Box Set"));
+  const isPack = new Set(packs);
+  const whole = ready.filter((d) => !isPack.has(d) && (mainSize(d) === DECK_SIZE || KEEP_DECKS.has(d.meta.fileName)));
+  const topped = ready.filter((d) => !isPack.has(d) && !KEEP_DECKS.has(d.meta.fileName) && mainSize(d) === 40).map(withLands);
   const decks = [
-    ...downloaded.filter((d) => !isFoundationsPack(d.meta)),
+    ...whole,
+    ...topped,
     ...packs.map((p) => ({ ...p, meta: { ...p.meta, type: PACK_TYPE } })),
-    ...foundationsPairs(packs),
-  ];
+    ...trios(packs, colorsOfPack),
+  ].filter((d, i, all) => all.findIndex((x) => x.meta.fileName === d.meta.fileName) === i);
   const total = decks.reduce((n, d) => n + d.counts.size, 0);
   console.log(`${decks.length} decks, ${total} deck-card rows, ${missing} cards skipped (tokens etc.).`);
   console.log("decks:", decks.map((d) => d.meta.name).join(", "));
-  if (dryRun) return;
+  if (dryRun) {
+    // the best decks to teach the engine next: a size a game is played with, and only one or two cards it can't play yet
+    const short = downloaded
+      .filter((d) => !worthPlaying(d) && [20, 40, 60].includes(mainSize(d)) && spells(d) >= 8)
+      .map((d) => ({ d, lacking: [...new Set([...d.counts.keys()].filter((k) => !k.endsWith("|side") && !playableIds.has(k.split("|")[0])).map((k) => nameOf.get(k.split("|")[0]) ?? k))] }))
+      .filter((x) => x.lacking.length >= 1 && x.lacking.length <= 2)
+      .sort((a, b) => a.lacking.length - b.lacking.length);
+    console.log(`
+${short.length} more decks are only 1-2 cards short:`);
+    for (const { d, lacking } of short.slice(0, 40)) console.log(`  ${d.meta.name} (${d.meta.type}, ${d.meta.code}, ${mainSize(d)} cards): ${lacking.join(", ")}`);
+    return;
+  }
 
   const supabase = db();
   const ids = new Map(); // fileName -> deck id

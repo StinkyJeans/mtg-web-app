@@ -75,9 +75,10 @@ export function readSolvedAbility(line: string, out: ParsedCard): boolean {
 }
 
 export function readLandcycling(line: string, out: ParsedCard): boolean {
-  const landcycling = /^basic landcycling (\{[^}]+\}(?:\{[^}]+\})*)$/.exec(line);
-  if (landcycling && parseManaCost(landcycling[1])) {
-    out.landcycling = landcycling[1];
+  const landcycling = /^(?:basic landcycling|(plains|island|swamp|mountain|forest)cycling) (\{[^}]+\}(?:\{[^}]+\})*)$/.exec(line);
+  if (landcycling && parseManaCost(landcycling[2])) {
+    out.landcycling = landcycling[2];
+    if (landcycling[1]) out.landcyclingType = landcycling[1];
     return true;
   }
   return false;
@@ -85,6 +86,17 @@ export function readLandcycling(line: string, out: ParsedCard): boolean {
 
 // "{T}: ...", "{1}{R}, {T}: ..." (an activated ability), or a mana ability "{T}: Add {G}."
 export function readActivatedAbility(line: string, out: ParsedCard): boolean {
+  // "Power-up — {4}{B}: ...": used once; its cost is lower on the turn the creature entered (see abilityManaCost).
+  const powerUp = /^power-up — (.+)$/.exec(line);
+  if (powerUp) {
+    const before = out.activated.length;
+    if (!readActivatedAbility(powerUp[1], out)) return false;
+    for (const a of out.activated.slice(before)) {
+      a.powerUp = true;
+      a.onceOnly = true;
+    }
+    return true;
+  }
   const colon = line.indexOf(": ");
   if (colon > 0) {
     let cost = line.slice(0, colon);

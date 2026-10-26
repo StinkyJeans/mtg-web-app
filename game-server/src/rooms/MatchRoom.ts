@@ -666,7 +666,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.deckNames = { p1: a.deck!.name, p2: b.deck!.name };
     const decks = { p1: a.deck!.ids, p2: b.deck!.ids };
     try {
-      this.game = createGame(decks, Math.floor(Math.random() * 2 ** 31), this.defs, { startingPlayer: first, mulligan: true });
+      this.game = createGame(decks, Math.floor(Math.random() * 2 ** 31), this.defs, { startingPlayer: first, mulligan: true, shuffleStep: true });
     } catch (e) {
       // a deck the engine can't play got through: send both players back to choose again, instead of leaving the match stuck
       console.error("Could not start the match:", e instanceof Error ? e.message : e);

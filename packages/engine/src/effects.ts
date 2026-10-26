@@ -52,7 +52,7 @@ export type Effect =
   | { type: "revealPut"; n: number; filter: CardFilter; maxMV: number } // reveal the top cards: put every match onto the battlefield, the rest on the bottom in a random order
   | { type: "grantIfPowerBelow"; keyword: Keyword } // "Creatures you control with power less than ~'s power gain indestructible"
   | { type: "doubleDamage" } // damage your sources deal to an opponent is doubled this turn
-  | { type: "exileTop"; playIfAttacked?: boolean; untilEndStep?: boolean } // exile the top card of your library; "during any turn you attacked with ~, you may play that card" / "you may play that card until your next end step"
+  | { type: "exileTop"; playIfAttacked?: boolean; untilEndStep?: boolean; throughNextTurn?: boolean } // exile the top card of your library; "during any turn you attacked with ~, you may play that card" / "you may play that card until your next end step"
   | { type: "blink"; what: Ref }
   | { type: "sacOnDamage"; what: Ref } // until end of turn: "When this creature deals combat damage, sacrifice it"
   | { type: "tapForBonus" } // "you may tap any number of untapped creatures you control. This gets +1/+1 for each"
@@ -92,6 +92,8 @@ export type Effect =
   | { type: "returnAsEnchantment" } // "return it to the battlefield under its owner's control. It's an enchantment." (from the graveyard)
   | { type: "becomeCopy"; what: Ref } // "~ becomes a copy of another target creature you control"
   | { type: "exileIfDies"; what: Ref } // "if that creature would die this turn, exile it instead"
+  | { type: "ifControlOther"; subtype: string; then: Effect[] } // "if you control another Hero, you gain 2 life"
+  | { type: "connive"; what: Ref } // draw a card, then discard a card; a nonland card discarded gives the creature a +1/+1 counter
   | { type: "ifSubtype"; what: Ref; subtype: string; then: Effect[] } // "if it's a Zombie card, draw a card" (wherever the card is now)
   | { type: "mustBeBlocked"; what: Ref } // "must be blocked this turn if able"
   | { type: "becomeSubtype"; what: Ref; subtype: string } // "~ becomes a Werewolf": the new creature type replaces the others
@@ -108,6 +110,7 @@ export type Effect =
   | { type: "offspringCopy" } // offspring: create a 1/1 token copy of this creature
   | { type: "yardCastable" } // creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn
   | { type: "solve" } // a Case becomes solved
+  | { type: "airbend"; what: Ref } // exile it; its owner may cast it for {2} (rather than its mana cost) for as long as it stays exiled
   | { type: "warpExile" }; // warp: exile the permanent; its owner may cast it from exile on a later turn
 
 /** Which cards a "reveal a ... card" effect may take: any of the types, or any of the creature types (subtypes), or any nonland card. */
@@ -290,6 +293,7 @@ export type CountSpec =
   | { kind: "opponents" } // the number of opponents you have
   | { kind: "selfPower" } // the power of the permanent the ability belongs to
   | { kind: "selfCounters" } // counters on it
+  | { kind: "excessDamage" } // the excess of the damage the same spell or ability just dealt
   | { kind: "x" } // the X of the spell or ability: for "whenever you discard one or more cards", the number discarded
   | { kind: "targetPower"; i: number } // the power of the i-th target
   | { kind: "otherToughness" } // the toughness of "that creature" (the one that entered)
@@ -318,7 +322,7 @@ export interface TriggeredAbility {
   ifKicked?: boolean;
   event: "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
     | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
-    | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted" | "youDiscard" | "excessDamage";
+    | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted" | "youDiscard" | "excessDamage" | "damaged" | "anyDies";
   /** An "intervening if": the trigger only happens when this is true as the event occurs. */
   cond?: {
     lifeGainedAtLeast?: number;
@@ -361,6 +365,9 @@ export interface TriggeredAbility {
   byOpponent?: boolean;
   /** "Whenever one or more Goblins you control attack": the attackers must include one of these types. */
   attackerSubtypes?: string[];
+  /** "Whenever you cast a red spell" / "a Lesson spell": for "youCast", only a spell of this color (W U B R G) or of this subtype counts. */
+  spellColor?: string;
+  spellSubtype?: string;
   /** "Whenever you cast a spell during an opponent's turn" / "your first spell during each opponent's turn". */
   opponentTurnOnly?: boolean;
   firstOnly?: boolean;
@@ -411,6 +418,8 @@ export interface ActivatedAbility {
   onceOnly?: boolean;
   /** A Case's "Solved — ..." ability: only once the Case is solved. */
   solvedOnly?: boolean;
+  /** "Power-up - {4}{B}: ...": once only, and the cost is reduced by the card's mana cost if it entered this turn. */
+  powerUp?: boolean;
   /** Tap the permanent as part of the cost ({T}). */
   tap: boolean;
   /** Mana to pay, as printed, e.g. "{1}{R}". Empty string = none. */
@@ -532,6 +541,8 @@ export interface ParsedCard {
   cycling?: string;
   /** "Basic landcycling {1}{G}": pay, discard, and search for a basic land card. */
   landcycling?: string;
+  /** "Plainscycling {2}": the same, but the card searched for must be of this basic land type. */
+  landcyclingType?: string;
   /** "~ enters with two -1/-1 counters on it." */
   entersWithMinus?: number;
   /** "~ enters with two +1/+1 counters on it" (or X). */
@@ -631,6 +642,8 @@ export interface PendingPick {
   payLife?: number;
   /** Crew: the Vehicle being crewed. */
   vehicle?: string;
+  /** Connive: the creature that gets a +1/+1 counter if the discarded card is not a land. */
+  conniver?: string;
   /** Color / creature type: the permanent that is choosing it as it enters. */
   colorFor?: string;
   /** Search: the land enters tapped. */
