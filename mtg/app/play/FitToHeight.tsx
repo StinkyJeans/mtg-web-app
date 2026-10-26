@@ -42,6 +42,12 @@ export default function FitToHeight({
       const pad = getComputedStyle(box);
       const room = box.clientHeight - parseFloat(pad.paddingTop) - parseFloat(pad.paddingBottom);
       if (room <= 0) return;
+      // Most of the time nothing needed to change: the size in use still fits and one step more would not. That is two layouts
+      // instead of the seven of the search below, which every card that moves on a busy board used to cost on a slow computer.
+      if (heightAt(current) <= room && (current >= maxZoom - 0.001 || heightAt(Math.min(maxZoom, current + 0.02)) > room)) {
+        heightAt(current);
+        return;
+      }
       // The biggest zoom (in steps of 0.02) that still fits, found by halving the range: taller contents are never smaller.
       let low = Math.round(minZoom * 50);
       let high = Math.round(maxZoom * 50);

@@ -94,6 +94,10 @@ if (JUMPSTART) {
   console.log(`${jumpstartPacks.length} Jumpstart packs have playable cards (${jumpstartPacks.filter((p) => p.whole).length} are completely playable). Each game: two packs, only their playable cards, topped up with basic lands.`);
 }
 
+/** FUZZ_COVER=1: game n is built around the n-th playable non-land card (4 copies in each deck), so every card gets played. */
+let focus: CardDef | null = null;
+const coverList = process.env.FUZZ_COVER ? all.filter((d) => d.type !== "land") : [];
+
 function buildDeck(rng: Rng): string[] {
   if (JUMPSTART) {
     const deck = [...pick(rng, jumpstartPacks).cards, ...pick(rng, jumpstartPacks).cards];
@@ -103,7 +107,8 @@ function buildDeck(rng: Rng): string[] {
     while (deck.length < 40) deck.push(pick(rng, basics));
     return deck;
   }
-  const colors = ["W", "U", "B", "R", "G"].sort(() => rng() - 0.5).slice(0, 2);
+  const mustHave = (focus?.colors ?? []).filter((c) => "WUBRG".includes(c));
+  const colors = [...new Set([...mustHave, ...["W", "U", "B", "R", "G"].sort(() => rng() - 0.5)])].slice(0, Math.max(2, mustHave.length));
   const fits = (d: CardDef) => (d.colors ?? []).every((c) => colors.includes(c));
   let spells = all.filter((d) => d.type !== "land" && fits(d));
   if (SPELLFEST) {
@@ -114,8 +119,8 @@ function buildDeck(rng: Rng): string[] {
   }
   const basics = colors.map((c) => ({ W: "plains", U: "island", B: "swamp", R: "mountain", G: "forest" })[c]!).filter((id) => defs[id]);
   const lands = all.filter((d) => d.type === "land" && !basics.includes(d.id) && (d.typeLine ?? "").includes("Land —") === false);
-  const deck: string[] = [];
-  const copies = new Map<string, number>();
+  const deck: string[] = focus ? Array<string>(4).fill(focus.id) : [];
+  const copies = new Map<string, number>(focus ? [[focus.id, 4]] : []);
   while (deck.length < 24) {
     const d = pick(rng, spells);
     if ((copies.get(d.id) ?? 0) >= 3) continue;
@@ -375,6 +380,7 @@ for (let g = 0; g < games; g++) {
   const rng = rngFrom(seed);
   // FUZZ_DECK=file.json (a list of card ids): both players play exactly that deck, to test one official deck.
   const fixed: string[] | null = process.env.FUZZ_DECK ? JSON.parse(fs.readFileSync(process.env.FUZZ_DECK, "utf8")) : null;
+  focus = coverList.length ? coverList[(seed - 1) % coverList.length] : null;
   const decks = fixed ? { p1: [...fixed], p2: [...fixed] } : { p1: buildDeck(rng), p2: buildDeck(rng) };
   let state: GameState;
   try {
@@ -405,11 +411,13 @@ for (let g = 0; g < games; g++) {
       failedInARow++;
       if (failedInARow > 25) {
         stuck++;
-        record("STUCK", `${result.error}`, `seed ${seed}, phase ${state.phase}, needs ${player}, last ${JSON.stringify(action)}`);
+        if (process.env.FUZZ_DEBUG) for (const who of ["p1", "p2"] as const) for (const pm of state.players[who].battlefield) if (parseCard(state.cards[pm.card.defId]).statics?.some((st) => st.mustAttack)) console.log("SOURCE:", who, state.cards[pm.card.defId].name, "|", state.cards[pm.card.defId].text);
+        if (process.env.FUZZ_DEBUG) for (const pm of state.players[player].battlefield) { const d = state.cards[pm.card.defId]; if (parseCard(d).mustAttack || staticEffectsOn(state, pm).some((st) => st.mustAttack)) console.log("FORCED:", d.name, "own:", parseCard(d).mustAttack, "text:", d.text?.slice(0, 120), "| statics:", JSON.stringify(staticEffectsOn(state, pm).filter((st) => st.mustAttack))); }
+        record("STUCK", `${result.error}`, `seed ${seed}, phase ${state.phase}, needs ${player}, last ${JSON.stringify(action)}, ${player} controls: ${state.players[player].battlefield.map((p) => state.cards[p.card.defId]?.name).join(", ")}`);
         break;
       }
       const safe: Action | null =
-        state.pendingPick || state.pendingChoice ? null : state.priority ? { type: "passPriority" } : state.phase === "blockers" ? { type: "declareBlockers", blocks: getForcedBlocks(state) } : state.phase === "attackers" ? { type: "passPhase" } : state.phase === "damage" ? null : { type: "passPhase" };
+        state.pendingPick || state.pendingChoice ? null : state.priority ? { type: "passPriority" } : state.phase === "blockers" ? { type: "declareBlockers", blocks: getForcedBlocks(state) } : state.phase === "attackers" ? (getPossibleAttackers(state).length > 0 ? { type: "declareAttackers", attackers: getPossibleAttackers(state) } : { type: "passPhase" }) /* attacking with everything is always allowed: nothing can be forced out */ : state.phase === "damage" ? null : { type: "passPhase" };
       if (safe) {
         const r2 = applyAction(state, playerToAct(state), safe);
         if (r2.ok) {
@@ -435,7 +443,7 @@ for (let g = 0; g < games; g++) {
     turnsTotal += state.turn;
     for (const id of new Set([...decks.p1, ...decks.p2])) used.set(id, (used.get(id) ?? 0) + 1);
   } else if (steps >= maxActions) {
-    record("LONG", "game did not end", `seed ${seed}, turn ${state.turn}, phase ${state.phase}`);
+    record("LONG", "game did not end", `seed ${seed}, turn ${state.turn}, phase ${state.phase}${focus ? `, built around ${focus.name}: ${focus.text?.split(String.fromCharCode(10)).join(' / ').slice(0, 160)}` : ""}`);
   }
 }
 

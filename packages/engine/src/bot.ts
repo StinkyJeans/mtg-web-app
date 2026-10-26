@@ -487,7 +487,7 @@ function chooseAttack(s: GameState, me: PlayerId): Action {
   const possible = getPossibleAttackers(s);
   if (possible.length === 0) return { type: "passPhase" };
   const perms = possible.map((iid) => find(s, iid)!).filter(Boolean);
-  const forced = perms.filter((p) => { const d = defOf(s, p); return d ? !!parseCard(d).mustAttack : false; }).map((p) => p.card.iid);
+  const forced = perms.filter((p) => { const d = defOf(s, p); return (d ? !!parseCard(d).mustAttack : false) || staticEffectsOn(s, p).some((st) => st.mustAttack === true); }).map((p) => p.card.iid);
   const opp = s.players[OPP[me]];
   const blockers = opp.battlefield.filter((p) => isCreature(s, p) && !p.tapped);
   const safe = (a: Permanent) => !blockers.some((b) => canBlock(s, b, a) && duel(s, a, b).aDies);

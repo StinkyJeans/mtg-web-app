@@ -168,6 +168,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [endNote, setEndNote] = useState<string | null>(null); // how the game ended, for the win popup
   const [stageSeen, setStageSeen] = useState(false); // the shuffle step was on screen
   const [stageDone, setStageDone] = useState(false); // ...and the decks are back at their libraries
+  const [intro, setIntro] = useState(false); // the loading screen and the welcome message are still on: the decks wait for them
   const stageDoneRef = useRef(false);
   const [welcome, setWelcome] = useState(false); // "Welcome to the Battle Field, Now Duel!" while it is on screen
   const [turnSplash, setTurnSplash] = useState(0); // online: counts "Your turn" splashes, 0 while none is on screen
@@ -192,7 +193,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     if (online || !game || endingTurn !== game.turn || game.winner || game.phase === "cleanup") return;
     if (game.priority || game.pendingChoice || game.pendingPick) return;
     void endTurnRef.current();
-  }, [online, game, endingTurn]);
+  }, [online, game, endingTurn]);   
 
   useOnlineMatch(online, game, seat, gameRef, commitRef, openingDeal);
 
@@ -269,6 +270,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           flushSync(() => {
             setStageSeen(false);
             setStageDone(false);
+            setIntro(true);
             setGame(fresh);
             setLog([summary]);
             setChat([]);
@@ -436,6 +438,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    */
   async function openingDeal(hand: Draw[], greet: boolean) {
     hideDrawn(hand);
+    setIntro(true);
     const release = holdPiles(); // clicks wait for the cards
     try {
       await untilBattlefieldShown();
@@ -446,6 +449,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       }
     } finally {
       release();
+      setIntro(false);
     }
     // The decks are shuffled across the table first (each player shuffles the other's; clicks must work meanwhile), then the hands are dealt.
     const giveUp = Date.now() + 10 * 60_000;
@@ -967,7 +971,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       )}
 
       {welcome && <WelcomeSplash />}
-      {stageSeen && !stageDone && !welcome && state.opening?.shuffled && (
+      {stageSeen && !stageDone && !intro && !welcome && state.opening?.shuffled && (
         <ShuffleStage
           state={state}
           viewer={online ? seat : null}
