@@ -9,6 +9,7 @@ import {
   getCastable,
   getDamageAssignments,
   getLegalActions,
+  liftedSpecs,
   getPossibleAttackers,
   getForcedBlocks,
   getPossibleBlockers,
@@ -509,6 +510,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   function advance(p: CastPlan) {
     const c = p.castable;
     setPlan(p);
+    if (c.teamwork && p.teamwork === undefined) return; // the teamwork panel is shown
     if (c.modal && p.modes === undefined) return; // the mode panel is shown
     if (c.warp !== undefined && p.warp === undefined) return; // the warp panel is shown
     if ((c.kicker !== undefined || c.blight) && p.kicked === undefined) return; // the kicker (offspring, blight) panel is shown
@@ -518,7 +520,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       return;
     }
     if ((c.sacrifice || c.discard) && p.sacrifice === undefined) return; // the sacrifice (or discard) panel is shown
-    const specs = c.modal ? (p.modes ?? []).flatMap((m) => c.modal!.modes[m].specs) : c.specs;
+    const baseSpecs = c.modal ? (p.modes ?? []).flatMap((m) => c.modal!.modes[m].specs) : c.specs;
+    const specs = (p.teamwork?.length ?? 0) > 0 ? liftedSpecs(baseSpecs) : baseSpecs; // teamwork can waive a limit on the target
     const build = (targets: TargetChoice[]): Action => ({
       type: "castSpell",
       iid: p.iid,
@@ -526,11 +529,12 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       ...(p.from ? { from: p.from } : {}),
       ...(p.modes ? { modes: p.modes } : {}),
       ...(p.kicked ? { kicked: true } : {}),
+      ...(p.teamwork?.length ? { teamwork: p.teamwork } : {}),
       ...(p.x !== undefined ? { x: p.x } : {}),
       ...(p.sacrifice ? { sacrifice: p.sacrifice } : {}),
       ...(p.warp ? { warp: true } : {}),
     });
-    const title = p.name + (p.x !== undefined && c.maxX !== undefined ? ` (X = ${p.x})` : "") + (p.kicked ? (c.blight ? " (blighted)" : c.kickerName === "offspring" ? " (with offspring)" : " (kicked)") : "") + (p.warp ? " (warp)" : "");
+    const title = p.name + (p.x !== undefined && c.maxX !== undefined ? ` (X = ${p.x})` : "") + (p.kicked ? (c.blight ? " (blighted)" : c.kickerName === "offspring" ? " (with offspring)" : " (kicked)") : "") + (p.teamwork?.length ? " (teamwork)" : "") + (p.warp ? " (warp)" : "");
     setPlan(null);
     if (specs.length === 0) {
       act(build([]));

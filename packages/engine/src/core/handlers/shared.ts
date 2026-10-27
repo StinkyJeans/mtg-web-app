@@ -6,7 +6,7 @@ import { nextRandom } from "../../state.js";
 import type { CardInstance, GameState, Permanent, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isPlaneswalker, nameOf, playerLabel, toughnessOf } from "../permanents.js";
 import { changeLife } from "../zones.js";
-import { excessDamageDealt, queueTriggers } from "../triggers.js";
+import { creatureDamaged, excessDamageDealt, queueTriggers } from "../triggers.js";
 
 /** A spell, ability or creature dealing damage, with what changes how its damage works. */
 export interface DamageSource {
@@ -52,6 +52,11 @@ export function dealDamage(
   events: GameEvent[],
 ): void {
   if (amount <= 0) return;
+  // "Prevent all damage that would be dealt to ~."
+  if (target.k === "perm" && parseCard(getCard(state, target.perm.card.defId)).preventDamageToSelf) {
+    events.push({ type: "effect", text: `The damage to ${nameOf(state, target.perm)} is prevented.` });
+    return;
+  }
   // "Prevent all noncombat damage that would be dealt to you and creatures you control."
   const victim = target.k === "player" ? target.id : isPlaneswalker(state, target.perm) ? undefined : findPermanentOrNull(state, target.perm.card.iid)?.owner.id;
   if (victim && state.players[victim].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).preventNoncombat)) {
@@ -72,7 +77,7 @@ export function dealDamage(
     if (amount > needed && victim) excessDamageDealt(state, victim);
     target.perm.damage += amount;
     if (source.deathtouch) target.perm.deathtouched = true;
-    if (victim) queueTriggers(state, target.perm.card, victim, "damaged"); // "Whenever ~ is dealt damage"
+    if (victim) creatureDamaged(state, target.perm, victim, amount); // "Whenever ~ is dealt damage"
   }
   events.push({ type: "damage", source: source.name, target: target.k === "player" ? target.id : target.perm.card.iid, amount });
   if (source.lifelink) changeLife(state, source.controller, amount, events);

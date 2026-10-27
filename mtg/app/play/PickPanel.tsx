@@ -21,6 +21,8 @@ const CONFIRM: Partial<Record<PickKind, (name: string) => string>> = {
   revealToHand: (n) => `Take ${n}`,
   handExile: (n) => `Exile ${n}`,
   exileToPlay: (n) => `Exile ${n}`,
+  mayCost: (n) => `Sacrifice or discard ${n}`,
+  handToField: (n) => `Put ${n} onto the battlefield`,
   scry: (n) => `Put ${n} on the bottom`,
   surveil: (n) => `Put ${n} into the graveyard`,
 };
@@ -99,8 +101,14 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
         <div className="flex flex-wrap gap-2">
           {(pick.kind === "ward" || pick.kind === "mayPay" || pick.kind === "tax") && (
             <button onClick={() => onPick("pay")} className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400">
-              Pay <ManaText text={pick.wardCost ?? ""} />
-              {pick.payLife ? `${pick.wardCost ? " and " : ""}${pick.payLife} life` : ""}
+              {pick.wardCost || pick.payLife ? (
+                <>
+                  Pay <ManaText text={pick.wardCost ?? ""} />
+                  {pick.payLife ? `${pick.wardCost ? " and " : ""}${pick.payLife} life` : ""}
+                </>
+              ) : (
+                "Yes"
+              )}
             </button>
           )}
           {(pick.kind === "toggle" || pick.kind === "topBottom" || pick.kind === "creatureType") &&
@@ -117,7 +125,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
             ))}
           {pick.optional && (
             <button onClick={() => onPick(undefined)} className="rounded-lg border border-zinc-400 px-3 py-1.5 text-sm hover:bg-zinc-200">
-              {pick.kind === "tax" ? "Don't pay (they draw)" : pick.kind === "toggle" ? "Do nothing" : "Don't pay"}
+              {pick.kind === "tax" ? "Don't pay (they draw)" : pick.kind === "toggle" ? "Do nothing" : !pick.wardCost && !pick.payLife ? "No" : "Don't pay"}
             </button>
           )}
         </div>
@@ -188,7 +196,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
         </button>
         {pick.optional && (
           <button onClick={() => confirm(undefined)} className="rounded-lg border border-zinc-400 px-3 py-1.5 text-sm hover:bg-zinc-200">
-            {pick.kind === "searchLand" || pick.kind === "searchAny" ? "Don't search" : pick.kind === "crew" ? "Cancel" : pick.kind === "scry" || pick.kind === "surveil" ? "Keep the rest on top" : pick.kind === "revealToHand" ? "Take nothing" : pick.kind === "rummage" || pick.kind === "discard" ? "Don't discard" : pick.kind === "tapSome" ? "Done" : pick.kind === "handExile" ? "Exile nothing" : "No, leave it"}
+            {pick.kind === "searchLand" || pick.kind === "searchAny" ? "Don't search" : pick.kind === "crew" ? "Cancel" : pick.kind === "scry" || pick.kind === "surveil" ? "Keep the rest on top" : pick.kind === "revealToHand" ? "Take nothing" : pick.kind === "rummage" || pick.kind === "discard" ? "Don't discard" : pick.kind === "tapSome" ? "Done" : pick.kind === "handExile" ? "Exile nothing" : pick.kind === "mayCost" ? "Don't" : pick.kind === "handToField" ? (pick.elseDraw ? "Don't: draw a card instead" : "Don't") : "No, leave it"}
           </button>
         )}
       </div>

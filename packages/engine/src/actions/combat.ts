@@ -1,6 +1,8 @@
 import { getCard } from "../cards.js";
+import { parseCard } from "../oracle.js";
 import {
   changeLife,
+  creatureDamaged,
   checkStateBasedActions,
   findPermanent,
   isProtectedFrom,
@@ -159,6 +161,7 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
       let { amount } = hit;
       // Protection: damage from a source with the quality it is protected from is prevented.
       if (!("battlefield" in target) && isProtectedFrom(state, target, qualityOfDef(getCard(state, source.card.defId)))) amount = 0;
+      if (!("battlefield" in target) && parseCard(getCard(state, target.card.defId)).preventDamageToSelf) amount = 0; // "Prevent all damage that would be dealt to ~"
       if (amount <= 0) continue; // rule 510.1a: 0 or less damage isn't dealt
       const toPlayer = "battlefield" in target;
       if (toPlayer && state.players[source.card.owner].doubleDamage && target.id !== source.card.owner) amount *= 2;
@@ -169,7 +172,7 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
         target.loyalty = (target.loyalty ?? 0) - amount; // damage to a planeswalker removes loyalty
       } else {
         target.damage += amount;
-        queueTriggers(state, target.card, target.card.owner, "damaged"); // "Whenever ~ is dealt damage"
+        creatureDamaged(state, target, target.card.owner, amount); // "Whenever ~ is dealt damage"
         (target.damagedBy ??= []).push(source.card.iid);
         if (kw(state, source, "deathtouch")) target.deathtouched = true;
       }
@@ -205,6 +208,9 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
   }
 
   state.combat = null;
-  state.phase = "main2";
-  events.push({ type: "phaseChanged", phase: "main2" });
+  // "There is an additional combat phase after this phase": another declare-attackers step before the second main phase.
+  const next = (state.extraCombats ?? 0) > 0 ? "attackers" : "main2";
+  if (next === "attackers") state.extraCombats = (state.extraCombats ?? 1) - 1;
+  state.phase = next;
+  events.push({ type: "phaseChanged", phase: next });
 }

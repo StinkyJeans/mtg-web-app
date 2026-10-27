@@ -13,6 +13,7 @@ export function interveningCond(text: string): TriggerCond | null {
   let m: RegExpExecArray | null;
   if ((m = /^you gained (\d+|two|three|four|five) or more life this turn$/.exec(text))) return { lifeGainedAtLeast: toNumber(m[1]) ?? 0 };
   if ((m = /^you have (\d+) or more life$/.exec(text))) return { lifeAtLeast: Number(m[1]) };
+  if ((m = /^you have fewer than (ten|\d+) cards in hand$/.exec(text))) return { handBelow: m[1] === "ten" ? 10 : Number(m[1]) };
   if (text === "enchanted creature is untapped") return { enchantedUntapped: true };
   if (text === "an opponent lost life this turn") return { opponentLostLife: true };
   if (text === "you attacked this turn") return { attackedThisTurn: true };

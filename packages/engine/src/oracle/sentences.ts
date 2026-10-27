@@ -4,6 +4,7 @@ import { amountOf, CARD_TYPES, forEachCount, isKeyword, keywordList, parseCount,
 import { isCreatureRef, isPermanentRef, isPlayerRef, refFor } from "./targets.js";
 import type { Ctx } from "./targets.js";
 import { parseClause } from "./effectText.js";
+import { MARVEL_SENTENCES } from "./marvelSentences.js";
 
 // One parser per kind of sentence ("Draw a card", "~ deals 3 damage to any target"), tried in order.
 
@@ -26,6 +27,12 @@ const damage: SentenceParser = (s, ctx) => {
   const m = /^~ deals (\d+|x) damage to (.+)$/.exec(s);
   if (!m) return null;
   const amount = toAmount(m[1])!;
+  // "~ deals 2 damage to each non-Villain creature and each opponent"
+  const andOpp = /^(each .+ creature) and each opponent$/.exec(m[2]);
+  if (andOpp) {
+    const group = refFor(andOpp[1], ctx);
+    return group ? [{ type: "damage", amount, to: group }, { type: "damage", amount, to: { t: "opp" } }] : null;
+  }
   if (m[2] === "each creature and each player") {
     return [{ type: "damage", amount, to: { t: "allCreatures", scope: "all" } }, { type: "damage", amount, to: { t: "eachPlayer" } }];
   }
@@ -115,7 +122,7 @@ const topOfLibrary = creatureVerb(/^put (.+) on top of its owner's library$/, (w
 
 /** "Return target creature card from your graveyard to the battlefield (tapped) / to your hand", "... with a finality counter on it". */
 const reanimate: SentenceParser = (s, ctx) => {
-  const m = /^(?:you may )?return ((?:another )?target .+? card(?: with .+?)? from your graveyard) to (the battlefield tapped|the battlefield|your hand)( with a finality counter on (?:it|~))?$/.exec(s);
+  const m = /^(?:you may )?return ((?:another )?target .+? card(?: with .+?)? from your graveyard(?:@\d+)?) to (the battlefield tapped|the battlefield|your hand)( with a finality counter on (?:it|~))?$/.exec(s);
   if (!m) return null;
   const what = refFor(m[1], ctx);
   const kind = what?.t === "target" ? ctx.targets[what.i].kind : undefined;
@@ -135,7 +142,12 @@ function permanentVerb(re: RegExp, make: (what: Ref) => Effect): SentenceParser 
 }
 const exile = permanentVerb(/^exile (.+)$/, (what) => ({ type: "exile", what }));
 const bounce = permanentVerb(/^return (.+) to (?:its|their) owner(?:s')?'?s? hands?$/, (what) => ({ type: "bounce", what }));
-const tapUntap = creatureVerb(/^(?:tap|untap) (.+)$/, (what, m) => ({ type: m[0].startsWith("tap") ? "tap" : "untap", what }));
+/** "Tap target creature or land" / "untap target nonland permanent" / "untap it" */
+const tapUntap: SentenceParser = (s, ctx) => {
+  const m = /^(tap|untap) (.+)$/.exec(s);
+  const what = m ? refFor(m[2], ctx) : null;
+  return m && what && isPermanentRef(what, ctx) ? [{ type: m[1] as "tap" | "untap", what }] : null;
+};
 
 const pump: SentenceParser = (s, ctx) => {
   const m = /^(.+?) gets? ([+-]\d+)\/([+-]\d+)(?: and gains? ([a-z ,]+?))? until end of turn$/.exec(s);
@@ -177,11 +189,11 @@ const fight: SentenceParser = (s, ctx) => {
 
 /** "Target creature you control deals damage equal to its power to target creature you don't control." */
 const bite: SentenceParser = (s, ctx) => {
-  const m = /^(~|target creature you control|that creature) deals damage equal to its power to (target creature(?: or planeswalker)?(?: you don't control| an opponent controls)?)$/.exec(s);
+  const m = /^(~|target creature you control|that creature) deals damage equal to (twice )?its power to (target creature(?: or planeswalker)?(?: you don't control| an opponent controls)?)$/.exec(s);
   if (!m) return null;
   const from = refFor(m[1], ctx);
-  const to = refFor(m[2], ctx);
-  return from && to ? [{ type: "bite", from, to }] : null;
+  const to = refFor(m[3], ctx);
+  return from && to ? [{ type: "bite", from, to, ...(m[2] ? { times: 2 } : {}) }] : null;
 };
 
 const gainControl = creatureVerb(/^gain control of (.+) until end of turn$/, (what) => ({ type: "gainControl", what }));
@@ -228,23 +240,28 @@ const TREASURE: TokenSpec = { name: "Treasure", type: "artifact", colors: [], su
 
 /** "Create a Treasure token", "create two 1/1 white Soldier creature tokens", "...with flying". */
 const createToken: SentenceParser = (s) => {
-  const m = /^create (a|an|one|two|three|four|five|\d+|x) (.+?) tokens?(?: with ([a-z ,]+))?$/.exec(s);
-  const amount = m ? toAmount(m[1]) : null;
-  if (!m || amount === null) return null;
-  if (m[2] === "treasure") return m[3] === undefined ? [{ type: "createToken", token: TREASURE, amount }] : null;
-  if (m[2] === "food") return m[3] === undefined ? [{ type: "createToken", token: FOOD, amount }] : null;
-  if (m[2] === "clue") return m[3] === undefined ? [{ type: "createToken", token: CLUE, amount }] : null;
-  if (m[2] === "map") return m[3] === undefined ? [{ type: "createToken", token: MAP, amount }] : null;
-  const body = /^(\d+)\/(\d+) (?:(colorless|white|blue|black|red|green)(?:(?:,| and) (white|blue|black|red|green))* )?([a-z]+(?: [a-z]+)*?) creature$/.exec(m[2]);
-  if (!body || body[5].includes("legendary")) return null;
+  const m0 = /^create (a|an|one|two|three|four|five|\d+|x) (tapped )?(.+?) tokens?(?: named ([a-z' -]+?))?(?: with ([a-z ,]+))?$/.exec(s);
+  const amount = m0 ? toAmount(m0[1]) : null;
+  if (!m0 || amount === null) return null;
+  // regroup so the rest reads as before: 1 amount, 2 description, 3 name, 4 keywords
+  const m = [m0[0], m0[1], m0[3], m0[4], m0[5]];
+  const plainToken = m[3] === undefined && m[4] === undefined;
+  if (m[2] === "treasure") return plainToken ? [{ type: "createToken", token: TREASURE, amount }] : null;
+  if (m[2] === "food") return plainToken ? [{ type: "createToken", token: FOOD, amount }] : null;
+  if (m[2] === "clue") return plainToken ? [{ type: "createToken", token: CLUE, amount }] : null;
+  if (m[2] === "map") return plainToken ? [{ type: "createToken", token: MAP, amount }] : null;
+  // "a legendary 1/1 blue Bird Scout creature token": the engine has no legend rule, so only the rest matters
+  const body = /^(\d+)\/(\d+) (?:(colorless|white|blue|black|red|green)(?:(?:,| and) (white|blue|black|red|green))* )?([a-z]+(?: [a-z]+)*?) creature$/.exec(m[2].replace(/^legendary /, ""));
+  if (!body) return null;
   const artifactToken = /(?:^| )artifact$/.test(body[5]);
   if (body[5].includes("artifact") && !artifactToken) return null;
   const colors = [...m[2].matchAll(/\b(white|blue|black|red|green)\b/g)].map((c) => TOKEN_COLOR[c[1]]);
-  const changeling = m[3] === "changeling";
-  const keywords = m[3] === undefined || changeling ? [] : keywordList(m[3]);
+  const changeling = m[4] === "changeling";
+  const keywords = m[4] === undefined || changeling ? [] : keywordList(m[4]);
   if (!keywords) return null;
   const subtypes = body[5].replace(/ ?artifact$/, "").split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  return [{ type: "createToken", amount, token: { name: subtypes, type: "creature", power: Number(body[1]), toughness: Number(body[2]), colors, subtypes, keywords, text: "", ...(artifactToken ? { artifact: true } : {}), ...(changeling ? { changeling: true } : {}) } }];
+  const name = m[3] ? m[3].split(" ").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ") : subtypes;
+  return [{ type: "createToken", amount, token: { name, type: "creature", power: Number(body[1]), toughness: Number(body[2]), colors, subtypes, keywords, text: "", ...(m0[2] ? { tapped: true } : {}), ...(artifactToken ? { artifact: true } : {}), ...(changeling ? { changeling: true } : {}) } }];
 };
 
 /** "target player discards two cards": the player who discards chooses which. */
@@ -262,7 +279,12 @@ const flingDamage: SentenceParser = (s, ctx) => {
   const to = m ? refFor(m[1], ctx) : null;
   return to ? [{ type: "damage", amount: "X", to }] : null;
 };
-const investigate: SentenceParser = (s) => (s === "investigate" ? [{ type: "createToken", token: CLUE, amount: 1 }] : null);
+const investigate: SentenceParser = (s, ctx) => {
+  if (s === "investigate") return [{ type: "createToken", token: CLUE, amount: 1 }];
+  const m = /^(target player|target opponent) investigates$/.exec(s); // "Target player investigates."
+  const who = m ? refFor(m[1], ctx) : null;
+  return who && isPlayerRef(who, ctx) ? [{ type: "createToken", token: CLUE, amount: 1, who }] : null;
+};
 
 /** "Put a stun counter on it": the next time it would untap, it doesn't. */
 const stunCounter: SentenceParser = (s, ctx) => {
@@ -442,6 +464,16 @@ const tokenForController: SentenceParser = (s, ctx) => {
   return made ? made.map((e) => (e.type === "createToken" ? { ...e, who: { t: "controllerOf" as const, i: ctx.targets.length - 1 } } : e)) : null;
 };
 
+/** "Target player creates a 6/5 blue Leviathan creature token with hexproof." */
+const tokenForPlayer: SentenceParser = (s, ctx) => {
+  const m = /^(target player|target opponent|each player|each opponent) creates (.+)$/.exec(s);
+  if (!m) return null;
+  const who = refFor(m[1], ctx);
+  if (!who || !isPlayerRef(who, ctx)) return null;
+  const made = createToken(`create ${m[2]}`, ctx);
+  return made ? made.map((e) => (e.type === "createToken" ? { ...e, who } : e)) : null;
+};
+
 const bounceOwn: SentenceParser = (s) => {
   const m = /^return (a|another) creature you control to its owner's hand$/.exec(s);
   return m ? [{ type: "bounceOwn", other: m[1] === "another" }] : null;
@@ -482,8 +514,8 @@ const becomeCopy: SentenceParser = (s, ctx) => {
 
 /** "Counter target spell unless its controller pays {2}." */
 const counterUnless: SentenceParser = (s, ctx) => {
-  const m = /^counter (target spell) unless its controller pays ((?:\{[^}]+\})+)$/.exec(s);
-  const what = m ? refFor(m[1], ctx) : null;
+  const m = /^counter (target spell|that spell) unless its controller pays ((?:\{[^}]+\})+)$/.exec(s);
+  const what = m ? (m[1] === "that spell" ? (ctx.targets.length > 0 && ctx.targets[ctx.targets.length - 1].kind === "spell" ? ({ t: "target", i: ctx.targets.length - 1 } as const) : null) : refFor(m[1], ctx)) : null;
   return m && what && parseManaCost(m[2]) ? [{ type: "counterUnlessPay", what, cost: m[2] }] : null;
 };
 
@@ -602,7 +634,7 @@ const putSavedCounters: SentenceParser = (s, ctx) => {
 /** A Case of the Uneaten Feast: 'Creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn.' */
 const yardCastable: SentenceParser = (s) => (s === 'creature cards in your graveyard gain "you may cast ~ from your graveyard" until end of turn' ? [{ type: "yardCastable" }] : null);
 
-const PARSERS: SentenceParser[] = [connive, ifControlOther, airbend, exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, damageDraw, becomeCreature, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
+const PARSERS: SentenceParser[] = [...MARVEL_SENTENCES, connive, tokenForPlayer, ifControlOther, airbend, exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, damageDraw, becomeCreature, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
 
 export function parseSimple(s: string, ctx: Ctx): Effect[] | null {
   for (const parse of PARSERS) {

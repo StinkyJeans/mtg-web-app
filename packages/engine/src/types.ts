@@ -155,6 +155,19 @@ export interface Permanent {
   warped?: boolean;
   /** A Case that has been solved. */
   solved?: boolean;
+  /** Keyword counters ("an indestructible counter"): it has these keywords for as long as it stays. */
+  kwCounters?: Keyword[];
+  /** Until end of turn: its base power is the number of cards in its controller's hand (Ms. Marvel). */
+  powerFromHand?: boolean;
+  /** +1/+1 counters put on it this turn, and whether it became tapped already this turn. */
+  countersThisTurn?: number;
+  tappedThisTurn?: boolean;
+  /** Invasion counters (Alien Invasion). */
+  invasion?: number;
+  /** Lore counters on a Saga. */
+  lore?: number;
+  /** Plan counters (Marvel's Plan enchantments). */
+  planCounters?: number;
 }
 
 export interface PlayerState {
@@ -184,6 +197,12 @@ export interface PlayerState {
   doubleDamage?: boolean;
   /** Permanents the player chose not to tap for mana: payments skip them. Only set around one action, and cleared as a turn begins. */
   spareMana?: string[];
+  /** "Artifact spells you cast this turn cost {1} less": the discounts, cleared as the turn ends. */
+  costLessThisTurn?: { n: number; spell: string }[];
+  /** Cards discarded so far this turn. */
+  discardedThisTurn?: number;
+  /** "The next red or green creature spell you cast this turn can be cast without paying its mana cost." */
+  freeNext?: { colors: string[] };
   /** Tried to draw from an empty library: loses the game when state-based actions are next checked. */
   drewFromEmpty?: boolean;
 }
@@ -213,6 +232,8 @@ export interface GameState {
   priority: PriorityRound | null;
   /** A triggered ability whose controller must choose its targets before it goes on the stack. */
   pendingChoice: PendingChoice | null;
+  /** Additional combat phases still to come this turn. */
+  extraCombats?: number;
   /** A choice among cards that the game is waiting for (see effects.ts). */
   pendingPick: PendingPick | null;
   /** "Prevent all combat damage that would be dealt this turn." Cleared as the next turn begins. */

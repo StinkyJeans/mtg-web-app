@@ -5,12 +5,46 @@ import { readEntersWithCounters, readEntersWithMinusCounters, readKickedCounters
 import { readLifeGainedTrigger, readLandfall, readAttackWithOthers, readBecomesTarget, readCastSpellTrigger, readDrawCardTrigger, readEnchantedDealsDamage, readPackTactics, readBeginningOfStep, readAnySpellCast, readCastKindSpell, readAllyDies, readCountersPutOnAlly, readAnotherCreatureEntersOrLeaves, readBlocksOrBlocked, readDamagedCreatureDies, readDamageAndAnyDies, readEerie, readReturnWhenHostDies, readTapXOnEnter, readDiesReturnsToBattlefield, readAllyEnters, readYouAttack, readYouDiscard, readExcessDamage, readSelfTrigger, readTrigger, readAllyAttacks, readToSolve } from "./lines/triggers.js";
 import { readLoyaltyAbility, readCrew, readEquip, readSacrificeForMana, readLandcycling, readActivatedAbility, readRestrictedMana, readSolvedAbility } from "./lines/activated.js";
 
+import { MARVEL_ABILITY_WORD, readAttacksAlone, readChapter, readEquippedAttacks, readAbilityTargets, readAlienInvasion, readAllyDamaged, readGrimReaper, readHostUpkeep, readNoOneDies, readAnyDrawSecond, readDamagePrevention, readEnrage, readIronManCombat, readAllyTapped, readAttackConditions, readHasteForAbilities, readTokensEnter, readBecomesTapped, readControlsArtifactCreatureOrPlan, readScarletWitchDiscount, readTokenAndCounterLords, readUnblockableIfSmall, readVillainOrArtifactEnters, readCountersPlusOne, readCounteredThisTurn, readEntersGreater, readHandSize, readPlanThreshold, readSpellTargetsTrigger, readTeamworkTrigger, readYardCondition, readYouPutCounters } from "./lines/marvel.js";
+
 // One line of a permanent's text: a keyword, a triggered, activated or static ability, an aura or equipment line.
 // Each kind of line has a reader in lines/.
 
 /** The readers in the order they are tried. The first one that reads the line wins, so a more specific sentence must come before a general one. */
 const READERS: ((line: string, out: ParsedCard) => boolean)[] = [
   readLoyaltyAbility,
+  readTeamworkTrigger,
+  readPlanThreshold,
+  readChapter,
+  readYardCondition,
+  readNoOneDies,
+  readGrimReaper,
+  readHostUpkeep,
+  readAlienInvasion,
+  readEnrage,
+  readAnyDrawSecond,
+  readDamagePrevention,
+  readAllyDamaged,
+  readIronManCombat,
+  readHasteForAbilities,
+  readTokensEnter,
+  readAbilityTargets,
+  readTokenAndCounterLords,
+  readUnblockableIfSmall,
+  readControlsArtifactCreatureOrPlan,
+  readScarletWitchDiscount,
+  readVillainOrArtifactEnters,
+  readAttackConditions,
+  readCountersPlusOne,
+  readHandSize,
+  readCounteredThisTurn,
+  readEntersGreater,
+  readSpellTargetsTrigger,
+  readBecomesTapped,
+  readAllyTapped,
+  readYouPutCounters,
+  readAttacksAlone,
+  readEquippedAttacks,
   readWard,
   readLifeGainedTrigger,
   readLandfall,
@@ -116,7 +150,7 @@ export function parseCreatureLine(rawLine: string, out: ParsedCard): void {
     for (let i = before; i < out.triggers.length; i++) out.triggers[i] = { ...out.triggers[i], oncePerTurn: true };
     return;
   }
-  const line = rawLine.replace(/\.$/, "").replace(/^raid — /, "");
+  const line = rawLine.replace(/\.$/, "").replace(/^raid — /, "").replace(MARVEL_ABILITY_WORD, "");
 
   for (const read of READERS) if (read(line, out)) return;
   out.unsupported.push(line);

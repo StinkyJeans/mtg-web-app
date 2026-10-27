@@ -54,6 +54,8 @@ export function drawCards(state: GameState, player: PlayerId, count: number, eve
       if (p.drawnThisTurn === 2) queueTriggers(state, perm.card, player, "drawSecond");
       if (p.drawnThisTurn === 5) queueTriggers(state, perm.card, player, "drawFifth");
     }
+    // "Whenever a player draws their second card each turn" (any player's permanents)
+    if (p.drawnThisTurn === 2) for (const owner of Object.values(state.players)) for (const perm of owner.battlefield) queueTriggers(state, perm.card, owner.id, "anyDrawSecond");
   }
 }
 
@@ -209,8 +211,9 @@ export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerI
     playable: false, // never in a deck
   };
   const card: CardInstance = { iid: `tok${state.nextId++}`, defId, owner: controller };
-  state.players[controller].battlefield.push({ card, tapped: false, summoningSick: spec.type === "creature", damage: 0 });
+  state.players[controller].battlefield.push({ card, tapped: spec.tapped === true, summoningSick: spec.type === "creature", damage: 0 });
   events.push({ type: "permanentEntered", player: controller, iid: card.iid });
+  for (const p of state.players[controller].battlefield) queueTriggers(state, p.card, controller, "tokenEnters"); // "whenever one or more tokens you control enter"
   // "...tapped and attacking": the token joins the attack that is going on.
   if (spec.tappedAttacking && state.combat && spec.type === "creature") {
     const perm = state.players[controller].battlefield[state.players[controller].battlefield.length - 1];
@@ -247,10 +250,24 @@ export function counterStackItem(state: GameState, item: StackItem, events: Game
 }
 
 
+/** Taps a permanent: "whenever ~ becomes tapped" (and "whenever equipped creature / a creature you control becomes tapped") triggers happen if it was untapped. */
+export function tapPerm(state: GameState, perm: Permanent, controller: PlayerId): void {
+  if (perm.tapped) return;
+  perm.tapped = true;
+  const first = !perm.tappedThisTurn;
+  perm.tappedThisTurn = true;
+  queueTriggers(state, perm.card, controller, "selfTapped");
+  for (const host of state.players[controller].battlefield) if (host.attachedTo === perm.card.iid) queueTriggers(state, host.card, controller, "hostTapped", { other: perm.card.iid });
+  if (isCreature(state, perm)) for (const other of state.players[controller].battlefield) queueTriggers(state, other.card, controller, "allyTapped", { other: perm.card.iid, firstTap: first, self: other === perm });
+}
+
 /** Puts +1/+1 counters on a permanent: "whenever one or more +1/+1 counters are put on another creature you control" triggers. */
 export function putCounters(state: GameState, perm: Permanent, controller: PlayerId, n: number): void {
   if (n <= 0) return;
+  // "If you would put one or more counters on a permanent you control, put that many plus one instead." (Doc Samson)
+  if (state.players[controller].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).countersPlusOne)) n += 1;
   perm.counters = (perm.counters ?? 0) + n;
+  perm.countersThisTurn = (perm.countersThisTurn ?? 0) + n;
   if (!isCreature(state, perm)) return;
   const types = subtypesOf(state, perm);
   for (const other of state.players[controller].battlefield) queueTriggers(state, other.card, controller, "allyCountersAdded", { subtypes: types, self: other === perm });

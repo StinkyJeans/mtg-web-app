@@ -1,5 +1,5 @@
 import { getCard } from "../cards.js";
-import { defSubtypes } from "../creatureTypes.js";
+import { CREATURE_TYPES, defSubtypes } from "../creatureTypes.js";
 import type { CardFilter, CountSpec, SourceQuality, StaticEffect, TargetSpec } from "../effects.js";
 import { isBasicLand } from "../deck.js";
 import { hasKeyword } from "../keywords.js";
@@ -97,8 +97,16 @@ export function subtypesOf(s: GameState, p: Permanent): string[] {
   const added = Object.values(s.players).flatMap((owner) =>
     owner.battlefield.filter((aura) => aura.attachedTo === p.card.iid).flatMap((aura) => (parseCard(getCard(s, aura.card.defId)).statics ?? []).flatMap((st) => (st.scope === "enchanted" ? (st.addSubtypes ?? []) : []))),
   );
+  // "As long as there are two or more creature cards in your graveyard, this creature ... is all creature types."
+  const def = getCard(s, p.card.defId);
+  const owner = s.players.p1.battlefield.includes(p) ? "p1" : "p2";
+  const everyType = (parseCard(def).statics ?? []).some((st) => st.allTypes && st.scope === "self" && (st.cond?.yardCreatures === undefined || yardCreatureCards(s, owner) >= st.cond.yardCreatures));
+  if (everyType) return [...new Set([...printed, ...added, ...CREATURE_TYPES])];
   return added.length ? [...printed, ...added] : printed;
 }
+
+/** How many creature cards are in a player's graveyard. */
+export const yardCreatureCards = (s: GameState, player: PlayerId): number => s.players[player].graveyard.filter((c) => getCard(s, c.defId).type === "creature").length;
 
 /** The continuous effects (auras, "creatures you control get +1/+1") that apply to `target` right now. */
 export function staticEffectsOn(s: GameState, target: Permanent): StaticEffect[] {
@@ -113,6 +121,13 @@ export function staticEffectsOn(s: GameState, target: Permanent): StaticEffect[]
         if (st.cond?.drawnAtLeast !== undefined && (s.players[owner.id].drawnThisTurn ?? 0) < st.cond.drawnAtLeast) continue;
         if (st.cond?.lifeAtLeast !== undefined && s.players[owner.id].life < st.cond.lifeAtLeast) continue;
         if (st.cond?.lostLife && !(s.players[owner.id].lifeLostThisTurn ?? 0)) continue;
+        if (st.tokensOnly && !isToken(target.card)) continue;
+        if (st.withCounters && !((target.counters ?? 0) > 0)) continue;
+        if (st.cond?.artifactCreatureOrPlan && !s.players[owner.id].battlefield.some((p) => { const d = getCard(s, p.card.defId); return (isArtifactDef(d) && d.type === "creature") || defSubtypes(d).includes("plan"); })) continue;
+        if (st.cond?.powerAtMost !== undefined && basePT(s, source, "power") + (source.counters ?? 0) - (source.minusCounters ?? 0) + (source.powerBonus ?? 0) > st.cond.powerAtMost) continue;
+        if (st.cond?.selfCounteredThisTurn && !(source.countersThisTurn ?? 0)) continue;
+        if (st.targetCounteredThisTurn && !(target.countersThisTurn ?? 0)) continue;
+        if (st.cond?.yardCreatures !== undefined && yardCreatureCards(s, owner.id) < st.cond.yardCreatures) continue;
         if (st.cond?.enteredThisTurn && source.enteredTurn !== s.turn) continue;
         if (st.cond?.controls && !s.players[owner.id].battlefield.some((p) => subtypesOf(s, p).includes(st.cond!.controls!))) continue;
         if (st.cond?.attacking && !s.combat?.attackers.some((a) => a.attacker === source.card.iid)) continue;
@@ -168,6 +183,9 @@ export function countFor(s: GameState, me: PlayerId, spec: CountSpec, sourceIid?
     }).length;
   }
   if (spec.kind === "opponents") return 1;
+  if (spec.kind === "discardedThisTurn") return s.players[me].discardedThisTurn ?? 0;
+  if (spec.kind === "handDeficit") return Math.max(0, spec.to - s.players[me].hand.length);
+  if (spec.kind === "greatestMV") return Math.max(0, ...s.players[me].battlefield.filter((p) => isArtifactDef(getCard(s, p.card.defId))).map((p) => getCard(s, p.card.defId).cost));
   if (spec.kind === "toughnessGtPower") return s.players[me].battlefield.filter((p) => isCreature(s, p) && toughnessOf(s, p) > powerOf(s, p)).length;
   if (spec.kind !== "permanents") return 0; // the other kinds need the context of the effect (see runEffects)
   let n = 0;
@@ -191,6 +209,7 @@ export function countFor(s: GameState, me: PlayerId, spec: CountSpec, sourceIid?
 /** Printed power or toughness; a "*" is worked out from the board. */
 function basePT(s: GameState, p: Permanent, which: "power" | "toughness"): number {
   if (p.tempBase) return p.tempBase[which]; // "becomes a 4/4 until end of turn"
+  if (which === "power" && p.powerFromHand) return s.players[s.players.p1.battlefield.includes(p) ? "p1" : "p2"].hand.length;
   const def = getCard(s, p.card.defId);
   const printed = def[which];
   if (printed !== undefined) return printed;
@@ -205,9 +224,19 @@ export const toughnessOf = (s: GameState, p: Permanent) =>
   basePT(s, p, "toughness") + (p.counters ?? 0) - (p.minusCounters ?? 0) + (p.toughnessBonus ?? 0) + staticEffectsOn(s, p).reduce((n, st) => n + st.toughness, 0);
 
 /** Printed keywords plus ones granted until end of turn. */
+/** The most cards a player keeps in hand at the end of the turn: seven, or what a permanent of theirs says. */
+export function handLimit(s: GameState, player: PlayerId): number {
+  let limit = 7;
+  for (const p of s.players[player].battlefield) {
+    const own = parseCard(getCard(s, p.card.defId)).maxHandSize;
+    if (own !== undefined) limit = Math.max(limit === 7 ? 0 : limit, own);
+  }
+  return limit;
+}
+
 export const kw = (s: GameState, p: Permanent, keyword: Keyword) =>
   !(keyword === "defender" && p.tempNoDefender) && (
-  hasKeyword(getCard(s, p.card.defId), keyword) || (p.tempKeywords ?? []).includes(keyword) || staticEffectsOn(s, p).some((st) => st.keywords.includes(keyword)));
+  hasKeyword(getCard(s, p.card.defId), keyword) || (p.tempKeywords ?? []).includes(keyword) || (p.kwCounters ?? []).includes(keyword) || staticEffectsOn(s, p).some((st) => st.keywords.includes(keyword)));
 
 export function findPermanentOrNull(state: GameState, iid: string): { owner: PlayerState; perm: Permanent } | null {
   for (const owner of Object.values(state.players)) {

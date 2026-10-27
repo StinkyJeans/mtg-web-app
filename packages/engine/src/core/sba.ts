@@ -88,6 +88,25 @@ function stateBasedActionsOnce(state: GameState, events: GameEvent[]): void {
       else putIntoGraveyard(state, aura, p.id, events);
     }
   }
+  // Rule 704.5s: a Saga with as many lore counters as its last chapter is sacrificed once that chapter's ability has left the stack.
+  for (const p of Object.values(state.players)) {
+    for (const perm of p.battlefield) {
+      const saga = parseCard(getCard(state, perm.card.defId)).saga;
+      if (!saga || (perm.lore ?? 0) < saga.final) continue;
+      const waiting = state.stack.some((i) => i.kind === "ability" && i.source === perm.card.iid) || state.triggerQueue.some((q) => q.item.source === perm.card.iid) || state.pendingChoice?.item.source === perm.card.iid;
+      if (!waiting) putIntoGraveyard(state, perm, p.id, events);
+    }
+  }
+  // Rule 704.5j (the legend rule): of two legendary permanents with the same name, only one stays (the one that has been there longest).
+  for (const p of Object.values(state.players)) {
+    const seen = new Set<string>();
+    for (const perm of [...p.battlefield]) {
+      const def = getCard(state, perm.card.defId);
+      if (!/\bLegendary\b/.test((def.typeLine ?? "").split("—")[0])) continue;
+      if (seen.has(def.name)) putIntoGraveyard(state, perm, p.id, events);
+      else seen.add(def.name);
+    }
+  }
   const losers = Object.values(state.players).filter((p) => p.life <= 0 || p.drewFromEmpty);
   if (losers.length === 2 && !state.winner) {
     // Rule 104.4a: if both players lose at the same time, the game is a draw.

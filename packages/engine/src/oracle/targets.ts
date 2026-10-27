@@ -23,6 +23,7 @@ export function targetSpec(phrase: string): TargetSpec | null {
     const inner = targetSpecBase(`target creature${nonType[2] ?? ""}`);
     return inner ? { ...inner, notSubtype: nonType[1], label: phrase } : null;
   }
+  if (phrase === "target creature you control that's attacking alone") return { kind: "creature", controller: "you", filter: "attackingAlone", label: phrase };
   if (phrase === "target spell or permanent") return { kind: "permanent", orSpell: true, label: phrase };
   if (phrase === "target spell or creature") return { kind: "permanent", types: ["creature"], orSpell: true, label: phrase };
   if (phrase.startsWith("another ")) {
@@ -56,6 +57,7 @@ function targetSpecBase(phrase: string): TargetSpec | null {
     return { kind: "permanent", types: kinds[1].split(/, or |, | or /), ...(kinds[2] ? { controller: kinds[2].trim() === "you control" ? ("you" as const) : ("opponent" as const) } : {}), label: phrase };
   }
   if (phrase === "any target") return { kind: "any", label: phrase };
+  if (phrase === "any other target") return { kind: "any", other: true, label: phrase };
   if (phrase === "target creature or player" || phrase === "target player or creature") return { kind: "any", label: phrase };
   if (phrase === "target player or planeswalker") return { kind: "playerOrPlaneswalker", label: phrase };
   if (phrase === "target creature or planeswalker") return { kind: "creatureOrPlaneswalker", label: phrase };
@@ -72,6 +74,8 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   if (phrase === "target land") return { kind: "land", label: phrase };
   if (phrase === "target artifact or land") return { kind: "artifactOrLand", label: phrase };
   if (phrase === "target artifact") return { kind: "artifact", label: phrase };
+  if (phrase === "target noncreature artifact") return { kind: "artifact", noncreature: true, label: phrase };
+  if (phrase === "target noncreature artifact or noncreature enchantment") return { kind: "artifactOrEnchantment", noncreature: true, label: phrase };
   if (phrase === "target enchantment") return { kind: "enchantment", label: phrase };
   if (phrase === "target artifact or enchantment") return { kind: "artifactOrEnchantment", label: phrase };
   if (phrase === "target creature or vehicle") return { kind: "permanent", types: ["creature", "vehicle"], label: phrase };
@@ -81,7 +85,7 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   const creatureOrWalker = /^target creature or planeswalker (you don't control|an opponent controls)$/.exec(phrase);
   if (creatureOrWalker) return { kind: "creatureOrPlaneswalker", controller: "opponent", label: phrase };
   // "target nonartifact, nonblack creature with flying an opponent controls": any mix of these parts
-  const m = /^target ((?:non[a-z]+(?:,? (?:and )?| ))*)(tapped |attacking |blocking |attacking or blocking )?creature(?: (with|without) ([a-z ]+?))?(?: with power (\d+) or (less|greater))?(?: (you control|an opponent controls|you don't control|your opponents control))?$/.exec(phrase);
+  const m = /^target ((?:non[a-z]+(?:,? (?:and )?| ))*)(tapped |attacking |blocking |attacking or blocking )?creature(?: (with|without) ([a-z ]+?))?(?: with power (\d+) or (less|greater))?(?: (you control|an opponent controls|you don't control|your opponents control|defending player controls))?$/.exec(phrase);
   if (m) {
     const spec: TargetSpec = { kind: "creature", label: phrase };
     for (const non of m[1].match(/non([a-z]+)/g) ?? []) {
@@ -96,7 +100,7 @@ function targetSpecBase(phrase: string): TargetSpec | null {
       spec.keyword = { name: m[4], has: m[3] === "with" };
     }
     if (m[5]) spec.power = { n: Number(m[5]), op: m[6] === "less" ? "max" : "min" };
-    if (m[7]) spec.controller = m[7] === "you control" ? "you" : "opponent";
+    if (m[7]) spec.controller = m[7] === "you control" ? "you" : "opponent"; // (a defending player is the opponent)
     return spec;
   }
   return null;
@@ -119,6 +123,9 @@ function graveyardCardSpec(phrase: string): TargetSpec | null {
     if (m[2]) spec.notSubtype = m[2];
     return m[3] ? { ...spec, subtype: m[3].trim() } : spec;
   }
+  // "target artifact or enchantment card from your graveyard"
+  const permTypes = /^target (artifact|enchantment|land|artifact or enchantment) card from your graveyard$/.exec(phrase);
+  if (permTypes) return { kind: "graveyardPermanent", controller: "you", types: permTypes[1].split(" or "), label };
   const typed = /^target ((?:[a-z]+, )+or [a-z]+|[a-z]+ or [a-z]+|[a-z]+) card from your graveyard$/.exec(phrase);
   if (!typed || byPower) return null;
   const subtypes = typed[1].split(/, or |, | or /);
@@ -198,6 +205,10 @@ export function refFor(phrase: string, ctx: Ctx): Ref | null {
     case "creatures your opponents control":
       return { t: "allCreatures", scope: "opponents" };
   }
+  const eachOther = /^each other ([a-z]+) you control$/.exec(phrase);
+  if (eachOther && !/^(creature|land|artifact|enchantment|permanent)$/.test(eachOther[1])) return { t: "allCreatures", scope: "yours", subtype: eachOther[1], notSelf: true };
+  const nonType = /^each non-([a-z]+) creature$/.exec(phrase);
+  if (nonType) return { t: "allCreatures", scope: "all", notSubtype: nonType[1] };
   const known = ctx.phrases.get(phrase);
   if (known !== undefined) return { t: "target", i: known };
   const groupOfType = /^([a-z]+) you control$/.exec(phrase);

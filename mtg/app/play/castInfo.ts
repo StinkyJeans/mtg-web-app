@@ -1,7 +1,7 @@
 import { castCostOf, manaSourcesToConfirm, parseCard, parseManaCost, payMana } from "@mtg/engine";
 import type { Action, CardDef, Castable, GameState, PlayerId } from "@mtg/engine";
 
-/** A spell being cast step by step: modes, then the kicker, then X, then an additional cost, then targets. */
+/** A spell being cast step by step: teamwork, modes, then the kicker, then X, then an additional cost, then targets. */
 export interface CastPlan {
   iid: string;
   name: string;
@@ -9,6 +9,8 @@ export interface CastPlan {
   castable: Castable;
   modes?: number[];
   kicked?: boolean;
+  /** Teamwork: the creatures tapped as an additional cost ([] = cast without it). */
+  teamwork?: string[];
   x?: number;
   sacrifice?: string;
   /** Cast for its warp cost. */

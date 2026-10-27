@@ -13,9 +13,10 @@ import { parseSimple } from "./sentences.js";
  * (Each copy gets its own target slot, so the player can choose fewer or none.)
  */
 function expandUpTo(s: string, ctx: Ctx): Effect[] | null {
-  const m = /^(.*?)(?:each of )?up to (one|two|three) (other |another )?(target (?:creature|permanent|nonland permanent|artifact|enchantment)s?(?: or (?:artifact|enchantment)s?)?(?: you control| an opponent controls| you don't control)?)(.*)$/.exec(s);
+  const m = /^(.*?)(?:each of )?(up to (?:one|two|three)|one or two) (other |another )?(target (?:creature card from your graveyard|creature|permanent|nonland permanent|artifact|enchantment)s?(?: or (?:artifact|enchantment)s?)?(?: you control| an opponent controls| you don't control)?)(.*)$/.exec(s);
   if (!m) return null;
-  const count = toNumber(m[2]) ?? 0;
+  const firstRequired = m[2] === "one or two"; // "one or two target ...": at least one
+  const count = firstRequired ? 2 : (toNumber(m[2].slice(6)) ?? 0);
   const base = m[4].replace(/^target (creature|permanent|nonland permanent|artifact|enchantment)s/, "target $1").replace(/ or (artifact|enchantment)s\b/, " or $1");
   const spec = targetSpec(base);
   if (!spec || count < 1) return null;
@@ -23,7 +24,7 @@ function expandUpTo(s: string, ctx: Ctx): Effect[] | null {
   const before = ctx.targets.length;
   for (let i = 0; i < count; i++) {
     const key = `${base}@${i}`;
-    ctx.targets.push({ ...spec, optional: true, ...(m[3] ? { other: true } : {}), label: `up to ${count === 1 ? "one" : count} ${base}` });
+    ctx.targets.push({ ...spec, ...(firstRequired && i === 0 ? {} : { optional: true }), ...(m[3] ? { other: true } : {}), label: firstRequired ? `${i === 0 ? "" : "second "}${base}${i === 0 ? "" : " (optional)"}` : `up to ${count === 1 ? "one" : count} ${base}` });
     ctx.phrases.set(key, ctx.targets.length - 1);
     const effects = parseSimple(`${m[1]}${key}${m[5]}`, ctx);
     if (!effects) {
@@ -59,7 +60,7 @@ export function parseClause(s: string, ctx: Ctx): Effect[] | null {
     const left = parseSimple(s.slice(0, at), ctx);
     const rest = s.slice(at + 5);
     // "~ deals 3 damage to target player and 1 damage to each creature they control": the second half borrows the subject.
-    const right = left && (parseSimple(rest, ctx) ?? parseSimple(`you ${rest}`, ctx) ?? parseSimple(`~ deals ${rest}`, ctx));
+    const right = left && (parseSimple(rest, ctx) ?? parseSimple(`you ${rest}`, ctx) ?? parseSimple(`~ deals ${rest}`, ctx) ?? parseSimple(`put ${rest}`, ctx) ?? parseSimple(`that creature ${rest}`, ctx));
     if (left && right) return [...left, ...right];
     ctx.targets.length = before;
     ctx.phrases = phrases;
@@ -144,6 +145,8 @@ export function parseModes(bullets: string[], allowSelf: boolean): ModeSpec[] | 
 export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
   // "You may discard a card. If you do, draw a card." is one effect: the draw depends on the discard.
   const text = rawText
+    .replace(/you may draw a card for each artifact you control\. if you do, each opponent draws a card/g, "@@armorwars@@")
+    .replace(/(you may put an? [a-z]+ creature card with mana value \d+ or less from your hand onto the battlefield)\. if you don't, draw a card/g, "$1, else draw a card")
     .replace(/you may discard a card\. if you do, draw a card/g, "@@rummage@@")
     .replace(/you may put a card from your hand on the bottom of your library\. if you do, draw a card/g, "@@rummagebottom@@")
     .replace(/exile the top card of your library\. during any turn you attacked with ~, you may play that card/g, "@@exiletopplay@@")
@@ -184,6 +187,20 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       si += more ? 2 : 1;
       continue;
     }
+    // "You may sacrifice an artifact or discard a card. If you do, draw a card." / "...discard a nonland card. When you do, ~ deals 2 damage to any target."
+    const sacChoice = /^you may (sacrifice an artifact or discard a card|sacrifice an artifact or discard a nonland card|sacrifice another creature)$/.exec(sentence);
+    const doNext = /^(if|when) you do, (.+)$/.exec(sentences[si + 1] ?? "");
+    if (sacChoice && doNext) {
+      const targeted = doNext[1] === "when";
+      const inner = targeted ? newCtx(true) : ctx;
+      const then = parseClause(doNext[2].replace(/^it deals /, "~ deals "), inner);
+      if (!then || then.length === 0) return null;
+      lastGroup = effects.length;
+      const cost = sacChoice[1] === "sacrifice another creature" ? "otherCreature" : sacChoice[1].endsWith("nonland card") ? "artifactOrNonland" : "artifactOrCard";
+      effects.push({ type: "mayCost", cost, then, ...(targeted && inner.targets.length > 0 ? { thenSpecs: inner.targets.map((t) => ({ ...t })) } : {}) });
+      si++;
+      continue;
+    }
     if (pay && reflexive) {
       // "You may pay {1}. When you do, you may tap or untap target creature.": the target is chosen after paying.
       const inner = newCtx(true);
@@ -209,15 +226,15 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       continue;
     }
     // "If this spell's additional cost was paid" (an optional blight): paying it counts as kicking.
-    const kicked = /^if (?:~|this spell|it) was kicked, (.+)$/.exec(sentence) ?? /^if ~'s additional cost was paid, (.+)$/.exec(sentence);
+    const kicked = /^if (?:~|this spell|it) was kicked, (.+)$/.exec(sentence) ?? /^if ~'s additional cost was paid, (.+)$/.exec(sentence) ?? /^if ~ was cast using teamwork, (.+)$/.exec(sentence);
     if (kicked) {
       const instead = kicked[1].endsWith(" instead");
-      const body = instead ? kicked[1].slice(0, -" instead".length) : kicked[1];
+      const body = (instead ? kicked[1].slice(0, -" instead".length) : kicked[1]).replace(/^(it|that creature) also /, "$1 ");
       const previous = effects.slice(lastGroup);
       // "It deals 5 damage instead": the same target, a different amount
-      const amount = /^(?:it|~) deals (\d+|x) damage$/.exec(body);
+      const amount = /^(?:it|~) deals (\d+|x) damage(?: to that creature)?$/.exec(body);
       const prevDamage = previous.length === 1 && previous[0].type === "damage" ? previous[0] : null;
-      const then = amount && prevDamage ? ([{ ...prevDamage, amount: toAmount(amount[1])! }] as Effect[]) : parseClause(body, ctx);
+      const then = amount && prevDamage ? ([{ ...prevDamage, amount: toAmount(amount[1])! }] as Effect[]) : parseClause(body.replace(/^it deals /, "~ deals "), ctx);
       if (!then) return null;
       if (instead) {
         if (previous.length === 0) return null;
@@ -226,6 +243,26 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
         lastGroup = effects.length;
         effects.push({ type: "ifKicked", then });
       }
+      continue;
+    }
+    // "Put a +1/+1 counter on target creature. If that creature is another Hero, put two +1/+1 counters on it instead."
+    const insteadSub = /^if that creature is another ([a-z]+), put (two|three|four) \+1\/\+1 counters on it instead$/.exec(sentence);
+    if (insteadSub) {
+      const prev = effects.slice(lastGroup);
+      if (prev.length !== 1 || prev[0].type !== "addCounters" || typeof prev[0].amount !== "number" || prev[0].what.t !== "target") return null;
+      effects[lastGroup] = { ...prev[0], amount: { count: { kind: "ifTargetSubtype", i: prev[0].what.i, subtype: insteadSub[1], notSelf: true, yes: toNumber(insteadSub[2]) ?? 2, no: prev[0].amount } } };
+      continue;
+    }
+    // "Create a tapped 2/1 Villain token if there are two or more creature cards in your graveyard. Otherwise, mill two cards."
+    const yardIf = /^(.+) if there are (two|three|\d+) or more creature cards in your graveyard$/.exec(sentence);
+    if (yardIf) {
+      const then = parseClause(yardIf[1], ctx);
+      const other = /^otherwise, (.+)$/.exec(sentences[si + 1] ?? "");
+      const otherwise = other ? parseClause(other[1], ctx) : undefined;
+      if (!then || (other && !otherwise)) return null;
+      lastGroup = effects.length;
+      effects.push({ type: "ifYardCreatures", n: toNumber(yardIf[2]) ?? 2, then, ...(otherwise ? { otherwise } : {}) });
+      if (other) si++;
       continue;
     }
     const parsed = parseClause(sentence, ctx);

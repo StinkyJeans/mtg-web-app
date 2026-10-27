@@ -1,7 +1,8 @@
-import { checkStateBasedActions, drawCards, forbidden, newId, queueTriggers } from "../core.js";
+import { checkStateBasedActions, drawCards, forbidden, handLimit, newId, queueChapters, queueTriggers } from "../core.js";
+import { getCard } from "../cards.js";
+import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { GameState, PlayerState } from "../types.js";
-import { MAX_HAND_SIZE } from "../actions.js";
 import type { GameEvent } from "../actions.js";
 
 // Moving through the turn: the next phase, the end of the turn and the start of the next one.
@@ -28,7 +29,7 @@ export function advancePhase(state: GameState, events: GameEvent[]): void {
       break;
     case "end":
       // Cleanup step (rule 514.1): discard down to the maximum hand size.
-      if (state.players[state.active].hand.length > MAX_HAND_SIZE) {
+      if (state.players[state.active].hand.length > handLimit(state, state.active)) {
         state.phase = "cleanup";
         break;
       }
@@ -55,9 +56,13 @@ function queueWarpExiles(state: GameState): void {
 export function startNextTurn(state: GameState, events: GameEvent[]): void {
   state.preventCombat = undefined;
   state.noGroundBlock = undefined;
+  state.extraCombats = undefined;
   // Rule 514.2: damage wears off for everyone at end of turn.
   for (const p of Object.values(state.players)) {
     p.drawnThisTurn = 0;
+    p.costLessThisTurn = undefined;
+    p.discardedThisTurn = undefined;
+    p.freeNext = undefined;
     p.doubleDamage = undefined;
     p.lifeGainedThisTurn = 0;
     p.lifeLostThisTurn = 0;
@@ -88,6 +93,9 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
       perm.mustBeBlocked = undefined;
       perm.diesReturn = undefined;
       perm.damageDraws = undefined;
+      perm.countersThisTurn = undefined;
+      perm.powerFromHand = undefined;
+      perm.tappedThisTurn = undefined;
     });
   }
   // "Gain control of target creature until end of turn": it goes back to its controller.
@@ -116,6 +124,13 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
     for (const perm of owner.battlefield) queueTriggers(state, perm.card, owner.id, owner.id === state.active ? "upkeep" : "upkeepEach");
   }
   for (const perm of p.battlefield) queueTriggers(state, perm.card, state.active, "upkeepEach");
+  // "At the beginning of the upkeep of enchanted creature's controller, that player draws a card."
+  for (const owner of Object.values(state.players)) {
+    for (const perm of owner.battlefield) {
+      if (!perm.attachedTo || !parseCard(getCard(state, perm.card.defId)).triggers.some((t) => t.event === "hostUpkeep")) continue;
+      if (p.battlefield.some((host) => host.card.iid === perm.attachedTo)) queueTriggers(state, perm.card, state.active, "hostUpkeep");
+    }
+  }
 
   if (p.library.length === 0) {
     state.winner = OPPONENT[state.active];
@@ -123,6 +138,12 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
     return;
   }
   drawCards(state, state.active, 1, events, true); // (the draw step's card counts as the first card drawn this turn)
+  // Sagas: a lore counter after the draw step, then that chapter's ability.
+  for (const perm of p.battlefield) {
+    if (!parseCard(getCard(state, perm.card.defId)).saga) continue;
+    perm.lore = (perm.lore ?? 0) + 1;
+    queueChapters(state, perm, state.active);
+  }
 
   state.phase = "main1";
   events.push({ type: "phaseChanged", phase: "main1" });

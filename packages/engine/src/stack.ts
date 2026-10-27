@@ -6,7 +6,7 @@ import type { StackItem } from "./effects.js";
 //  - When both players pass in a row, the top item resolves; the round goes on while the stack isn't empty.
 
 export { canCastNow, holdsPriority } from "./stack/shared.js";
-export { activateAbility, activateLoyalty, castCostOf, castSpell, costChoices, crewVehicle, cycleCard } from "./stack/cast.js";
+export { activateAbility, activateLoyalty, castCostOf, castSpell, costChoices, crewVehicle, cycleCard, liftedSpecs } from "./stack/cast.js";
 export { abilityLockReason, getActivatable, getCastable, getCrewable, getCyclable, getLoyaltyAbilities, hasResponse } from "./stack/options.js";
 export type { Activatable, Castable, Crewable, Cyclable, LoyaltyOption } from "./stack/options.js";
 export { chooseTargets, openWindow, passPriority, settle } from "./stack/resolve.js";

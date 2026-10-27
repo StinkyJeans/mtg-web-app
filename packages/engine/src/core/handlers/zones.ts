@@ -164,6 +164,7 @@ export const ZONE_EFFECTS = {
         // It comes back under the control of the player who used the effect.
         state.players[ctx.controller].battlefield.push({ card: s.card, tapped: effect.tapped === true, summoningSick: true, damage: 0, ...(effect.finality ? { finality: true } : {}) });
         events.push({ type: "permanentEntered", player: ctx.controller, iid: s.card.iid });
+        if (effect.attacking && state.combat) state.combat.attackers.push({ attacker: s.card.iid, blockers: [] }); // "...tapped and attacking"
         queueTriggers(state, s.card, ctx.controller, "enters");
         creatureEntered(state, s.card, ctx.controller);
       }

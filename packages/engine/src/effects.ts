@@ -12,7 +12,7 @@ export type Ref =
   | { t: "you" } // the controller
   | { t: "opp" } // the controller's opponent
   | { t: "eachPlayer" }
-  | { t: "allCreatures"; scope: "all" | "yours" | "opponents"; except?: number; noFlying?: boolean; subtype?: string; notSelf?: boolean; tapped?: boolean } // `except`: not the i-th target; `notSelf`: "all other creatures"; `tapped`: only tapped (true) or untapped (false) ones
+  | { t: "allCreatures"; scope: "all" | "yours" | "opponents"; except?: number; noFlying?: boolean; subtype?: string; notSubtype?: string; notSelf?: boolean; tapped?: boolean } // `except`: not the i-th target; `notSelf`: "all other creatures"; `tapped`: only tapped (true) or untapped (false) ones
   | { t: "allPlaneswalkers" }
   | { t: "ownerOf"; i: number } // the owner of the i-th target ("its owner gains 4 life")
   | { t: "controllerOf"; i: number } // the controller of the i-th target, as it was when the spell resolved
@@ -38,7 +38,7 @@ export type Effect =
   | { type: "grant"; keyword: Keyword; what: Ref } // until end of turn
   | { type: "counter"; what: Ref }
   | { type: "topOfLibrary"; what: Ref } // "put target creature on top of its owner's library"
-  | { type: "reanimate"; what: Ref; to: "battlefield" | "hand"; tapped?: boolean; finality?: boolean } // a card from a graveyard (`finality`: "with a finality counter on it")
+  | { type: "reanimate"; what: Ref; to: "battlefield" | "hand"; tapped?: boolean; finality?: boolean; attacking?: boolean } // a card from a graveyard (`finality`: "with a finality counter on it")
   // The next three ask a player to choose cards, so a card that has one can't have any other effect (see PendingPick).
   | { type: "discard"; who: Ref; amount: number; chooser: "victim" | "you" | "random" } // "target player discards two cards" / "you choose a card from their hand"
   | { type: "lookPick"; mode: "toHand" | "toGraveyard" | "arrange"; n: number; who?: Ref } // look at the top cards of a library
@@ -64,7 +64,7 @@ export type Effect =
   | { type: "setBase"; what: Ref; power: number; toughness: number } // becomes N/N until end of turn
   | { type: "loseDefender"; what: Ref }
   | { type: "winGame" }
-  | { type: "mayPay"; cost: string; life?: number; then: Effect[]; thenSpecs?: TargetSpec[] } // "When you do, ... target ...": the targets are chosen after paying // "you may pay {1}. If you do, ..." (`life`: "pay 2 life")
+  | { type: "mayPay"; prompt?: string; cost: string; life?: number; then: Effect[]; thenSpecs?: TargetSpec[] } // "When you do, ... target ...": the targets are chosen after paying // "you may pay {1}. If you do, ..." (`life`: "pay 2 life")
   | { type: "mayDiscard"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may discard a card. When you do, ..."
   | { type: "drawUnlessPay"; cost: string } // "you may draw a card unless that player pays {1}" (the opponent who cast the spell)
   | { type: "tapOrUntap"; what: Ref } // you may tap or untap target permanent
@@ -80,7 +80,7 @@ export type Effect =
   | { type: "noRegen" } // "it can't be regenerated": the destroy/damage of the same spell can't be saved by a shield
   | { type: "addCounters"; amount: Amount; what: Ref; kind?: "minus" } // +1/+1 counters (or -1/-1 with kind "minus")
   | { type: "fight"; a: Ref; b: Ref } // each deals damage equal to its power to the other
-  | { type: "bite"; from: Ref; to: Ref } // "target creature you control deals damage equal to its power to target creature"
+  | { type: "bite"; from: Ref; to: Ref; times?: number } // "target creature you control deals damage equal to its power to target creature"
   | { type: "gainControl"; what: Ref } // until end of turn
   | { type: "cantBlockThisTurn"; what: Ref }
   | { type: "crewed" } // this Vehicle becomes an artifact creature until end of turn
@@ -111,6 +111,20 @@ export type Effect =
   | { type: "yardCastable" } // creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn
   | { type: "solve" } // a Case becomes solved
   | { type: "airbend"; what: Ref } // exile it; its owner may cast it for {2} (rather than its mana cost) for as long as it stays exiled
+  | { type: "becomeCreatureNow"; what: Ref } // until end of turn it is a creature (an artifact becomes an artifact creature)
+  | { type: "powerFromHand" } // until end of turn: this creature's base power is the number of cards in your hand
+  | { type: "mayCost"; cost: "artifactOrCard" | "artifactOrNonland" | "otherCreature"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may sacrifice an artifact or discard a card. If you do, ..."
+  | { type: "ifYardCreatures"; n: number; then: Effect[]; otherwise?: Effect[] } // "...if there are two or more creature cards in your graveyard. Otherwise, mill two cards."
+  | { type: "invasion" } // Alien Invasion: a 1/1 Alien with a +1/+1 counter for each invasion counter, then an invasion counter
+  | { type: "discardUnlessArtifact" } // "discard two cards unless you discard an artifact card"
+  | { type: "transform" } // a double-faced permanent turns over
+  | { type: "extraCombatIfAttacking" } // "if he's attacking, untap him and there is an additional combat phase after this phase"
+  | { type: "putFromHand"; subtype: string; maxMV: number; elseDraw: boolean; cardType?: "artifact" | "land"; attach?: boolean; tapped?: boolean } // "you may put a Hero creature card with mana value 3 or less from your hand onto the battlefield. If you don't, draw a card"
+  | { type: "doublePT"; what: Ref } // until end of turn: double its power and toughness
+  | { type: "costLess"; n: number; spell: "artifact" } // this turn, spells of that kind you cast cost {n} less
+  | { type: "freeNext"; colors: string[] } // the next creature spell of one of these colors you cast this turn costs nothing
+  | { type: "addKeywordCounter"; keyword: Keyword; what: Ref } // "put a double strike counter on ~": it has that keyword for as long as the counter is there
+  | { type: "planCounter" } // "put a plan counter on this enchantment": at the card's threshold it is sacrificed (see ParsedCard.plan)
   | { type: "warpExile" }; // warp: exile the permanent; its owner may cast it from exile on a later turn
 
 /** Which cards a "reveal a ... card" effect may take: any of the types, or any of the creature types (subtypes), or any nonland card. */
@@ -139,6 +153,8 @@ export interface TokenSpec {
   text: string;
   /** An artifact creature token (a Thopter). */
   artifact?: boolean;
+  /** "Create a tapped 2/1 ... token": it enters tapped. */
+  tapped?: boolean;
   /** "...that's tapped and attacking": it joins the combat. */
   tappedAttacking?: boolean;
   /** "...with changeling": every creature type. */
@@ -196,7 +212,7 @@ export interface TargetSpec {
   /** "with flying" / "without flying". */
   keyword?: { name: Keyword; has: boolean };
   /** For creatures: only ones in this state ("target tapped creature", "target attacking or blocking creature"). */
-  filter?: "tapped" | "attacking" | "blocking" | "attackingOrBlocking";
+  filter?: "tapped" | "attacking" | "blocking" | "attackingOrBlocking" | "attackingAlone" | "notAttacking";
   /** For creatures: only ones this player controls (relative to the controller of the spell). */
   controller?: "you" | "opponent";
   /** "nonblack" etc.: colors the creature must not have. */
@@ -236,6 +252,10 @@ export interface TargetSpec {
   /** "Exile up to one target Equipment attached to that creature": it must be attached to the permanent chosen for this target. */
   attachedToTarget?: number;
   toughness?: { n: number; op: "min" | "max" };
+  /** "target noncreature artifact": an artifact that is not also a creature. */
+  noncreature?: boolean;
+  /** The mana value or power limit above is waived when the spell was kicked ("...mana value 3 or less. If this spell was cast using teamwork, instead exile target creature"). */
+  liftedWhenKicked?: boolean;
   /** For spells: "target creature spell" / "target noncreature spell". */
   spellKind?: "creature" | "noncreature" | "artifactOrCreature";
   /** The printed phrase, shown to players, e.g. "target creature an opponent controls". */
@@ -255,11 +275,19 @@ export interface StaticEffect {
   /** "Other Goblin creatures you control attack each combat if able." */
   mustAttack?: boolean;
   /** "As long as you've drawn two or more cards this turn" / "as long as this Aura entered this turn". */
-  cond?: { drawnAtLeast?: number; lifeAtLeast?: number; yourTurn?: boolean; enteredThisTurn?: boolean; controls?: string; attacking?: boolean; lostLife?: boolean };
+  cond?: { artifactCreatureOrPlan?: boolean; powerAtMost?: number; selfCounteredThisTurn?: boolean; yardCreatures?: number; drawnAtLeast?: number; lifeAtLeast?: number; yourTurn?: boolean; enteredThisTurn?: boolean; controls?: string; attacking?: boolean; lostLife?: boolean };
   /** "Tapped creatures you control have hexproof." */
   tappedOnly?: boolean;
   /** "Gets +1/+1 for each enchantment you control": the power and toughness are multiplied by this count. */
   per?: CountSpec;
+  /** "Each creature you control that you've put one or more +1/+1 counters on this turn has hexproof": the creature it applies to. */
+  targetCounteredThisTurn?: boolean;
+  /** "Attacking creature tokens you control have first strike": only tokens. */
+  tokensOnly?: boolean;
+  /** "Creatures you control with +1/+1 counters on them have trample": only creatures with a +1/+1 counter. */
+  withCounters?: boolean;
+  /** "...and is all creature types." */
+  allTypes?: boolean;
   /** "...and is an Angel in addition to its other types." */
   addSubtypes?: string[];
   /** "...has lifelink and ward {2}." */
@@ -294,6 +322,12 @@ export type CountSpec =
   | { kind: "selfPower" } // the power of the permanent the ability belongs to
   | { kind: "selfCounters" } // counters on it
   | { kind: "excessDamage" } // the excess of the damage the same spell or ability just dealt
+  | { kind: "greatestMV"; what: "artifact" } // the greatest mana value among the artifacts you control
+  | { kind: "discardedThisTurn" } // cards you've discarded this turn
+  | { kind: "selfToughness" } // the toughness of the permanent the ability belongs to
+  | { kind: "equipmentOnSelf" } // the Equipment attached to the permanent the ability belongs to
+  | { kind: "ifTargetSubtype"; i: number; subtype: string; notSelf?: boolean; yes: number; no: number } // "if that creature is another Hero, two instead"
+  | { kind: "handDeficit"; to: number } // ten minus the cards in your hand
   | { kind: "x" } // the X of the spell or ability: for "whenever you discard one or more cards", the number discarded
   | { kind: "targetPower"; i: number } // the power of the i-th target
   | { kind: "otherToughness" } // the toughness of "that creature" (the one that entered)
@@ -312,7 +346,7 @@ export interface SpellAbility {
   effects: Effect[];
   targets: TargetSpec[];
   /** "Choose one —" (min 1, max 1) or "Choose one or both —" (min 1, max 2). The effects and targets above are then empty. */
-  modal?: { min: number; max: number; modes: ModeSpec[] };
+  modal?: { min: number; max: number; modes: ModeSpec[]; /** "Choose one. If this spell was cast using teamwork, choose both instead." */ bothIfKicked?: boolean };
 }
 
 export interface TriggeredAbility {
@@ -322,7 +356,7 @@ export interface TriggeredAbility {
   ifKicked?: boolean;
   event: "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
     | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
-    | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted" | "youDiscard" | "excessDamage" | "damaged" | "anyDies";
+    | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted" | "youDiscard" | "excessDamage" | "damaged" | "anyDies" | "teamworkTap" | "attacksAlone" | "selfTapped" | "hostTapped" | "allyTapped" | "tokenEnters" | "yourAbilityTargets" | "anyDrawSecond" | "allyDamaged" | "hostUpkeep";
   /** An "intervening if": the trigger only happens when this is true as the event occurs. */
   cond?: {
     lifeGainedAtLeast?: number;
@@ -338,6 +372,13 @@ export interface TriggeredAbility {
     controlsOther?: string;
     /** "If you control three or more creatures". */
     creaturesAtLeast?: number;
+    /** "Whenever ~ attacks, draw a card if her power is 4 or greater" / "if he's equipped". */
+    selfPowerAtLeast?: number;
+    selfEquipped?: boolean;
+    /** "If you have fewer than ten cards in hand". */
+    handBelow?: number;
+    /** "If it has greater power or toughness than ~": the creature that entered. */
+    enteringGreater?: boolean;
     /** A Case's "if unsolved, solve at the beginning of your end step". */
     unsolved?: boolean;
     /** "If a Pirate and a Vehicle attacked this combat": each of these types is among the attackers. */
@@ -363,6 +404,20 @@ export interface TriggeredAbility {
   subtypes?: string[];
   /** "...becomes the target of a spell or ability an opponent controls". */
   byOpponent?: boolean;
+  /** "Whenever another Villain and/or artifact you control enters": an artifact counts as well as the types in `subtypes`. */
+  orArtifact?: boolean;
+  /** "Whenever you cast a spell that targets a creature you control" / "...one or more creatures". */
+  spellTargets?: "ownCreature" | "creatures";
+  /** "...if it's the first time that creature has become tapped this turn". */
+  firstTapOnly?: boolean;
+  /** "Whenever one or more creatures you control become tapped": once for all that were tapped together. */
+  batch?: boolean;
+  /** Only on the controller's own turn ("during your turn"). */
+  yourTurnOnly?: boolean;
+  /** "Whenever equipped creature attacks": only the creature this Equipment is attached to counts. */
+  hostOnly?: boolean;
+  /** "Whenever an equipped creature you control attacks": the creature has an Equipment attached. */
+  equippedOnly?: boolean;
   /** "Whenever one or more Goblins you control attack": the attackers must include one of these types. */
   attackerSubtypes?: string[];
   /** "Whenever you cast a red spell" / "a Lesson spell": for "youCast", only a spell of this color (W U B R G) or of this subtype counts. */
@@ -402,12 +457,16 @@ export interface ActivatedAbility {
   exileFromYard?: number;
   /** "Tap two untapped creatures you control that share a creature type" as a cost. */
   tapTwoSharing?: boolean;
+  /** "Activate only if there are two or more creature cards in your graveyard." */
+  needYardCreatures?: number;
+  /** "Activate only if you control a creature with toughness 4 or greater." */
+  needToughness?: number;
   /** "Activate only during your turn." */
   yourTurnOnly?: boolean;
   /** The ability works from the hand or the graveyard ("{1}{U}, discard this card: ..."), not from the battlefield. */
   zone?: "hand" | "graveyard";
   /** "Discard a card" or "Sacrifice a creature" as part of the cost: the player chooses which card when activating. */
-  costCard?: { kind: "discard" | "sacrifice"; filter?: CardFilter; other?: boolean; label: string };
+  costCard?: { kind: "discard" | "sacrifice" | "sacArtifactOrDiscardNonland"; filter?: CardFilter; other?: boolean; label: string };
   /** Costs of such abilities: discard this card / exile this card from your graveyard / pay life. */
   discardSelf?: boolean;
   exileSelf?: boolean;
@@ -456,6 +515,22 @@ export interface ParsedCard {
   protection?: { colors: string[]; artifacts: boolean };
   /** "Flashback {2}{R}": the cost to cast this from the graveyard. */
   flashback?: string;
+  /** "If you would put one or more counters on a permanent you control, put that many plus one of each of those kinds instead." */
+  countersPlusOne?: boolean;
+  /** "Your opponents can't cast spells during your turn." */
+  noOppSpellsOnYourTurn?: boolean;
+  /** "Prevent all damage that would be dealt to ~." */
+  preventDamageToSelf?: boolean;
+  /** "You may activate abilities of creatures you control as though those creatures had haste." */
+  hasteForAbilities?: boolean;
+  /** "You have no maximum hand size." / "Your maximum hand size is ten." */
+  maxHandSize?: number;
+  /** A Saga: its chapters, and the last one (it is sacrificed once that chapter's ability has left the stack). */
+  saga?: { final: number; chapters: { numbers: number[]; effects: Effect[]; targets: TargetSpec[]; text: string }[] };
+  /** A Plan enchantment: when this many plan counters are on it, it is sacrificed and these effects happen (a reflexive trigger, with its own targets). */
+  plan?: { threshold: number; effects: Effect[]; targets: TargetSpec[]; text: string };
+  /** "Teamwork 3": as an additional cost the caster may tap creatures with total power 3 or more. Doing so counts as kicking the spell. */
+  teamwork?: number;
   /** "Kicker {2}": the extra mana that may be paid when casting. Offspring is a kicker by another name (`kickerName`). */
   kicker?: string;
   kickerName?: "offspring";
@@ -511,9 +586,9 @@ export interface ParsedCard {
   lifeGainDouble?: boolean;
   /** "~ costs {1} less to cast if you control a Wizard" / "for each spell your opponents have cast this turn" / "if you control a creature with flying". */
   /** `ifTargetsTapped`: "if it targets a tapped permanent" (so the cost depends on the targets chosen). */
-  costReduction?: { n: number; ifControl?: string; ifFlyer?: boolean; perOpponentSpell?: boolean; per?: CountSpec; ifTargetsTapped?: boolean };
+  costReduction?: { n: number; ifYardCreatures?: number; ifTargetsAttacking?: boolean; ifControl?: string; ifFlyer?: boolean; perOpponentSpell?: boolean; per?: CountSpec; ifTargetsTapped?: boolean };
   /** Permanents that make your spells cost less: "Goblin spells you cast cost {1} less", "during turns other than yours...". */
-  costMods?: { n: number; subtype?: string; minMV?: number; otherTurn?: boolean }[];
+  costMods?: { n: number; subtype?: string; minMV?: number; otherTurn?: boolean; /** "...cost {X} less to cast, where X is ~'s power" */ nFromPower?: boolean; instantSorceryOnly?: boolean }[];
   /** "Spells you cast with mana value 5 or greater can't be countered." */
   uncounterableMinMV?: number;
   /** "As an additional cost to cast this spell, sacrifice a Goblin." */
@@ -624,7 +699,7 @@ export interface PendingPick {
   /** The card the choice comes from. A resolving spell is already in the graveyard, so this is how both players see what is going on. */
   source?: { iid: string; name: string; defId?: string };
   prompt: string;
-  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color" | "creatureType" | "handExile" | "exileToPlay";
+  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color" | "creatureType" | "handExile" | "exileToPlay" | "handToField" | "mayCost";
   /** The cards to choose between (instance ids). They are shown to the chooser. */
   options: string[];
   /** The player may decline (eye spy, a search that finds nothing). */
@@ -648,6 +723,12 @@ export interface PendingPick {
   colorFor?: string;
   /** Search: the land enters tapped. */
   entersTapped?: boolean;
+  /** Discard: one artifact card is enough ("discard two cards unless you discard an artifact card"). */
+  artifactEnough?: boolean;
+  /** Hand to field: the card enters tapped (entersTapped), and an Equipment is attached to this permanent. */
+  attachHolder?: string;
+  /** Hand to field: if the player declines, they draw a card. */
+  elseDraw?: boolean;
   /** Cards the chooser looks at that can't be chosen (the lands in a hand being looked at). */
   seen?: string[];
   /** Hand exile: the permanent that keeps the card until it leaves the battlefield. */

@@ -424,7 +424,7 @@ export function readToSolve(line: string, out: ParsedCard): boolean {
 
 // "Whenever one or more Goblins / creatures you control attack, ..." / "Whenever you attack, if a Pirate and a Vehicle attacked this combat, ..."
 export function readYouAttack(line: string, out: ParsedCard): boolean {
-  const youAttack = /^whenever (?:one or more ([a-z]+) you control attack,?|you attack,) (.+)$/.exec(line);
+  const youAttack = /^whenever (?:one or more ([a-z]+) you control attack(?: a player)?,?|you attack,) (.+)$/.exec(line);
   if (!youAttack) return false;
   let body = youAttack[2];
   const intervening = /^if (.+?), (.+)$/.exec(body);

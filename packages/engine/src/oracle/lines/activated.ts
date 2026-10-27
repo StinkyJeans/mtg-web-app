@@ -1,6 +1,5 @@
 import type { ActivatedAbility, ParsedCard } from "../../effects.js";
-import { CREATURE_TYPES } from "../../creatureTypes.js";
-import { manaAbilityColors, manaAbilityUsesChosenColor, parseManaCost, SPELL_TYPES } from "../../mana.js";
+import { filterAbility, manaAbilityColors, manaAbilityUsesChosenColor, parseManaCost, restrictedMana } from "../../mana.js";
 import { toNumber } from "../words.js";
 import { newCtx } from "../targets.js";
 import { parseSacrificeFilter } from "../sentences.js";
@@ -57,8 +56,7 @@ export function readSacrificeForMana(line: string, out: ParsedCard): boolean {
 // "{T}: Add {B}. Spend this mana only to cast a creature spell.", "...an Angel spell.", "{T}: Add one mana of any color. Spend this mana
 // only to cast a creature spell of the chosen type or ..." (the payment reads the restriction from the card: mana.ts restrictedMana)
 export function readRestrictedMana(line: string, out: ParsedCard): boolean {
-  const m = /^\{T\}: add (?:\{[WUBRGC]\}|one mana of any color)\. spend this mana only to cast (a creature spell of the chosen type or activate an ability of a creature source of the chosen type|a creature spell|an? ([a-z]+) spell)$/.exec(line);
-  return !!m && (!m[2] || SPELL_TYPES.includes(m[2]) || CREATURE_TYPES.includes(m[2]));
+  return restrictedMana({ id: "", name: "", type: "land", cost: 0, text: line }).length > 0;
 }
 
 // A Case: "Solved — Sacrifice this Case: ...", usable only once it is solved.
@@ -86,6 +84,8 @@ export function readLandcycling(line: string, out: ParsedCard): boolean {
 
 // "{T}: ...", "{1}{R}, {T}: ..." (an activated ability), or a mana ability "{T}: Add {G}."
 export function readActivatedAbility(line: string, out: ParsedCard): boolean {
+  // "{1}, {T}: Add one mana of any color." (a filter land): worked out when mana is paid, see mana.ts
+  if (filterAbility({ id: "", name: "", type: "land", cost: 0, text: line }) !== undefined) return true;
   // "Power-up — {4}{B}: ...": used once; its cost is lower on the turn the creature entered (see abilityManaCost).
   const powerUp = /^power-up — (.+)$/.exec(line);
   if (powerUp) {
@@ -114,6 +114,7 @@ export function readActivatedAbility(line: string, out: ParsedCard): boolean {
     cost = cost.replace(/(?:^|,\s*)pay (\d+) life$/i, (_, n: string) => ((payLife = Number(n)), ""));
     let costCard: ActivatedAbility["costCard"];
     cost = cost.replace(/(?:^|,\s*)discard a card$/i, () => ((costCard = { kind: "discard", label: "a card to discard" }), ""));
+    cost = cost.replace(/(?:^|,\s*)sacrifice an artifact or discard a nonland card$/i, () => ((costCard = { kind: "sacArtifactOrDiscardNonland", label: "an artifact to sacrifice or a nonland card to discard" }), ""));
     cost = cost.replace(/(?:^|,\s*)sacrifice (a|an|another) ([a-z ]+?)$/i, (all, who: string, what: string) => {
       const filter = parseSacrificeFilter(what);
       if (!filter) return all;
@@ -148,6 +149,10 @@ export function readActivatedAbility(line: string, out: ParsedCard): boolean {
       body = body.replace(/\.?\s*activate only once\.?$/, () => ((onceOnly = true), ""));
       let minLife: number | undefined;
       body = body.replace(/\.?\s*activate only if you have at least (\d+) life more than your starting life total(?: and only as a sorcery)?\.?$/, (all, n: string) => ((minLife = 20 + Number(n)), all.includes("sorcery") ? ((sorceryOnly = true), "") : ""));
+      let needYardCreatures = 0;
+      body = body.replace(/\.?\s*activate only if there are (two|three|\d+) or more creature cards in your graveyard\.?$/, (_, n: string) => ((needYardCreatures = toNumber(n) ?? 2), ""));
+      let needToughness = 0;
+      body = body.replace(/\.?\s*activate only if you control a creature with toughness (\d+) or greater\.?$/, (_, n: string) => ((needToughness = Number(n)), ""));
       let yourTurnOnly = false;
       body = body.replace(/^it deals /, "~ deals ");
       body = body.replace(/\.?\s*activate only during your turn\.?$/, () => ((yourTurnOnly = true), ""));
@@ -155,7 +160,7 @@ export function readActivatedAbility(line: string, out: ParsedCard): boolean {
       // "{1}{B}: Return this card from your graveyard to the battlefield tapped.": the ability works from the graveyard.
       if (!zone && effects?.some((e) => e.type === "returnSelfToBattlefield" || e.type === "returnFromYard")) zone = "graveyard";
       if (effects && effects.length > 0) {
-        const ability: ActivatedAbility = { tap, mana, effects, targets: ctx.targets, text: line, ...(sorceryOnly ? { sorceryOnly } : {}), ...(oncePerTurn ? { oncePerTurn } : {}), ...(onceOnly ? { onceOnly } : {}), ...(yourTurnOnly ? { yourTurnOnly } : {}), ...(minLife !== undefined ? { minLife } : {}), ...(sacrifice ? { sacrifice } : {}), ...(zone ? { zone } : {}), ...(discardSelf ? { discardSelf } : {}), ...(exileSelf ? { exileSelf } : {}), ...(payLife ? { payLife } : {}), ...(costCard ? { costCard } : {}), ...(exileFromYard ? { exileFromYard } : {}), ...(tapTwoSharing ? { tapTwoSharing } : {}) };
+        const ability: ActivatedAbility = { tap, mana, effects, targets: ctx.targets, text: line, ...(sorceryOnly ? { sorceryOnly } : {}), ...(oncePerTurn ? { oncePerTurn } : {}), ...(onceOnly ? { onceOnly } : {}), ...(yourTurnOnly ? { yourTurnOnly } : {}), ...(needYardCreatures ? { needYardCreatures } : {}), ...(needToughness ? { needToughness } : {}), ...(minLife !== undefined ? { minLife } : {}), ...(sacrifice ? { sacrifice } : {}), ...(zone ? { zone } : {}), ...(discardSelf ? { discardSelf } : {}), ...(exileSelf ? { exileSelf } : {}), ...(payLife ? { payLife } : {}), ...(costCard ? { costCard } : {}), ...(exileFromYard ? { exileFromYard } : {}), ...(tapTwoSharing ? { tapTwoSharing } : {}) };
         out.activated.push(ability);
         return true;
       }

@@ -23,8 +23,9 @@ export function normalizeText(def: CardDef): string {
   for (const name of new Set([def.name, def.name.split(",")[0]])) {
     if (name.length >= 3) text = text.replace(new RegExp(escapeRegex(name), "gi"), "~");
   }
-  text = text.replace(/\bthis (creature|permanent|spell|artifact|enchantment|land|aura|equipment|vehicle|card|token)\b/gi, "~").toLowerCase();
-  text = text.replace(/(^|, |\. )(?:he|she) (deals|gets|gains|loses) /g, "$1~ $2 "); // "When Momo enters, he deals 4 damage to ..."
+  text = text.replace(/\bthis (creature|permanent|spell|artifact|enchantment|land|aura|equipment|vehicle|card|token|saga)\b/gi, "~").toLowerCase();
+  text = text.replace(/(^|, |\. )(?:he|she) (deals|gets|gains|loses|connives|explores|fights|has) /g, "$1~ $2 "); // "When Momo enters, he deals 4 damage to ..."
+  text = text.replace(/(^|, |\. )(?:he|she) (connives|explores)(?=\.?\s*$)/gm, "$1~ $2"); // "Whenever Kang attacks, he connives."
   text = text.replace(/ on (?:him|her)(?=\.?\s*$)/gm, " on ~"); // "put a +1/+1 counter on her"
   text = text.replace(/\{([^}]+)\}/g, (_, symbol: string) => `{${symbol.toUpperCase()}}`).replace(/\u2212/g, "-"); // a real minus sign in loyalty costs
   return text
@@ -42,6 +43,7 @@ export function amountOf(phrase: string, ctx: Ctx): Amount | null {
     const c = parseCount(m[1]);
     return c ? { count: c } : null;
   }
+  if (phrase === "the greatest mana value among artifacts you control") return { count: { kind: "greatestMV", what: "artifact" } };
   if (phrase === "~'s power" || (phrase === "its power" && ctx.targets.length === 0 && ctx.allowSelf)) return { count: { kind: "selfPower" } };
   if ((phrase === "that creature's power" || phrase === "its power") && ctx.targets.length > 0) return { count: { kind: "targetPower", i: ctx.targets.length - 1 } };
   if (phrase === "that creature's toughness" && ctx.hasOther) return { count: { kind: "otherToughness" } };
@@ -52,6 +54,7 @@ export function amountOf(phrase: string, ctx: Ctx): Amount | null {
 /** "for each attacking creature you control": singular phrase to a count. */
 export function forEachCount(phrase: string): CountSpec | null {
   if (phrase === "card discarded this way") return { kind: "x" };
+  if (phrase === "card you've discarded this turn") return { kind: "discardedThisTurn" };
   const otherTyped = /^other ([a-z]+) you control$/.exec(phrase);
   if (otherTyped && !/^(creature|artifact|land|enchantment)$/.test(otherTyped[1])) return { kind: "permanents", what: "subtype", subtype: otherTyped[1], other: true, scope: "you" };
   const atk = /^(other )?attacking ([a-z]+)$/.exec(phrase);

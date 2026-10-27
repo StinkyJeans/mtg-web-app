@@ -2,6 +2,7 @@
 
 import { powerOf, toughnessOf } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
+import { useState } from "react";
 import type { CastPlan } from "./castInfo";
 import { ManaText } from "./ManaSymbols";
 import { ChoicePanel, XPanel } from "./ChoicePanels";
@@ -18,16 +19,52 @@ interface Props {
   onCancel: () => void;
 }
 
+/** Teamwork: tap creatures with total power N or more as an additional cost (the spell then does more). */
+function TeamworkPanel({ state, actor, plan, onAdvance, onCancel }: Pick<Props, "state" | "actor" | "plan" | "onAdvance" | "onCancel">) {
+  const team = plan.castable.teamwork!;
+  const [using, setUsing] = useState(false);
+  const [picked, setPicked] = useState<number[]>([]);
+  if (!using) {
+    return (
+      <ChoicePanel
+        title={`${plan.name} has teamwork ${team.n}`}
+        options={[
+          { label: "Cast it normally", onPick: () => onAdvance({ ...plan, teamwork: [] }) },
+          { label: `Use teamwork: tap creatures with total power ${team.n} or more, and the spell does more`, onPick: () => setUsing(true) },
+        ]}
+        onCancel={onCancel}
+      />
+    );
+  }
+  const perms = team.options.map((iid) => state.players[actor].battlefield.find((p) => p.card.iid === iid)!);
+  const total = picked.reduce((n, i) => n + Math.max(0, powerOf(state, perms[i])), 0);
+  return (
+    <ChoicePanel
+      title={`Teamwork ${team.n}: choose creatures to tap (total power ${total} of ${team.n})`}
+      options={perms.map((p) => ({ label: `${state.cards[p.card.defId].name} (power ${powerOf(state, p)})`, onPick: () => undefined }))}
+      multi={{
+        selected: picked,
+        onToggle: (i) => setPicked(picked.includes(i) ? picked.filter((x) => x !== i) : [...picked, i]),
+        onDone: () => onAdvance({ ...plan, teamwork: picked.map((i) => perms[i].card.iid) }),
+        canDone: total >= team.n,
+      }}
+      onCancel={onCancel}
+    />
+  );
+}
+
 /** The question a spell being cast still needs answered, in order: modes, warp, the kicker (or offspring, or blight), X, then a creature to sacrifice or a card to discard. */
 export default function CastPlanPanels({ state, actor, plan, modePick, onModePick, xValue, onX, onAdvance, onCancel }: Props) {
   const c = plan.castable;
+  const teamworkDone = c.teamwork === undefined || plan.teamwork !== undefined;
   const modesDone = !c.modal || plan.modes !== undefined;
   const warpDone = c.warp === undefined || plan.warp !== undefined;
   const kickerDone = (c.kicker === undefined && !c.blight) || plan.kicked !== undefined;
   const xDone = c.maxX === undefined || plan.x !== undefined;
 
+  if (!teamworkDone) return <TeamworkPanel state={state} actor={actor} plan={plan} onAdvance={onAdvance} onCancel={onCancel} />;
   if (c.modal && !modesDone) {
-    const max = c.modal.max;
+    const max = c.modal.bothIfKicked && (plan.teamwork?.length ?? 0) > 0 ? 2 : c.modal.max;
     return (
       <ChoicePanel
         title={`${plan.name}: choose ${max === 1 ? "one" : "one or both"}`}

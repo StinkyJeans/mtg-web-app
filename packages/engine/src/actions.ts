@@ -9,6 +9,7 @@ import {
   findPermanent,
   findPermanentOrNull,
   forbidden,
+  handLimit,
   isCreature,
   isProtectedFrom,
   kw,
@@ -21,6 +22,7 @@ import {
   qualityOfDef,
   queueTriggers,
   staticEffectsOn,
+  tapPerm,
   subtypesOf,
   toughnessOf,
 } from "./core.js";
@@ -48,7 +50,7 @@ export type Action =
   | { type: "shuffleDeck" } // before keeping or mulliganing: shuffle the OTHER player's library
   | { type: "playLand"; iid: string }
   | { type: "castCreature"; iid: string }
-  | { type: "castSpell"; iid: string; targets?: TargetChoice[]; x?: number; kicked?: boolean; from?: "graveyard" | "exile" | "prepared"; modes?: number[]; sacrifice?: string; warp?: boolean }
+  | { type: "castSpell"; iid: string; targets?: TargetChoice[]; x?: number; kicked?: boolean; from?: "graveyard" | "exile" | "prepared"; modes?: number[]; sacrifice?: string; warp?: boolean; /** Teamwork: the creatures tapped as an additional cost. */ teamwork?: string[] }
   | { type: "activateAbility"; iid: string; index: number; targets?: TargetChoice[]; payWith?: string; /** The X of a cost like "{X}{R}": what the player chose to pay. */ x?: number }
   | { type: "crew"; iid: string } // crew a Vehicle: then choose the creatures to tap
   | { type: "cycle"; iid: string } // cycle a card from hand (pay its cycling cost, discard it, draw a card)
@@ -205,7 +207,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       if (idx < 0) return fail("That card is not in your hand.");
       if (getCard(next, zone[idx].defId).type !== "land") return fail("That card is not a land.");
       const [card] = zone.splice(idx, 1);
-      me.battlefield.push({ card, tapped: (zone === me.exile && tappedLand) || entersTappedNow(next, player, getCard(next, card.defId)), summoningSick: false, damage: 0 });
+      me.battlefield.push({ card, tapped: (zone === me.exile && tappedLand) || entersTappedNow(next, player, getCard(next, card.defId)), summoningSick: false, damage: 0, enteredTurn: next.turn });
       me.landsPlayedThisTurn++;
       events.push({ type: "landPlayed", player, iid: card.iid });
       queueTriggers(next, card, player, "enters"); // "When this land enters, you gain 1 life."
@@ -216,7 +218,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
 
     case "castCreature":
     case "castSpell": {
-      const error = castSpell(next, player, action.iid, action.type === "castSpell" ? (action.targets ?? []) : [], events, action.type === "castSpell" ? action.x : 0, action.type === "castSpell" ? action.kicked === true : false, action.type === "castSpell" ? (action.from ?? "hand") : me.hand.some((c) => c.iid === action.iid) ? "hand" : "exile", action.type === "castSpell" ? action.modes : undefined, action.type === "castSpell" ? action.sacrifice : undefined, action.type === "castSpell" && action.warp === true);
+      const error = castSpell(next, player, action.iid, action.type === "castSpell" ? (action.targets ?? []) : [], events, action.type === "castSpell" ? action.x : 0, action.type === "castSpell" ? action.kicked === true : false, action.type === "castSpell" ? (action.from ?? "hand") : me.hand.some((c) => c.iid === action.iid) ? "hand" : "exile", action.type === "castSpell" ? action.modes : undefined, action.type === "castSpell" ? action.sacrifice : undefined, action.type === "castSpell" && action.warp === true, action.type === "castSpell" ? action.teamwork : undefined);
       if (error) return fail(error);
       break;
     }
@@ -272,7 +274,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       if (next.phase === "mulligan") return fail("Keep your hand or take a mulligan first.");
       if (next.phase === "blockers") return fail("Declare your blockers (an empty list blocks nothing).");
       if (next.phase === "damage") return fail("Assign combat damage first.");
-      if (next.phase === "cleanup") return fail(`Discard down to ${MAX_HAND_SIZE} cards first.`);
+      if (next.phase === "cleanup") return fail(`Discard down to ${handLimit(next, player)} cards first.`);
       advancePhase(next, events);
       break;
     }
@@ -311,7 +313,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       me.attackedThisTurn = true; // raid
       chosen.forEach((p) => {
         p.attackedThisTurn = true;
-        if (!kw(next, p, "vigilance")) p.tapped = true; // vigilance: attacking doesn't tap it
+        if (!kw(next, p, "vigilance")) tapPerm(next, p, player); // vigilance: attacking doesn't tap it
       });
       for (const [attacker, walker] of Object.entries(action.targets ?? {})) {
         const found = findPermanentOrNull(next, walker);
@@ -322,6 +324,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       chosen.forEach((p) => queueTriggers(next, p.card, player, "attacks", { attackers: chosen.map((c) => c.card.iid) }));
       if (chosen.length >= 3) chosen.forEach((p) => queueTriggers(next, p.card, player, "battalion")); // "Battalion — whenever this and at least two other creatures attack"
       if (chosen.length >= 2) for (const p of me.battlefield) queueTriggers(next, p.card, player, "attackTwo");
+      if (chosen.length === 1) for (const p of me.battlefield) queueTriggers(next, p.card, player, "attacksAlone", { other: chosen[0].card.iid, self: p.card.iid === chosen[0].card.iid });
       for (const p of me.battlefield) queueTriggers(next, p.card, player, "youAttack", { attackers: chosen.map((c) => c.card.iid) });
       // "Whenever a Bat you control attacks": once for each attacking Bat.
       for (const attacker of chosen) for (const p of me.battlefield) queueTriggers(next, p.card, player, "allyAttacks", { subtypes: subtypesOf(next, attacker), other: attacker.card.iid }); // "Whenever one or more creatures you control attack" // "Whenever you attack with two or more creatures"
@@ -483,7 +486,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
 
     case "discard": {
       if (next.phase !== "cleanup") return fail("You only discard down to hand size at the end of your turn.");
-      const excess = me.hand.length - MAX_HAND_SIZE;
+      const excess = me.hand.length - handLimit(next, player);
       const unique = new Set(action.iids);
       if (action.iids.length !== excess || unique.size !== excess) {
         return fail(`Discard exactly ${excess} card${excess === 1 ? "" : "s"}.`);

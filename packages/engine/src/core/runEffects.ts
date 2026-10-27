@@ -4,6 +4,7 @@ import type { GameState } from "../types.js";
 import { countFor, findPermanentOrNull, kw, powerOf, subtypesOf, toughnessOf } from "./permanents.js";
 import { DAMAGE_EFFECTS } from "./handlers/damage.js";
 import { LIBRARY_EFFECTS } from "./handlers/library.js";
+import { MARVEL_EFFECTS } from "./handlers/marvel.js";
 import { PERMANENT_EFFECTS } from "./handlers/permanents.js";
 import type { EffectHandlers, EffectRun } from "./handlers/shared.js";
 import { STACK_EFFECTS } from "./handlers/stack.js";
@@ -11,7 +12,7 @@ import { ZONE_EFFECTS } from "./handlers/zones.js";
 
 // Running a spell's or ability's effects, one after another. What each kind of effect does is in handlers/.
 
-const HANDLERS: Required<EffectHandlers> = { ...DAMAGE_EFFECTS, ...PERMANENT_EFFECTS, ...ZONE_EFFECTS, ...LIBRARY_EFFECTS, ...STACK_EFFECTS };
+const HANDLERS: Required<EffectHandlers> = { ...DAMAGE_EFFECTS, ...PERMANENT_EFFECTS, ...ZONE_EFFECTS, ...LIBRARY_EFFECTS, ...STACK_EFFECTS, ...MARVEL_EFFECTS };
 
 /** Runs a spell's or ability's effects in order. State-based actions are checked by the caller afterwards. */
 export function runEffects(state: GameState, effects: Effect[], ctx: RunContext, events: GameEvent[]): void {
@@ -28,6 +29,13 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
     const n =
       c.kind === "selfPower" ? (self ? Math.max(0, powerOf(state, self)) : 0)
       : c.kind === "selfCounters" ? (self?.counters ?? 0)
+      : c.kind === "selfToughness" ? (self ? Math.max(0, toughnessOf(state, self)) : 0)
+      : c.kind === "equipmentOnSelf" ? Object.values(state.players).flatMap((pl) => pl.battlefield).filter((p) => p.attachedTo === ctx.sourceId && subtypesOf(state, p).includes("equipment")).length
+      : c.kind === "ifTargetSubtype" ? (() => {
+          const t = ctx.targets[c.i];
+          const p = t?.kind === "permanent" ? chosen(t.iid) : undefined;
+          return p && (!c.notSelf || p.card.iid !== ctx.sourceId) && subtypesOf(state, p).includes(c.subtype) ? c.yes : c.no;
+        })()
       : c.kind === "excessDamage" ? (state.lastExcess ?? 0)
       : c.kind === "targetPower" ? (() => {
           const t = ctx.targets[c.i];

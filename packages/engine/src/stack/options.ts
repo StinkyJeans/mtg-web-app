@@ -4,8 +4,8 @@ import type { TargetSpec } from "../effects.js";
 import { addCosts, parseManaCost, payMana, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
-import { abilityManaCost, canCastNow, holdsPriority, sorceryTiming } from "./shared.js";
-import { castCostOf, costChoices, crewers, tapPair } from "./cast.js";
+import { abilityHaste, abilityManaCost, abilityNeed, canCastNow, holdsPriority, sorceryTiming } from "./shared.js";
+import { castCostOf, costChoices, crewers, liftedSpecs, tapPair, teamworkers } from "./cast.js";
 
 // What a player could do right now (for the screen and for auto-passing).
 
@@ -23,7 +23,7 @@ export interface Castable {
   /** "Discard a card" is an additional cost: the cards that could be discarded (answered as `sacrifice`). */
   discard?: string[];
   /** A "Choose one —" spell: each mode with what it targets and whether it could be chosen right now. */
-  modal?: { min: number; max: number; modes: { text: string; specs: TargetSpec[]; available: boolean }[] };
+  modal?: { min: number; max: number; bothIfKicked?: boolean; modes: { text: string; specs: TargetSpec[]; available: boolean }[] };
   /** The spell has a kicker the player could pay on top of the cost right now: its printed cost, e.g. "{2}". Offspring is one (`kickerName`). */
   kicker?: string;
   kickerName?: "offspring";
@@ -32,6 +32,8 @@ export interface Castable {
   /** It can be cast from hand for this warp cost right now. `warpOnly`: only that way (the mana cost can't be paid). */
   warp?: string;
   warpOnly?: boolean;
+  /** Teamwork: the player may tap creatures with total power `n` or more (any of `options`) as an additional cost; the spell then counts as kicked. */
+  teamwork?: { n: number; options: string[] };
 }
 
 /** Cards in hand the player could cast right now: right timing, enough mana, and a legal target for each need. */
@@ -55,12 +57,17 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
   const specs = (parsed.spell?.targets ?? []).map((spec) => (tappedOnly && !canWarp ? { ...spec, filter: "tapped" as const } : spec));
   const modal = parsed.spell?.modal;
   const modeInfo = modal ? modal.modes.map((m) => ({ text: m.text, specs: m.targets, available: m.targets.every((spec) => legalTargets(state, spec, player).length > 0) })) : undefined;
-  if (modeInfo ? !modeInfo.some((m) => m.available) : specs.some((spec) => legalTargets(state, spec, player).length === 0)) return null;
+  // Teamwork: creatures that could be tapped for it, and whether they are enough (then the spell may have fewer limits on its targets).
+  const teamOptions = parsed.teamwork !== undefined ? teamworkers(state, player) : [];
+  const canTeam = parsed.teamwork !== undefined && teamOptions.reduce((n, p) => n + Math.max(0, powerOf(state, p)), 0) >= parsed.teamwork;
+  const reachable = canTeam ? liftedSpecs(specs) : specs;
+  if (modeInfo ? !modeInfo.some((m) => m.available) : reachable.some((spec) => legalTargets(state, spec, player).length === 0)) return null;
+  const teamPart = canTeam ? { teamwork: { n: parsed.teamwork!, options: teamOptions.map((p) => p.card.iid) } } : {};
   const kickerCost = parsed.kicker ? parseManaCost(parsed.kicker) : null;
   const kickable = kickerCost !== null && payMana(state, player, addCosts(cost, kickerCost), def).ok ? { kicker: parsed.kicker, ...(parsed.kickerName ? { kickerName: parsed.kickerName } : {}) } : {};
   const blightOptions = parsed.blight ? state.players[player].battlefield.filter((p) => isCreature(state, p)).map((p) => p.card.iid) : [];
   const blightPart = blightOptions.length > 0 ? { blight: { n: parsed.blight!, options: blightOptions } } : {};
-  const modalPart = modal && modeInfo ? { modal: { min: modal.min, max: modal.max, modes: modeInfo } } : {};
+  const modalPart = modal && modeInfo ? { modal: { min: modal.min, max: modal.max, ...(modal.bothIfKicked ? { bothIfKicked: true } : {}), modes: modeInfo } } : {};
   if (parsed.extraSacrifice || parsed.extraSacrificeOrPay !== undefined) {
     const typed = parsed.extraSacrificeType;
     const options = state.players[player].battlefield.filter((p) => isCreature(state, p) && (!typed || subtypesOf(state, p).includes(typed))).map((p) => p.card.iid);
@@ -75,10 +82,10 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
     Object.assign(modalPart, { discard: options });
   }
   const zonePart = zone ? { zone } : {};
-  if (!cost.x) return { iid, specs, ...kickable, ...blightPart, ...warpPart, ...modalPart, ...zonePart };
+  if (!cost.x) return { iid, specs, ...kickable, ...blightPart, ...teamPart, ...warpPart, ...modalPart, ...zonePart };
   let maxX = 0;
   while (maxX < 30 && payMana(state, player, withX(cost, maxX + 1), def).ok) maxX++;
-  return { iid, specs, maxX, ...kickable, ...blightPart, ...warpPart, ...modalPart, ...zonePart };
+  return { iid, specs, maxX, ...kickable, ...blightPart, ...teamPart, ...warpPart, ...modalPart, ...zonePart };
 }
 
 export function getCastable(state: GameState, player: PlayerId): Castable[] {
@@ -211,16 +218,17 @@ export function getActivatable(state: GameState, player: PlayerId): Activatable[
     const def = getCard(state, perm.card.defId);
     parseCard(def).activated.forEach((ability, index) => {
       if (ability.zone) return;
-      if (ability.tap && (perm.tapped || (isCreature(state, perm) && perm.summoningSick && !kw(state, perm, "haste")))) return;
+      if (ability.tap && (perm.tapped || (isCreature(state, perm) && perm.summoningSick && !kw(state, perm, "haste") && !abilityHaste(state, player)))) return;
       if (ability.mana) {
         const cost = abilityManaCost(state, perm, ability);
-        if (!cost || !payMana(state, player, cost).ok) return;
+        if (!cost || !payMana(state, player, cost, undefined, def).ok) return;
       }
       if (bindSpecs(ability.targets, perm.card.iid).some((spec) => legalTargets(state, spec, player).length === 0)) return;
       if (ability.sorceryOnly && !sorceryTiming(state, player)) return;
       if (ability.oncePerTurn && perm.usedAbilities?.includes(index)) return;
       if (ability.onceOnly && perm.usedOnce?.includes(index)) return;
       if (ability.yourTurnOnly && state.active !== player) return;
+      if (abilityNeed(state, player, ability)) return;
       if (ability.solvedOnly && !perm.solved) return;
       if (ability.minLife !== undefined && state.players[player].life < ability.minLife) return;
       if (ability.exileFromYard && state.players[player].graveyard.length < ability.exileFromYard) return;
@@ -231,7 +239,7 @@ export function getActivatable(state: GameState, player: PlayerId): Activatable[
       let maxX: number | undefined;
       if (xCost?.x) {
         maxX = 0;
-        while (maxX < 30 && payMana(state, player, withX(xCost, maxX + 1)).ok) maxX++;
+        while (maxX < 30 && payMana(state, player, withX(xCost, maxX + 1), undefined, def).ok) maxX++;
       }
       out.push({ iid: perm.card.iid, index, text: ability.text, specs: bindSpecs(ability.targets, perm.card.iid), ...(maxX !== undefined ? { maxX } : {}), ...(ability.costCard ? { costChoices: costChoices(state, player, ability, perm.card.iid), costLabel: ability.costCard.label } : {}) });
     });
@@ -249,16 +257,18 @@ export function abilityLockReason(state: GameState, player: PlayerId, perm: Perm
   const ability = parseCard(def).activated[index];
   if (!ability || ability.zone) return null;
   if (ability.tap && perm.tapped) return "it is tapped";
-  if (ability.tap && isCreature(state, perm) && perm.summoningSick && !kw(state, perm, "haste")) return "it just arrived (summoning sick)";
+  if (ability.tap && isCreature(state, perm) && perm.summoningSick && !kw(state, perm, "haste") && !abilityHaste(state, player)) return "it just arrived (summoning sick)";
   if (ability.mana) {
     const cost = abilityManaCost(state, perm, ability);
-    if (!cost || !payMana(state, player, cost).ok) return "not enough mana";
+    if (!cost || !payMana(state, player, cost, undefined, def).ok) return "not enough mana";
   }
   if (bindSpecs(ability.targets, perm.card.iid).some((spec) => legalTargets(state, spec, player).length === 0)) return "there is nothing it could target right now";
   if (ability.sorceryOnly && !sorceryTiming(state, player)) return "only in your main phase with an empty stack";
   if (ability.oncePerTurn && perm.usedAbilities?.includes(index)) return "already used this turn";
   if (ability.onceOnly && perm.usedOnce?.includes(index)) return "it can only be used once";
   if (ability.yourTurnOnly && state.active !== player) return "only during your turn";
+  const needed = abilityNeed(state, player, ability);
+  if (needed) return needed;
   if (ability.solvedOnly && !perm.solved) return "the Case isn't solved yet";
   const life = state.players[player].life;
   if (ability.minLife !== undefined && life < ability.minLife) return `you need at least ${ability.minLife} life (you have ${life})`;

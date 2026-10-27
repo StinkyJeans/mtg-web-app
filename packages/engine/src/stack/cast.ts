@@ -11,6 +11,7 @@ import {
   exilePlayTerms,
   findPermanentOrNull,
   forbidden,
+  isArtifactDef,
   isCreature,
   isPermanentCard,
   kw,
@@ -21,13 +22,14 @@ import {
   queueWard,
   shiftTargets,
   subtypesOf,
+  tapPerm,
 } from "../core.js";
-import type { CardFilter, TargetChoice } from "../effects.js";
+import type { CardFilter, TargetChoice, TargetSpec } from "../effects.js";
 import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payMana, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
-import { abilityManaCost, applyPayment, canCastNow, checkTargets, holdsPriority, openRound, sorceryTiming, timingError } from "./shared.js";
+import { abilityHaste, abilityManaCost, abilityNeed, applyPayment, canCastNow, checkTargets, holdsPriority, openRound, sorceryTiming, timingError } from "./shared.js";
 
 // Casting spells and activating abilities: each puts something on the stack and opens a round of priority.
 
@@ -41,13 +43,19 @@ export function castCostOf(state: GameState, player: PlayerId, def: CardDef, tar
   if (!base) return base;
   const me = state.players[player];
   const spellTypes = ((def.typeLine ?? "").split("—")[1] ?? "").toLowerCase().split(/\s+/);
+  // "The next red or green creature spell you cast this turn can be cast without paying its mana cost."
+  if (me.freeNext && def.type === "creature" && (def.colors ?? []).some((c) => me.freeNext!.colors.includes(c))) return { generic: 0, colored: {} };
   let less = 0;
+  // "Artifact spells you cast this turn cost {1} less to cast."
+  for (const d of me.costLessThisTurn ?? []) if (d.spell === "artifact" && (def.typeLine ?? "").split("—")[0].includes("Artifact")) less += d.n;
   const own = parseCard(def).costReduction;
   if (own) {
     if (own.ifControl && me.battlefield.some((p) => subtypesOf(state, p).includes(own.ifControl!))) less += own.n;
     if (own.ifFlyer && me.battlefield.some((p) => isCreature(state, p) && kw(state, p, "flying"))) less += own.n;
     if (own.perOpponentSpell) less += own.n * (state.players[OPPONENT[player]].spellsCastThisTurn ?? 0);
     if (own.per) less += own.n * countFor(state, player, own.per);
+    if (own.ifYardCreatures !== undefined && me.graveyard.filter((c) => getCard(state, c.defId).type === "creature").length >= own.ifYardCreatures) less += own.n;
+    if (own.ifTargetsAttacking && targets?.some((t) => t.kind === "permanent" && state.combat?.attackers.some((a) => a.attacker === t.iid))) less += own.n;
     if (own.ifTargetsTapped && targets?.some((t) => t.kind === "permanent" && findPermanentOrNull(state, t.iid)?.perm.tapped)) less += own.n;
   }
   for (const perm of me.battlefield) {
@@ -55,13 +63,20 @@ export function castCostOf(state: GameState, player: PlayerId, def: CardDef, tar
       if (mod.subtype && !(def.type === "creature" && spellTypes.includes(mod.subtype))) continue;
       if (mod.minMV !== undefined && def.cost < mod.minMV) continue;
       if (mod.otherTurn && state.active === player) continue;
-      less += mod.n;
+      if (mod.instantSorceryOnly && def.type !== "instant" && def.type !== "sorcery") continue;
+      less += mod.nFromPower ? Math.max(0, powerOf(state, perm)) : mod.n;
     }
   }
   return less > 0 ? { ...base, generic: Math.max(0, base.generic - less) } : base;
 }
 
-export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false): string | null {
+/** Targets with the limit that teamwork waives taken off ("exile target creature with mana value 3 or less. If cast using teamwork, instead exile target creature"). */
+export const liftedSpecs = (specs: TargetSpec[]): TargetSpec[] => specs.map((s) => (s.liftedWhenKicked ? { ...s, mv: undefined, power: undefined, toughness: undefined, liftedWhenKicked: undefined } : s));
+
+/** Untapped creatures that could be tapped to pay teamwork (summoning-sick ones too: it is not a {T} cost). */
+export const teamworkers = (state: GameState, player: PlayerId) => state.players[player].battlefield.filter((p) => !p.tapped && isCreature(state, p));
+
+export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false, teamwork?: string[]): string | null {
   const me = state.players[player];
   // A prepared creature: a copy of its spell is cast (`iid` is the creature).
   const prepared = from === "prepared" ? me.battlefield.find((p) => p.card.iid === iid && p.prepared) : undefined;
@@ -94,14 +109,28 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   }
   if (!canCastNow(state, player, def)) return timingError(state, def);
 
+  // Teamwork: "you may tap any number of creatures you control with total power N or more". Doing so counts as kicking the spell.
+  let teamed: Permanent[] = [];
+  if (teamwork && teamwork.length > 0) {
+    if (parsed.teamwork === undefined) return `${def.name} has no teamwork.`;
+    const ids = [...new Set(teamwork)];
+    const picked = ids.map((id) => me.battlefield.find((p) => p.card.iid === id));
+    if (picked.some((p) => !p || p.tapped || !isCreature(state, p))) return `${def.name}: teamwork taps untapped creatures you control.`;
+    const power = picked.reduce((n, p) => n + Math.max(0, powerOf(state, p!)), 0);
+    if (power < parsed.teamwork) return `${def.name}: teamwork ${parsed.teamwork} needs creatures with total power ${parsed.teamwork} or more (the ones chosen have ${power}).`;
+    teamed = picked as Permanent[];
+  }
+  const wasKicked = kicked || teamed.length > 0;
   let specs = parsed.spell?.targets ?? [];
   let effects = parsed.spell?.effects ?? [];
   const modal = parsed.spell?.modal;
+  if (teamed.length > 0) specs = liftedSpecs(specs);
   if (modal) {
     // "Choose one —": the effects and targets are those of the chosen mode(s), in printed order.
     const chosen = [...new Set(modes ?? [])].sort((a, b) => a - b);
-    if (chosen.length < modal.min || chosen.length > modal.max || chosen.some((m) => !modal.modes[m])) {
-      return `${def.name}: choose ${modal.max === 1 ? "one mode" : "one or both modes"}.`;
+    const most = modal.bothIfKicked && teamed.length > 0 ? 2 : modal.max;
+    if (chosen.length < modal.min || chosen.length > most || chosen.some((m) => !modal.modes[m])) {
+      return `${def.name}: choose ${most === 1 ? "one mode" : "one or both modes"}.`;
     }
     specs = [];
     effects = [];
@@ -143,6 +172,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   }
   const taxed = tax > 0 ? { ...cost, generic: cost.generic + tax } : cost;
   const extra = [kicked ? kickerCost : null, payInstead].filter((c): c is NonNullable<typeof c> => c !== null);
+  for (const p of teamed) tapPerm(state, p, player); // paid as part of the cost, before the mana (they can't also be tapped for mana)
   const paid = payMana(state, player, withX(extra.reduce(addCosts, taxed), x), def);
   if (!paid.ok) {
     const price = warp ? `warp ${parsed.warp}` : from === "graveyard" && !fromYard ? `flashback ${parsed.flashback}` : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "") + (payInstead ? ` + ${parsed.extraSacrificeOrPay}` : "");
@@ -166,6 +196,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
     checkStateBasedActions(state, events);
   }
   if (fromYard) me.yardCastable = me.yardCastable!.filter((id) => id !== iid);
+  if (me.freeNext && def.type === "creature" && (def.colors ?? []).some((c) => me.freeNext!.colors.includes(c))) me.freeNext = undefined; // used up
   const [taken] = zone.splice(idx, 1);
   if (parsed.extraDiscard && sacrifice) {
     me.graveyard.push(me.hand.splice(me.hand.findIndex((c) => c.iid === sacrifice), 1)[0]);
@@ -176,7 +207,8 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   if (from === "exile") me.mayPlay = (me.mayPlay ?? []).filter((e) => e.iid !== iid);
   if (prepared) prepared.prepared = undefined; // casting the copy unprepares it
   const card = prepared ? { ...taken, iid: `copy${state.nextId++}` } : taken;
-  state.stack.push({ kind: "spell", id: newId(state), controller: player, card, effects, targets, specs, x: cost.x ? x : (sacrificedPower ?? x), ...(kicked ? { kicked } : {}), ...(haste ? { haste } : {}), ...(from === "graveyard" && !fromYard ? { flashback: true } : {}), ...(prepared ? { copy: true } : {}), ...(warp ? { warped: true } : {}) });
+  for (const p of teamed) queueTriggers(state, p.card, player, "teamworkTap");
+  state.stack.push({ kind: "spell", id: newId(state), controller: player, card, effects, targets, specs, x: cost.x ? x : (sacrificedPower ?? x), ...(wasKicked ? { kicked: true } : {}), ...(haste ? { haste } : {}), ...(from === "graveyard" && !fromYard ? { flashback: true } : {}), ...(prepared ? { copy: true } : {}), ...(warp ? { warped: true } : {}) });
   events.push(
     def.type === "creature"
       ? { type: "creatureCast", player, iid: card.iid, tapped: paid.tap }
@@ -188,7 +220,17 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "noncreatureSpell", def.type === "creature" ? { subtypes: spellTypes } : undefined);
   if (def.type === "instant" || def.type === "sorcery") for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "instantOrSorcery");
   me.spellsCastThisTurn = (me.spellsCastThisTurn ?? 0) + 1;
-  for (const perm of me.battlefield) queueTriggers(state, perm.card, player, "youCast", { castCount: me.spellsCastThisTurn, spellColors: def.colors ?? [], spellSubtypes: spellTypes });
+  const aimedAt = (iid: string) => findPermanentOrNull(state, iid);
+  const targetedCreatures = targets.flatMap((t) => (t.kind === "permanent" && aimedAt(t.iid) && isCreature(state, aimedAt(t.iid)!.perm) ? [aimedAt(t.iid)!] : []));
+  for (const perm of me.battlefield) {
+    queueTriggers(state, perm.card, player, "youCast", {
+      castCount: me.spellsCastThisTurn,
+      spellColors: def.colors ?? [],
+      spellSubtypes: spellTypes,
+      targetsOwnCreature: targetedCreatures.some((f) => f.owner.id === player),
+      targetsCreature: targetedCreatures.length > 0,
+    });
+  }
   for (const perm of state.players[OPPONENT[player]].battlefield) queueTriggers(state, perm.card, OPPONENT[player], "opponentCasts");
   openRound(state, OPPONENT[player]);
   return null;
@@ -205,11 +247,17 @@ export function tapPair(state: GameState, player: PlayerId): [Permanent, Permane
 }
 
 /** The cards that could pay a "discard a card" / "sacrifice a creature" cost. */
-export function costChoices(state: GameState, player: PlayerId, ability: { costCard?: { kind: "discard" | "sacrifice"; filter?: CardFilter; other?: boolean } }, sourceIid: string): string[] {
+export function costChoices(state: GameState, player: PlayerId, ability: { costCard?: { kind: "discard" | "sacrifice" | "sacArtifactOrDiscardNonland"; filter?: CardFilter; other?: boolean } }, sourceIid: string): string[] {
   const cost = ability.costCard;
   if (!cost) return [];
   const me = state.players[player];
   if (cost.kind === "discard") return me.hand.filter((c) => c.iid !== sourceIid).map((c) => c.iid);
+  if (cost.kind === "sacArtifactOrDiscardNonland") {
+    return [
+      ...me.battlefield.filter((p) => isArtifactDef(getCard(state, p.card.defId))).map((p) => p.card.iid),
+      ...me.hand.filter((c) => c.iid !== sourceIid && getCard(state, c.defId).type !== "land").map((c) => c.iid),
+    ];
+  }
   return me.battlefield
     .filter((p) => !(cost.other && p.card.iid === sourceIid))
     .filter((p) => {
@@ -243,13 +291,15 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
   if (ability.oncePerTurn && found.perm.usedAbilities?.includes(index)) return `${def.name}'s ability can only be activated once each turn.`;
   if (ability.onceOnly && found.perm.usedOnce?.includes(index)) return `${def.name}'s ability can only be activated once.`;
   if (ability.yourTurnOnly && state.active !== player) return `${def.name}'s ability can only be activated during your turn.`;
+  const needed = abilityNeed(state, player, ability);
+  if (needed) return `${def.name}'s ability can't be used: ${needed}.`;
   if (ability.solvedOnly && !found.perm.solved) return `${def.name} isn't solved yet.`;
   if (ability.minLife !== undefined && state.players[player].life < ability.minLife) return `${def.name}'s ability needs you to have at least ${ability.minLife} life.`;
   if (forbidden(state, found.perm, "noActivated")) return `${def.name}'s abilities can't be activated.`;
 
   if (ability.tap) {
     if (found.perm.tapped) return `${def.name} is tapped.`;
-    if (isCreature(state, found.perm) && found.perm.summoningSick && !kw(state, found.perm, "haste")) {
+    if (isCreature(state, found.perm) && found.perm.summoningSick && !kw(state, found.perm, "haste") && !abilityHaste(state, player)) {
       return `${def.name} just arrived and can't use an ability that taps it.`;
     }
   }
@@ -263,14 +313,14 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     if (!cost) return `${def.name}'s ability can't be used yet.`;
     // "{X}{R}, {T}, Sacrifice ~: It deals X damage": the player chooses X, and pays that much more.
     const x = cost.x ? Math.max(0, Math.floor(chosenX ?? 0)) : 0;
-    const paid = payMana(state, player, cost.x ? withX(cost, x) : cost);
+    const paid = payMana(state, player, cost.x ? withX(cost, x) : cost, undefined, def);
     if (!paid.ok) return `Not enough mana for ${def.name}'s ability (${ability.mana}${cost.x ? ` with X = ${x}` : ""}).`;
     paidX = cost.x ? x : undefined;
     applyPayment(state, player, paid, events);
   }
   if (ability.costCard) {
     if (!payWith || !costChoices(state, player, ability, iid).includes(payWith)) return `${def.name}: choose ${ability.costCard.label}.`;
-    if (ability.costCard.kind === "discard") {
+    if (ability.costCard.kind === "discard" || (ability.costCard.kind === "sacArtifactOrDiscardNonland" && state.players[player].hand.some((c) => c.iid === payWith))) {
       const hand = state.players[player].hand;
       state.players[player].graveyard.push(hand.splice(hand.findIndex((c) => c.iid === payWith), 1)[0]);
       cardsDiscarded(state, player, [payWith], events);
@@ -306,7 +356,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     const yard = state.players[player].graveyard;
     state.players[player].exile.push(yard.splice(yard.findIndex((c) => c.iid === iid), 1)[0]);
   }
-  if (ability.tap) found.perm.tapped = true;
+  if (ability.tap) tapPerm(state, found.perm, player);
   if (ability.oncePerTurn) found.perm.usedAbilities = [...(found.perm.usedAbilities ?? []), index];
   if (ability.onceOnly) found.perm.usedOnce = [...(found.perm.usedOnce ?? []), index];
   // "Sacrifice this permanent" is part of the cost: it is gone before the ability goes on the stack.

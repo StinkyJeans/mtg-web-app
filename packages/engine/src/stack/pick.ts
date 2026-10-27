@@ -9,10 +9,12 @@ import {
   counterStackItem,
   drawCards,
   findPermanentOrNull,
+  isArtifactDef,
   landEntered,
   newId,
   powerOf,
   putCounters,
+  putIntoGraveyard,
   removeFromBattlefield,
   runEffects,
 } from "../core.js";
@@ -23,7 +25,7 @@ import { OPPONENT } from "../types.js";
 import type { PendingPick } from "../effects.js";
 import type { CardInstance, GameState, PlayerId } from "../types.js";
 import { applyPayment, openRound, rememberMode } from "./shared.js";
-import { afterResolution } from "./resolve.js";
+import { afterResolution, enterBattlefield } from "./resolve.js";
 
 // Answering a pending pick: the card, target, color or option a player was asked to choose.
 
@@ -38,9 +40,10 @@ function afterYouDo(state: GameState, player: PlayerId, pick: PendingPick, event
     return;
   }
   const ctx = pick.thenCtx;
+  const specs = bindSpecs(pick.thenSpecs, ctx.sourceId); // "another target ...": not the permanent itself
   state.triggerQueue.push({
-    specs: pick.thenSpecs,
-    item: { kind: "ability", id: newId(state), controller: player, source: ctx.sourceId, sourceName: ctx.sourceName, effects: pick.thenEffects, targets: [], specs: pick.thenSpecs, text: `${ctx.sourceName}: when you ${pick.kind === "discard" ? "discarded" : "paid"}`, ...(ctx.other ? { other: ctx.other } : {}) },
+    specs,
+    item: { kind: "ability", id: newId(state), controller: player, source: ctx.sourceId, sourceName: ctx.sourceName, effects: pick.thenEffects, targets: [], specs, text: `${ctx.sourceName}: when you ${pick.kind === "discard" ? "discarded" : "paid"}`, ...(ctx.other ? { other: ctx.other } : {}) },
   });
 }
 
@@ -230,6 +233,49 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     return null;
   }
 
+  if (pick.kind === "mayCost") {
+    // The artifact or creature is sacrificed (it is on the battlefield) or the card is discarded (it is in the hand); then "if you do" happens.
+    if (iid === undefined) {
+      finish();
+      return null;
+    }
+    if (!pick.options.includes(iid)) return "That isn't one of the choices.";
+    const onField = findPermanentOrNull(state, iid);
+    if (onField) {
+      events.push({ type: "effect", text: `${playerLabelOf(player)} sacrifices ${getCard(state, onField.perm.card.defId).name}.` });
+      putIntoGraveyard(state, onField.perm, onField.owner.id, events);
+      checkStateBasedActions(state, events);
+    } else {
+      const card = take(owner.hand, iid);
+      owner.graveyard.push(card);
+      cardsDiscarded(state, player, [iid], events);
+    }
+    state.pendingPick = null;
+    afterYouDo(state, player, pick, events);
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "handToField") {
+    // "You may put a Hero creature card ... from your hand onto the battlefield. If you don't, draw a card."
+    if (iid === undefined) {
+      if (pick.elseDraw) drawCards(state, pick.owner, 1, events);
+      finish();
+      return null;
+    }
+    if (!pick.options.includes(iid)) return "That isn't one of the choices.";
+    const card = take(owner.hand, iid);
+    events.push({ type: "effect", text: `${playerLabelOf(pick.owner)} puts ${getCard(state, card.defId).name} onto the battlefield from their hand.` });
+    enterBattlefield(state, card, pick.owner, events);
+    const entered = owner.battlefield[owner.battlefield.length - 1];
+    if (entered && pick.entersTapped) entered.tapped = true;
+    // "If it's an Equipment, attach it to ~."
+    if (entered && pick.attachHolder && (getCard(state, card.defId).typeLine ?? "").includes("Equipment")) entered.attachedTo = pick.attachHolder;
+    checkStateBasedActions(state, events);
+    finish();
+    return null;
+  }
+
   if (iid === undefined) {
     if (!pick.optional) return "You have to choose a card.";
     if (pick.kind === "searchLand" || pick.kind === "searchAny") [owner.library, state.rng] = shuffle(owner.library, state.rng);
@@ -261,6 +307,8 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       pick.ordered.push(iid);
       pick.options = pick.options.filter((o) => o !== iid);
       pick.remaining -= 1;
+      // "Discard two cards unless you discard an artifact card": an artifact is enough
+      if (pick.artifactEnough && pick.ordered.length === 1 && isArtifactDef(getCard(state, owner.graveyard[owner.graveyard.length - 1].defId))) pick.remaining = 0;
       if (pick.remaining > 0 && pick.options.length > 0) return null; // the next card
       cardsDiscarded(state, pick.owner, pick.ordered, events);
       state.pendingPick = null;
@@ -317,7 +365,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     }
     case "searchLand": {
       const land = take(owner.library, iid);
-      owner.battlefield.push({ card: land, tapped: pick.entersTapped !== false, summoningSick: false, damage: 0 });
+      owner.battlefield.push({ card: land, tapped: pick.entersTapped !== false, summoningSick: false, damage: 0, enteredTurn: state.turn });
       events.push({ type: "permanentEntered", player: pick.owner, iid });
       landEntered(state, pick.owner);
       askAsEnters(state, owner.battlefield[owner.battlefield.length - 1], pick.owner);

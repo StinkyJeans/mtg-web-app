@@ -11,6 +11,7 @@ import {
   isPermanentCard,
   legalTargets,
   putCounters,
+  queueChapters,
   queueTriggers,
   runEffects,
   spellLeavesStack,
@@ -24,7 +25,7 @@ import { hasResponse } from "./options.js";
 
 // Resolving the top of the stack, and the rounds of priority around it.
 
-function enterBattlefield(state: GameState, card: CardInstance, controller: PlayerId, events: GameEvent[], attachedTo?: string, x = 0, kicked = false, haste = false, warped = false): void {
+export function enterBattlefield(state: GameState, card: CardInstance, controller: PlayerId, events: GameEvent[], attachedTo?: string, x = 0, kicked = false, haste = false, warped = false): void {
   const parsed = parseCard(getCard(state, card.defId));
   const printed = getCard(state, card.defId);
   const loyalty = printed.type === "planeswalker" ? (printed.loyalty ?? printed.toughness ?? 0) : undefined;
@@ -42,6 +43,10 @@ function enterBattlefield(state: GameState, card: CardInstance, controller: Play
   const entered = state.players[controller].battlefield[state.players[controller].battlefield.length - 1];
   if (counters > 0) putCounters(state, entered, controller, counters);
   askAsEnters(state, entered, controller);
+  if (parsed.saga) {
+    entered.lore = 1; // a Saga enters with a lore counter: chapter I
+    queueChapters(state, entered, controller);
+  }
   queueTriggers(state, card, controller, "enters");
   creatureEntered(state, card, controller); // (for other permanents only triggers about their type apply, e.g. "a Cartouche you control enters")
 }

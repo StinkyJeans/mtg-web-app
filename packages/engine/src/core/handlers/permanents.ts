@@ -1,12 +1,16 @@
 import { getCard } from "../../cards.js";
 import type { Permanent, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isCreature, nameOf, playerLabel, powerOf, subtypesOf } from "../permanents.js";
-import { makeTokenCopy, putCounters } from "../zones.js";
+import { makeTokenCopy, putCounters, tapPerm } from "../zones.js";
 import { subjectsOf } from "../targets.js";
 import { cardAnywhere, plural, noteTempSource, type EffectHandlers, type EffectOf, type EffectRun } from "./shared.js";
 
 function tapOrUntapAll({ state, ctx }: EffectRun, effect: EffectOf<"tap" | "untap">): void {
-  for (const s of subjectsOf(state, effect.what, ctx)) if (s.k === "perm") s.perm.tapped = effect.type === "tap";
+  for (const s of subjectsOf(state, effect.what, ctx)) {
+    if (s.k !== "perm") continue;
+    if (effect.type === "tap") tapPerm(state, s.perm, s.owner);
+    else s.perm.tapped = false;
+  }
 }
 
 /** Changes to permanents: counters, power and toughness, keywords, tapping, control and what they are. */

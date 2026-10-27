@@ -56,6 +56,10 @@ const LABELS = new Set([
   "heal", "fight", "swampwalk", "islandwalk", "forestwalk", "mountainwalk", "plainswalk",
   "eerie", "prepared", "raid",
   "explore", "solved", "infusion", "warp", "blight", "offspring",
+  // Marvel Super Heroes: "teamwork" is read by the card reader; the rest are names in front of an ability ("Radar Sense — ...")
+  "teamwork", "transform", "enrage", "avian telepathy", "radar sense", "sonic attack", "unbreakable skin", "embiggen fist", "wasp's sting", "street justice", "legal justice",
+  "trick arrows", "net", "explosive", "boomerang", "intangibility", "cosmic awareness", "photographic reflexes", "cybernetic senses", "mental organism",
+  "designed only for killing", "no one dies!", "i love squirrels!", "brontosaurus", "tyrannosaurus rex", "solar beam", "density control", "technopathy", "seismic takedown",
 ]);
 
 /** True if every keyword printed on the card is one the engine implements. */

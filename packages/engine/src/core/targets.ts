@@ -61,8 +61,8 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (spec.kind === "playerOrPlaneswalker") return walker;
       if (walker) return (spec.kind === "any" || spec.kind === "creatureOrPlaneswalker") && !(spec.controller === "you" && found.owner.id !== controller) && !(spec.controller === "opponent" && found.owner.id === controller);
       if (spec.kind === "enchantment") return isEnchantmentDef(def);
-      if (spec.kind === "artifactOrEnchantment") return isArtifactDef(def) || isEnchantmentDef(def);
-      if (spec.kind === "artifact") return isArtifactDef(def);
+      if (spec.kind === "artifactOrEnchantment") return (isArtifactDef(def) || isEnchantmentDef(def)) && !(spec.noncreature && def.type === "creature");
+      if (spec.kind === "artifact") return isArtifactDef(def) && !(spec.noncreature && def.type === "creature");
       if (spec.kind === "artifactOrLand") return def.type === "land" || isArtifactDef(def);
       if (spec.kind !== "creature" && spec.kind !== "any" && spec.kind !== "creatureOrPlaneswalker") return false;
       if (def.type !== "creature" && !found.perm.crewed) return false;
@@ -75,7 +75,11 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (spec.filter && spec.filter !== "tapped") {
         const attacking = state.combat?.attackers.some((a) => a.attacker === choice.iid) ?? false;
         const blocking = state.combat?.attackers.some((a) => a.blockers.includes(choice.iid)) ?? false;
-        if (spec.filter === "attacking" ? !attacking : spec.filter === "blocking" ? !blocking : !(attacking || blocking)) return false;
+        if (spec.filter === "notAttacking") {
+          if (attacking) return false;
+        } else if (spec.filter === "attackingAlone") {
+          if (!attacking || state.combat?.attackers.length !== 1) return false;
+        } else if (spec.filter === "attacking" ? !attacking : spec.filter === "blocking" ? !blocking : !(attacking || blocking)) return false;
       }
       return !spec.notColors?.some((c) => (def.colors ?? []).includes(c));
     }
@@ -87,6 +91,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       const def = getCard(state, card.defId);
       const fits = spec.kind === "graveyardCreature" ? def.type === "creature" : spec.kind === "graveyardPermanent" ? isPermanentCard(def) || def.type === "land" : spec.kind === "graveyardCard" ? true : def.type === "instant" || def.type === "sorcery";
       if (!fits || (spec.subtype && !defSubtypes(def).includes(spec.subtype))) return false;
+      if (spec.kind === "graveyardPermanent" && spec.types && !spec.types.some((t) => (t === "artifact" ? isArtifactDef(def) : t === "enchantment" ? isEnchantmentDef(def) : def.type === t))) return false;
       if (spec.subtypes && !spec.subtypes.some((t) => defSubtypes(def).includes(t))) return false;
       if (spec.notSubtype && defSubtypes(def).includes(spec.notSubtype)) return false;
       if (spec.nonland && def.type === "land") return false;
@@ -165,7 +170,7 @@ export function subjectsOf(state: GameState, ref: Ref, ctx: RunContext): Subject
       const skip = ref.except !== undefined && ctx.targets[ref.except]?.kind === "permanent" ? (ctx.targets[ref.except] as { iid: string }).iid : undefined;
       return Object.values(state.players)
         .filter((p) => ref.scope === "all" || (ref.scope === "yours") === (p.id === ctx.controller))
-        .flatMap((p) => p.battlefield.filter((perm) => isCreature(state, perm) && perm.card.iid !== skip && !(ref.notSelf && perm.card.iid === ctx.sourceId) && !(ref.noFlying && kw(state, perm, "flying")) && (ref.tapped === undefined || perm.tapped === ref.tapped) && (!ref.subtype || subtypesOf(state, perm).includes(ref.subtype))).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
+        .flatMap((p) => p.battlefield.filter((perm) => isCreature(state, perm) && perm.card.iid !== skip && !(ref.notSelf && perm.card.iid === ctx.sourceId) && !(ref.noFlying && kw(state, perm, "flying")) && (ref.tapped === undefined || perm.tapped === ref.tapped) && (!ref.subtype || subtypesOf(state, perm).includes(ref.subtype)) && (!ref.notSubtype || !subtypesOf(state, perm).includes(ref.notSubtype))).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
     }
     case "allPlaneswalkers":
       return Object.values(state.players).flatMap((p) => p.battlefield.filter((perm) => isPlaneswalker(state, perm)).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));

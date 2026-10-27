@@ -1,4 +1,5 @@
 import { CARDS } from "./cards.js";
+import { doubleFaces } from "./oracle/doubleFaced.js";
 import { isSupportedCard } from "./oracle.js";
 import type { CardDef, CardInstance, GameState, PlayerId, PlayerState } from "./types.js";
 
@@ -62,9 +63,16 @@ export function createGame(
   const [p1, rng1] = makePlayer("p1", decks.p1, seed, cardDefs);
   const [p2, rng2] = makePlayer("p2", decks.p2, rng1, cardDefs);
   // Keep only the cards actually used in this game.
-  const cards = Object.fromEntries(
+  const cards: Record<string, CardDef> = Object.fromEntries(
     [...new Set([...decks.p1, ...decks.p2])].map((id) => [id, cardDefs[id]]),
   );
+  // A transforming card is played as its front face; its back face waits in the card list for when it transforms.
+  for (const [id, def] of Object.entries(cards)) {
+    const faces = def ? doubleFaces(def) : null;
+    if (!faces) continue;
+    cards[id] = faces.front;
+    cards[faces.back.id] = faces.back;
+  }
   return {
     cards,
     players: { p1, p2 },

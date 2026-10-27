@@ -16,7 +16,7 @@ samurai sand saproling satyr scarecrow scientist scion scorpion scout sculpture 
 skeleton skunk slith sliver sloth slug snail snake soldier soltari spawn specter spellshaper sphinx spider spike spirit splinter sponge squid squirrel
 starfish surrakar survivor synth tentacle tetravite thalakos thopter thrull tiefling toy treefolk trilobite triskelavite troll turtle tyranid unicorn
 urzan vampire varmint vedalken volver wall walrus warlock warrior weasel weird werewolf whale wizard wolf wolverine wombat worm wraith wurm yeti
-zombie zubera`.split(/\s+/);
+zombie zubera eternal gamma hero inhuman kree skrull sorcerer spy villain`.split(/\s+/);
 
 /** The subtypes on a card's type line (lowercase): "Creature — Zombie Wizard" is ["zombie", "wizard"]. A changeling is every creature type, in every zone. */
 export function defSubtypes(def: CardDef): string[] {

@@ -2,10 +2,12 @@ import type { ParsedCard, TargetSpec } from "./effects.js";
 import { keywordsSupported } from "./keywords.js";
 import { landManaColors, manaAbilityUsesChosenColor, manaCostOf, parseManaCost } from "./mana.js";
 import type { CardDef } from "./types.js";
-import { normalizeText, parseCount } from "./oracle/words.js";
+import { normalizeText, parseCount, toNumber } from "./oracle/words.js";
 import { newCtx } from "./oracle/targets.js";
 import { parseClause, parseEffectText, parseModes } from "./oracle/effectText.js";
 import { parseCreatureLine } from "./oracle/lines.js";
+import { doubleFaces } from "./oracle/doubleFaced.js";
+import { rewriteTeamwork, stripModeName, TEAMWORK_HEADER } from "./oracle/teamwork.js";
 
 // Reads a card's rules text and turns it into structured effects (see effects.ts).
 // The reader is strict on purpose: if any line of a card is not fully understood, the card is reported as
@@ -57,6 +59,15 @@ export function prepareFaces(def: CardDef): { front: CardDef; spell: CardDef } |
 export function parseCard(def: CardDef): ParsedCard {
   const hit = cache.get(def);
   if (hit) return hit;
+  const dfc = doubleFaces(def);
+  if (dfc) {
+    // A transforming card is playable when both of its faces are understood.
+    const front = parseCard(dfc.front);
+    const back = parseCard(dfc.back);
+    const whole: ParsedCard = { ...front, ok: front.ok && back.ok, unsupported: [...front.unsupported, ...back.unsupported] };
+    cache.set(def, whole);
+    return whole;
+  }
   const faces = prepareFaces(def);
   if (faces) {
     // The creature half is the card; its spell must be understood too.
@@ -98,6 +109,11 @@ export function parseCard(def: CardDef): ParsedCard {
         result.triggers.push({ event: "enters", ifKicked: true, effects: [{ type: "offspringCopy" }], targets: [], text: "Offspring: when this creature enters, create a 1/1 token copy of it." });
         return false;
       }
+      const teamwork = /^teamwork (\d+)$/.exec(line);
+      if (teamwork && (def.type === "instant" || def.type === "sorcery")) {
+        result.teamwork = Number(teamwork[1]);
+        return false;
+      }
       const warp = /^warp (\{[^}]+\}(?:\{[^}]+\})*)\.?$/.exec(line);
       if (warp && parseManaCost(warp[1])) {
         result.warp = warp[1];
@@ -116,6 +132,16 @@ export function parseCard(def: CardDef): ParsedCard {
       const perCard = /^~ costs \{(\d+)\} less to cast for each (instant and sorcery card in your graveyard)\.?$/.exec(line);
       if (perCard) {
         result.costReduction = { n: Number(perCard[1]), per: parseCount(perCard[2].replace("card", "cards"))! };
+        return false;
+      }
+      const yardDiscount = /^~ costs \{(\d+)\} less to cast if there are (two|three|\d+) or more creature cards in your graveyard\.?$/.exec(line);
+      if (yardDiscount) {
+        result.costReduction = { n: Number(yardDiscount[1]), ifYardCreatures: toNumber(yardDiscount[2]) ?? 2 };
+        return false;
+      }
+      const ifAttacking = /^~ costs \{(\d+)\} less to cast if it targets an attacking creature\.?$/.exec(line);
+      if (ifAttacking) {
+        result.costReduction = { n: Number(ifAttacking[1]), ifTargetsAttacking: true };
         return false;
       }
       const perSpell = /^~ costs \{(\d+)\} less to cast for each spell your opponents have cast this turn\.?$/.exec(line);
@@ -162,13 +188,16 @@ export function parseCard(def: CardDef): ParsedCard {
 
   const lines = text.split("\n");
   const header = /^choose (one|one or both) —$/.exec(lines[0] ?? "");
-  if ((def.type === "instant" || def.type === "sorcery") && header && lines.length >= 3 && lines.slice(1).every((l) => l.startsWith("• "))) {
-    const modes = parseModes(lines.slice(1).map((l) => l.slice(2)), false);
-    if (modes) result.spell = { effects: [], targets: [], modal: { min: 1, max: header[1] === "one" ? 1 : 2, modes } };
+  const teamHeader = result.teamwork !== undefined && TEAMWORK_HEADER.test(lines[0] ?? "");
+  if ((def.type === "instant" || def.type === "sorcery") && (header || teamHeader) && lines.length >= 3 && lines.slice(1).every((l) => l.startsWith("• "))) {
+    const modes = parseModes(lines.slice(1).map((l) => stripModeName(l.slice(2))), false);
+    if (modes) result.spell = { effects: [], targets: [], modal: { min: 1, max: header && header[1] !== "one" ? 2 : 1, modes, ...(teamHeader ? { bothIfKicked: true } : {}) } };
     else result.unsupported.push(text);
   } else if (def.type === "instant" || def.type === "sorcery") {
     const ctx = newCtx();
-    const effects = text ? parseEffectText(text.replace(/\n/g, " "), ctx) : null;
+    const rewritten = result.teamwork !== undefined ? rewriteTeamwork(text.replace(/\n/g, " ")) : null;
+    const effects = text ? parseEffectText(rewritten ? rewritten.text : text.replace(/\n/g, " "), ctx) : null;
+    if (rewritten?.lift && effects && ctx.targets.length > 0) ctx.targets[0] = { ...ctx.targets[0], liftedWhenKicked: true };
     // A spell has no permanent to act on: "Return ~ to its owner's hand" would silently do nothing, so it stays unplayable.
     if (effects && effects.length > 0 && !JSON.stringify(effects).includes('"t":"self"')) result.spell = { effects, targets: ctx.targets };
     else result.unsupported.push(text || "(no text)");
@@ -184,6 +213,24 @@ export function parseCard(def: CardDef): ParsedCard {
         const entering = modal[1].startsWith("enters");
         const text = `${entering ? "When this enters" : "Whenever this deals combat damage to a player"}, choose one${modal[2] ?? ""}`;
         if (modes) result.triggers.push({ event: entering ? "enters" : "combatDamagePlayer", effects: [], targets: [], modes, text, ...(modal[2] ? { unchosenOnly: true } : {}) });
+        else result.unsupported.push(creatureLines[i]);
+        continue;
+      }
+      // "When ~ enters, create a Food token or a Treasure token": the player chooses
+      const orToken = /^when ~ enters, create an? ([a-z]+) token or an? ([a-z]+) token\.?$/.exec(creatureLines[i]);
+      if (orToken) {
+        const modes = parseModes([`create a ${orToken[1]} token`, `create a ${orToken[2]} token`], true);
+        if (modes) result.triggers.push({ event: "enters", effects: [], targets: [], modes, text: "When this enters, choose one" });
+        else result.unsupported.push(creatureLines[i]);
+        continue;
+      }
+      // "Whenever another nontoken Hero you control enters, choose one —" (then one bullet line per mode)
+      const allyModal = /^whenever another nontoken ([a-z]+) you control enters, choose one —$/.exec(creatureLines[i]);
+      if (allyModal) {
+        const bullets: string[] = [];
+        while (i + 1 < creatureLines.length && creatureLines[i + 1].startsWith("• ")) bullets.push(creatureLines[++i].slice(2));
+        const modes = bullets.length >= 2 ? parseModes(bullets.map(stripModeName), true) : null;
+        if (modes) result.triggers.push({ event: "allyEnters", other: true, nontoken: true, subtypes: [allyModal[1]], effects: [], targets: [], modes, text: `Whenever another nontoken ${allyModal[1]} you control enters, choose one` });
         else result.unsupported.push(creatureLines[i]);
         continue;
       }

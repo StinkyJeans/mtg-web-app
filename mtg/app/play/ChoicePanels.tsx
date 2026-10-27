@@ -37,7 +37,7 @@ export function ChoicePanel({
   title: string;
   options: { label: React.ReactNode; disabled?: boolean; onPick: () => void }[];
   onCancel: () => void;
-  multi?: { selected: number[]; onToggle: (i: number) => void; onDone: () => void };
+  multi?: { selected: number[]; onToggle: (i: number) => void; onDone: () => void; /** Continue stays off until this is true (default: something is selected). */ canDone?: boolean };
   onDone?: () => void;
 }) {
   void onDone;
@@ -59,7 +59,7 @@ export function ChoicePanel({
       </div>
       <div className="flex gap-2">
         {multi && (
-          <button onClick={multi.onDone} disabled={multi.selected.length === 0} className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-40">
+          <button onClick={multi.onDone} disabled={multi.canDone === undefined ? multi.selected.length === 0 : !multi.canDone} className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:opacity-40">
             Continue
           </button>
         )}

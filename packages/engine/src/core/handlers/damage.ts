@@ -19,7 +19,7 @@ function fightOrBite({ state, ctx, events, say }: EffectRun, effect: EffectOf<"f
   const hit = (from: Permanent, fromOwner: PlayerId, to: Permanent) => {
     const quality = qualityOfDef(getCard(state, from.card.defId));
     if (isProtectedFrom(state, to, quality)) return say(`${nameOf(state, to)} has protection: the damage is prevented.`);
-    dealDamage(state, traitOf(from, fromOwner), { k: "perm", perm: to }, Math.max(0, powerOf(state, from)), events);
+    dealDamage(state, traitOf(from, fromOwner), { k: "perm", perm: to }, Math.max(0, powerOf(state, from)) * (effect.type === "bite" ? (effect.times ?? 1) : 1), events);
   };
   const a = { perm: first.perm, owner: first.owner };
   const b = { perm: second.perm, owner: second.owner };

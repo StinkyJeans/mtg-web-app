@@ -41,7 +41,7 @@ export const STACK_EFFECTS = {
     if (!cost || state.pendingPick || !payMana(state, ctx.controller, cost).ok || (effect.life ?? 0) > state.players[ctx.controller].life) return;
     startPick({
       player: ctx.controller,
-      prompt: `${ctx.sourceName}: pay ${[effect.cost, effect.life ? `${effect.life} life` : ""].filter(Boolean).join(" and ")}?`,
+      prompt: effect.prompt ?? `${ctx.sourceName}: pay ${[effect.cost, effect.life ? `${effect.life} life` : ""].filter(Boolean).join(" and ")}?`,
       kind: "mayPay",
       options: ["pay"],
       optional: true,

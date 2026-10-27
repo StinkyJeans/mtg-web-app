@@ -2,6 +2,7 @@ import type { CardDef, GameState, Permanent, PlayerId } from "./types.js";
 import { getCard } from "./cards.js";
 import { hasKeyword } from "./keywords.js";
 import { CREATURE_TYPES, defSubtypes } from "./creatureTypes.js";
+import { powerOf } from "./core/permanents.js";
 
 export type ManaColor = "W" | "U" | "B" | "R" | "G" | "C";
 export const MANA_COLORS: readonly ManaColor[] = ["W", "U", "B", "R", "G", "C"];
@@ -141,19 +142,38 @@ function manaAbilityPerSubtype(def: CardDef): string | undefined {
 /** An Aura such as New Horizons: 'Enchanted land has "{T}: Add two mana of any one color."' */
 export const grantsTwoOfOneColor = (def: CardDef): boolean => /^enchanted land has "\{t\}: add two mana of any one color\.?"\.?$/im.test(def.text ?? "");
 
-function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chosen: boolean } | undefined {
+/** "Activate only if this land entered this turn or if you control a basic land." (the Marvel dual lands) */
+const GATE = /\.? ?activate only if (?:this land|~) entered this turn or if you control a basic land\.?/gi;
+
+function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chosen: boolean; gated: ManaColor[] } | undefined {
   const text = (def.text ?? "")
     .replace(/\([^)]*\)/g, "")
     .replace(/\.? ?spend this mana only to cast an instant or sorcery spell\.?/gi, "")
-    .replace(/^\{t\}: add [^\n]*?\. spend this mana only to [^\n]*$/gim, "") // restricted lines: see restrictedMana
+    .replace(/^\{t\}: add [^\n]*?\. (?:spend this mana only to|this mana can't be spent to) [^\n]*$/gim, "") // restricted lines: see restrictedMana
     .replace(/\.? ?if that mana is spent on an? [a-z]+ creature spell, it gains haste until end of turn\.?/gi, "")
     .toLowerCase();
   const found = new Set<ManaColor>();
+  const gated = new Set<ManaColor>();
   let amount = 1;
   let chosen = false;
-  for (const raw of text.split("\n")) {
+  for (const rawLine of text.split("\n")) {
+    const isGated = rawLine.search(GATE) >= 0;
+    const raw = rawLine.replace(GATE, "");
     const m = /^\{t\}(?:, sacrifice (?:~|this [a-z]+))?: add (.+?)\.?$/.exec(raw.trim());
     if (!m) continue;
+    if (isGated) {
+      // "{T}: Add {G} or {W}. Activate only if ...": the colors only count while the condition holds
+      for (const piece of m[1].split(/, or |, | or /)) {
+        const c = /^\{([wubrgc])\}$/.exec(piece.trim());
+        if (c) gated.add(c[1].toUpperCase() as ManaColor);
+      }
+      continue;
+    }
+    // "{T}: Add X mana of any one color, where X is ...'s power" / "...two mana of any one color": one color, chosen as it is spent
+    if (/^(?:two|x) mana of any one color(?:, where x is [^,]+)?$/.test(m[1])) {
+      ALL_FIVE.forEach((c) => found.add(c));
+      continue;
+    }
     const perType = /^(\{[wubrgc]\}) for each [a-z]+ you control$/.exec(m[1]);
     if (perType) {
       found.add(perType[1][1].toUpperCase() as ManaColor);
@@ -176,7 +196,21 @@ function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chose
     if (fixed.every(Boolean) && (fixed.length > 0 || chosen)) fixed.forEach((p) => found.add(p![1].toUpperCase() as ManaColor));
     else if (pieces.includes("one mana of the chosen color")) chosen = false;
   }
-  return found.size > 0 || chosen ? { colors: [...found], amount, chosen } : undefined;
+  return found.size > 0 || gated.size > 0 || chosen ? { colors: [...new Set([...found, ...gated])], amount, chosen, gated: [...gated].filter((c) => !found.has(c)) } : undefined;
+}
+
+/** "{T}: Add X mana of any one color": how many mana one tap makes (2, or the permanent's power), if the card has such a line. */
+function oneColorAmount(def: CardDef): "two" | "power" | undefined {
+  const text = (def.text ?? "").replace(/\([^)]*\)/g, "").toLowerCase();
+  if (/^\{t\}: add two mana of any one color\b/m.test(text)) return "two";
+  if (/^\{t\}: add x mana of any one color, where x is [^\n]*power/m.test(text)) return "power";
+  return undefined;
+}
+
+/** "{1}, {T}: Add one mana of any color." / "{4}, {T}: Add four mana in any combination of colors.": pays n and makes n mana of any colors. */
+export function filterAbility(def: CardDef): number | undefined {
+  const m = /^\{(\d+)\}, \{t\}: add (?:one mana of any color|[a-z]+ mana in any combination of colors)\b/im.exec((def.text ?? "").replace(/\([^)]*\)/g, ""));
+  return m ? Number(m[1]) : undefined;
 }
 
 /** Every color a land can tap for: its basic land types ("Land — Forest Plains") and any "{T}: Add ..." line. */
@@ -189,14 +223,30 @@ export function landManaColors(def: CardDef): ManaColor[] {
   return [...colors];
 }
 
-/** The colors this permanent can currently be tapped for (empty: it can't make mana right now). */
-function manaColorsOf(state: GameState, perm: Permanent, forSpell?: CardDef): ManaColor[] {
+/** Is the condition of "Activate only if this land entered this turn or if you control a basic land" met? */
+function gateOpen(state: GameState, perm: Permanent): boolean {
+  if (perm.enteredTurn === state.turn) return true;
+  const owner = Object.values(state.players).find((p) => p.battlefield.includes(perm));
+  return !!owner?.battlefield.some((p) => /\bBasic\b/.test(getCard(state, p.card.defId).typeLine ?? ""));
+}
+
+/**
+ * The colors this permanent can currently be tapped for (empty: it can't make mana right now).
+ * `forSpell`: the spell the mana is for; `forAbility`: the permanent whose ability is being paid for. Restricted mana only counts for those.
+ */
+function manaColorsOf(state: GameState, perm: Permanent, forSpell?: CardDef, forAbility?: CardDef): ManaColor[] {
   const def = getCard(state, perm.card.defId);
   // Restricted mana can only pay for the kind of spell it names.
   if (manaAbilityRestriction(def) === "instantOrSorcery" && !(forSpell && (forSpell.type === "instant" || forSpell.type === "sorcery"))) return [];
   const chosen = manaAbilityUsesChosenColor(def) && perm.chosenColor ? [perm.chosenColor] : [];
-  const only = forSpell ? restrictedMana(def).filter((r) => restrictionAllows(r, perm, forSpell)).flatMap((r) => r.colors) : [];
-  const withChosen = (colors: ManaColor[]) => [...new Set([...colors, ...chosen, ...only])];
+  const only = forSpell
+    ? restrictedMana(def).filter((r) => restrictionAllows(r, perm, forSpell)).flatMap((r) => r.colors)
+    : forAbility
+      ? restrictedMana(def).filter((r) => abilityAllows(r, forAbility)).flatMap((r) => r.colors)
+      : [];
+  const gate = manaAbility(def)?.gated ?? [];
+  const open = gate.length === 0 || gateOpen(state, perm);
+  const withChosen = (colors: ManaColor[]) => [...new Set([...(open ? colors : colors.filter((c) => !gate.includes(c))), ...chosen, ...only])];
   if (def.type === "land") return withChosen(landManaColors(def));
   if (def.type === "artifact") return withChosen(manaAbilityColors(def) ?? []); // artifacts aren't "summoning sick"
   if (def.type === "creature" && (!perm.summoningSick || hasKeyword(def, "haste"))) return withChosen(manaAbilityColors(def) ?? []);
@@ -211,11 +261,15 @@ export type PayResult =
 interface Source {
   iid: string;
   colors: ManaColor[];
+  /** A filter land's slot: it costs this many other sources when used. */
+  filter?: number;
 }
 
-/** An enchanted land with "{T}: Add two mana of any one color." */
-function makesTwoOfOneColor(state: GameState, perm: Permanent): boolean {
-  if (getCard(state, perm.card.defId).type !== "land") return false;
+/** One tap makes several mana of ONE color, chosen as they are spent: an enchanted land ("two mana of any one color"), Shang-Chi, Doc Samson. */
+function makesOneColorMana(state: GameState, perm: Permanent): boolean {
+  const def = getCard(state, perm.card.defId);
+  if (oneColorAmount(def)) return true;
+  if (def.type !== "land") return false;
   return Object.values(state.players).some((pl) => pl.battlefield.some((aura) => aura.attachedTo === perm.card.iid && grantsTwoOfOneColor(getCard(state, aura.card.defId))));
 }
 
@@ -223,7 +277,12 @@ function makesTwoOfOneColor(state: GameState, perm: Permanent): boolean {
 function manaAmountOf(state: GameState, player: PlayerId, perm: Permanent): number {
   const def = getCard(state, perm.card.defId);
   const per = manaAbilityPerSubtype(def);
-  if (!per) return makesTwoOfOneColor(state, perm) ? 2 : manaAbilityAmount(def);
+  if (!per) {
+    const one = oneColorAmount(def);
+    if (one === "two") return 2;
+    if (one === "power") return Math.max(0, powerOf(state, perm));
+    return makesOneColorMana(state, perm) ? 2 : manaAbilityAmount(def);
+  }
   const isType = (p: Permanent) => {
     const line = (getCard(state, p.card.defId).typeLine ?? "").split(" // ")[0].toLowerCase();
     return line.includes("creature") && (p.subtypesOverride ?? line.split("—")[1]?.trim().split(/\s+/) ?? []).includes(per);
@@ -237,7 +296,17 @@ function manaAmountOf(state: GameState, player: PlayerId, perm: Permanent): numb
  * then paid from what is left, single-color sources of the most plentiful color first, so scarce colors and the
  * flexible multi-color sources stay untapped for the next spell.
  */
-export function payMana(state: GameState, player: PlayerId, cost: ManaCost, forSpell?: CardDef): PayResult {
+export function payMana(state: GameState, player: PlayerId, cost: ManaCost, forSpell?: CardDef, forAbility?: CardDef): PayResult {
+  const plain = payFrom(state, player, cost, forSpell, forAbility, false);
+  if (plain.ok) return plain;
+  // A filter land ("{1}, {T}: Add one mana of any color") only helps when the plain sources can't pay.
+  const hasFilter = state.players[player].battlefield.some((p) => !p.tapped && filterAbility(getCard(state, p.card.defId)) !== undefined);
+  if (!hasFilter) return plain;
+  const filtered = payFrom(state, player, cost, forSpell, forAbility, true);
+  return filtered.ok ? filtered : plain;
+}
+
+function payFrom(state: GameState, player: PlayerId, cost: ManaCost, forSpell: CardDef | undefined, forAbility: CardDef | undefined, useFilters: boolean): PayResult {
   const sources: Source[] = [];
   const spare = state.players[player].spareMana ?? [];
   // Lands come first, so a creature or artifact that makes mana is only used when the lands can't pay.
@@ -247,10 +316,16 @@ export function payMana(state: GameState, player: PlayerId, cost: ManaCost, forS
   const oneColor: string[] = [];
   for (const perm of order) {
     if (perm.tapped || spare.includes(perm.card.iid)) continue;
-    const colors = manaColorsOf(state, perm, forSpell);
+    const filter = useFilters ? filterAbility(getCard(state, perm.card.defId)) : undefined;
+    if (filter !== undefined) {
+      // pays {n} and makes n mana of any colors: it can stand in for n colored requirements, at the price of n other sources
+      for (let i = 0; i < filter; i++) sources.push({ iid: perm.card.iid, colors: ALL_FIVE, filter });
+      continue;
+    }
+    const colors = manaColorsOf(state, perm, forSpell, forAbility);
     // A source that makes two mana counts twice; tapping it once pays for both.
     const amount = colors.length > 0 ? manaAmountOf(state, player, perm) : 0;
-    if (amount > 0 && makesTwoOfOneColor(state, perm)) oneColor.push(perm.card.iid);
+    if (amount > 0 && makesOneColorMana(state, perm)) oneColor.push(perm.card.iid);
     for (let i = 0; i < amount; i++) sources.push({ iid: perm.card.iid, colors: oneColor.includes(perm.card.iid) ? ALL_FIVE : colors });
   }
   if (oneColor.length === 0) return paySources(state, player, cost, sources, forSpell);
@@ -277,22 +352,47 @@ interface RestrictedMana {
   cardType?: string;
   subtype?: string;
   chosenType?: boolean;
+  /** "This mana can't be spent to cast a nonartifact spell": spells must be artifacts; abilities are fine. */
+  onlyArtifactSpells?: boolean;
+  /** "...or to activate an ability of a Villain source" / "...activate abilities of creature sources" / any ability. */
+  abilitySubtype?: string;
+  abilityCreature?: boolean;
+  abilityAny?: boolean;
 }
 
 /**
- * Mana lines that may only pay for some spells: "{T}: Add {B}. Spend this mana only to cast a creature spell.", "...an Angel spell.",
- * "{T}: Add one mana of any color. Spend this mana only to cast a creature spell of the chosen type or activate an ability of a creature source of the chosen type."
- * (Only the spell half of that last one is used: abilities are paid without it.)
+ * Mana lines that may only pay for some spells or abilities: "{T}: Add {B}. Spend this mana only to cast a creature spell.", "...an Angel spell.",
+ * "{T}: Add one mana of any color. Spend this mana only to cast a Villain spell or to activate an ability of a Villain source.",
+ * "{T}: Add two mana of any one color. Spend this mana only to activate abilities of creature sources.",
+ * "{T}: Add {U}. This mana can't be spent to cast a nonartifact spell."
+ * (A creature of the chosen type's abilities are paid without it.) A line with a restriction that isn't understood is not returned.
  */
 export function restrictedMana(def: CardDef): RestrictedMana[] {
   const out: RestrictedMana[] = [];
-  const lines = (def.text ?? "").toLowerCase().matchAll(/^\{t\}: add (\{[wubrgc]\}|one mana of any color)\. spend this mana only to cast (a creature spell of the chosen type or activate an ability of a creature source of the chosen type|a creature spell|an? ([a-z]+) spell)\.?$/gm);
-  for (const m of lines) {
-    const colors = m[1] === "one mana of any color" ? [...ALL_FIVE] : [m[1][1].toUpperCase() as ManaColor];
-    if (m[2].includes("chosen type")) out.push({ colors, creature: true, chosenType: true });
-    else if (m[2] === "a creature spell") out.push({ colors, creature: true });
-    else if (SPELL_TYPES.includes(m[3])) out.push({ colors, cardType: m[3] });
-    else if (CREATURE_TYPES.includes(m[3])) out.push({ colors, subtype: m[3] });
+  const text = (def.text ?? "").replace(/\([^)]*\)/g, "").toLowerCase();
+  for (const m of text.matchAll(/^\{t\}: add (\{[wubrgc]\}|one mana of any color|two mana of any one color)\. (?:spend this mana only to (.+?)|(this mana can't be spent to cast a nonartifact spell))\.?$/gm)) {
+    const colors = m[1].startsWith("{") ? [m[1][1].toUpperCase() as ManaColor] : [...ALL_FIVE];
+    if (m[3]) {
+      out.push({ colors, onlyArtifactSpells: true, abilityAny: true });
+      continue;
+    }
+    const r: RestrictedMana = { colors };
+    let understood = true;
+    for (const part of m[2].split(/ or (?=to |cast |activate )/)) {
+      const clause = part.replace(/^to /, "");
+      let c: RegExpExecArray | null;
+      if (clause === "cast a creature spell of the chosen type") Object.assign(r, { creature: true, chosenType: true });
+      else if (clause === "activate an ability of a creature source of the chosen type") continue; // paid without it
+      else if (clause === "cast a creature spell") r.creature = true;
+      else if ((c = /^cast an? ([a-z]+) spell$/.exec(clause))) {
+        if (SPELL_TYPES.includes(c[1])) r.cardType = c[1];
+        else if (CREATURE_TYPES.includes(c[1])) r.subtype = c[1];
+        else understood = false;
+      } else if ((c = /^activate an ability of an? ([a-z]+) source$/.exec(clause)) && CREATURE_TYPES.includes(c[1])) r.abilitySubtype = c[1];
+      else if (clause === "activate abilities of creature sources") r.abilityCreature = true;
+      else understood = false;
+    }
+    if (understood) out.push(r);
   }
   return out;
 }
@@ -300,10 +400,20 @@ export function restrictedMana(def: CardDef): RestrictedMana[] {
 /** Card types a restriction may name ("Spend this mana only to cast an artifact spell"). */
 export const SPELL_TYPES = ["artifact", "enchantment", "planeswalker", "instant", "sorcery"];
 
-const restrictionAllows = (r: RestrictedMana, perm: Permanent, spell: CardDef): boolean =>
-  (!r.creature || spell.type === "creature") &&
-  (!r.cardType || (spell.typeLine ?? spell.type).toLowerCase().split("—")[0].includes(r.cardType)) &&
-  (!r.subtype || defSubtypes(spell).includes(r.subtype)) && (!r.chosenType || (!!perm.chosenType && defSubtypes(spell).includes(perm.chosenType)));
+const restrictionAllows = (r: RestrictedMana, perm: Permanent, spell: CardDef): boolean => {
+  if (r.onlyArtifactSpells) return (spell.typeLine ?? spell.type).toLowerCase().split("—")[0].includes("artifact");
+  if (!r.creature && !r.cardType && !r.subtype && !r.chosenType) return false; // ability-only mana
+  return (
+    (!r.creature || spell.type === "creature") &&
+    (!r.cardType || (spell.typeLine ?? spell.type).toLowerCase().split("—")[0].includes(r.cardType)) &&
+    (!r.subtype || defSubtypes(spell).includes(r.subtype)) &&
+    (!r.chosenType || (!!perm.chosenType && defSubtypes(spell).includes(perm.chosenType)))
+  );
+};
+
+/** May this restricted mana pay for an ability of `source`? */
+const abilityAllows = (r: RestrictedMana, source: CardDef): boolean =>
+  r.abilityAny === true || (r.abilityCreature === true && source.type === "creature") || (r.abilitySubtype !== undefined && defSubtypes(source).includes(r.abilitySubtype));
 
 /** Was this permanent's mana the kind that gives `spell` haste? */
 export function hasteFrom(state: GameState, iid: string, spell: CardDef): boolean {
@@ -356,15 +466,19 @@ function paySources(state: GameState, player: PlayerId, cost: ManaCost, sources:
   if (life > state.players[player].life) return { ok: false, missing: "life" };
 
   const tap = [...new Set(sources.filter((_, s) => owner[s] !== undefined).map((src) => src.iid))];
-  const rest = sources.filter((_, s) => owner[s] === undefined);
+  // A filter land that was used pays its {n} with n other sources (it makes n mana in return, so it adds nothing to the generic pool).
+  const filterUsed = new Map<string, number>();
+  sources.forEach((src, s) => src.filter !== undefined && owner[s] !== undefined && filterUsed.set(src.iid, src.filter));
+  const filterCost = [...filterUsed.values()].reduce((n, c) => n + c, 0);
+  const rest = sources.filter((src, s) => owner[s] === undefined && src.filter === undefined);
   const plenty = new Map<ManaColor, number>();
   for (const src of rest) if (src.colors.length === 1) plenty.set(src.colors[0], (plenty.get(src.colors[0]) ?? 0) + 1);
   rest.sort((a, b) => {
     const rank = (src: Source) => (forSpell && hasteFrom(state, src.iid, forSpell) ? -Infinity : src.colors.length === 1 ? -(plenty.get(src.colors[0]) ?? 0) : 1000 + src.colors.length);
     return rank(a) - rank(b);
   });
-  if (rest.length < cost.generic + extraGeneric) return { ok: false, missing: "generic" };
-  for (const src of rest.slice(0, cost.generic + extraGeneric)) if (!tap.includes(src.iid)) tap.push(src.iid);
+  if (rest.length < cost.generic + extraGeneric + filterCost) return { ok: false, missing: "generic" };
+  for (const src of rest.slice(0, cost.generic + extraGeneric + filterCost)) if (!tap.includes(src.iid)) tap.push(src.iid);
   return { ok: true, tap, life };
 }
 
@@ -385,7 +499,7 @@ export function availableMana(state: GameState, player: PlayerId): Record<ManaCo
   const pool: Record<ManaColor, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   for (const perm of state.players[player].battlefield) {
     if (perm.tapped) continue;
-    const colors = makesTwoOfOneColor(state, perm) ? ALL_FIVE : manaColorsOf(state, perm);
+    const colors = makesOneColorMana(state, perm) ? ALL_FIVE : manaColorsOf(state, perm);
     for (const color of colors) pool[color] += manaAmountOf(state, player, perm);
   }
   return pool;

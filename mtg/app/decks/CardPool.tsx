@@ -5,6 +5,7 @@ import type { CardDef, CardType } from "@mtg/engine";
 import { CARDS_PAGE_SIZE } from "@/lib/cards";
 import type { DeckEntries } from "@/lib/decks";
 import CardView from "../play/CardView";
+import { useHoverZoom } from "../play/HoverZoom";
 import { CardSkeletons } from "../Skeleton";
 import { ManaSymbol } from "../play/ManaSymbols";
 import TypeButton from "../cards/TypeButton";
@@ -20,6 +21,7 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
   const [type, setType] = useState<Filter>("all");
   const [colors, setColors] = useState<string[]>([]);
   const [page, setPage] = useState(0);
+  const zoom = useHoverZoom(); // the big card next to whatever the mouse is over
   const { result, loading } = useCardSearch({ query, type, playableOnly: true, colors, page });
   const total = result?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / CARDS_PAGE_SIZE));
@@ -71,7 +73,9 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
       {!result && <CardSkeletons count={CARDS_PAGE_SIZE} size="md" className="flex flex-wrap gap-2" />}
       <div className={`flex flex-wrap gap-2 transition-opacity ${loading ? "opacity-50" : ""}`}>
         {result?.cards.map((def) => (
-          <CardView key={def.id} def={def} note={entries[def.id] ? `×${entries[def.id]}` : undefined} onClick={() => onAdd(def)} onZoom={() => onZoom(def)} />
+          <div key={def.id} onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
+            <CardView def={def} note={entries[def.id] ? `×${entries[def.id]}` : undefined} onClick={() => onAdd(def)} onZoom={() => onZoom(def)} />
+          </div>
         ))}
       </div>
       <div className="flex items-center gap-3 text-sm">
@@ -85,6 +89,7 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
           Next →
         </button>
       </div>
+      {zoom.node}
     </section>
   );
 }

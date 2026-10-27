@@ -4,6 +4,7 @@ import type { CardDef } from "@mtg/engine";
 import { MAX_COPIES, isBasicLand } from "@mtg/engine";
 import type { DeckEntries } from "@/lib/decks";
 import CardView from "../play/CardView";
+import { useHoverZoom } from "../play/HoverZoom";
 
 /** − count + for one card of the deck. The count turns amber above the copy limit. */
 export function Quantity({ def, qty, onChange }: { def: CardDef; qty: number; onChange: (def: CardDef, delta: number) => void }) {
@@ -35,6 +36,7 @@ export default function DeckCards({
   onZoom: (def: CardDef) => void;
   onAdd: () => void;
 }) {
+  const zoom = useHoverZoom(); // the big card next to whatever the mouse is over
   if (groups.length === 0) {
     return (
       <section className="flex flex-col items-start gap-2">
@@ -54,7 +56,7 @@ export default function DeckCards({
           </h3>
           <div className="flex flex-wrap gap-3">
             {g.cards.map((def) => (
-              <div key={def.id} className="flex flex-col items-center gap-1">
+              <div key={def.id} className="flex flex-col items-center gap-1" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
                 <CardView
                   def={def}
                   size="md"
@@ -73,6 +75,7 @@ export default function DeckCards({
       {groups.some((g) => g.cards.some((d) => d.playable === false)) && (
         <p className="text-xs text-zinc-500">A red outline means the game can&apos;t play that card yet.</p>
       )}
+      {zoom.node}
     </section>
   );
 }

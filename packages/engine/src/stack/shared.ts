@@ -1,10 +1,11 @@
 import type { GameEvent } from "../actions.js";
 import { getCard } from "../cards.js";
-import { changeLife, findPermanentOrNull, isLegalTarget, isPermanentCard, isToken, playerToAct } from "../core.js";
+import { changeLife, findPermanentOrNull, isLegalTarget, isPermanentCard, isToken, playerToAct, tapPerm, toughnessOf } from "../core.js";
 import type { TargetChoice, TargetSpec } from "../effects.js";
 import { hasKeyword } from "../keywords.js";
 import { manaAbilitySacrifices, manaCostOf, parseManaCost } from "../mana.js";
 import type { ManaCost } from "../mana.js";
+import { parseCard } from "../oracle.js";
 import type { CardDef, GameState, PlayerId } from "../types.js";
 
 // Timing, payment and target checks shared by casting, activating and resolving.
@@ -22,6 +23,8 @@ const isInstantSpeed = (def: CardDef) => def.type === "instant" || hasKeyword(de
 
 /** Instants (and flash creatures) any time you have priority; everything else in your main phase with an empty stack. */
 export function canCastNow(state: GameState, player: PlayerId, def: CardDef): boolean {
+  // "Your opponents can't cast spells during your turn."
+  if (state.active !== player && state.players[state.active].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).noOppSpellsOnYourTurn)) return false;
   if (isInstantSpeed(def)) return holdsPriority(state, player);
   return (
     !state.priority &&
@@ -57,7 +60,7 @@ const tapPermanents = (state: GameState, player: PlayerId, iids: string[]) => {
   const battlefield = state.players[player].battlefield;
   for (const perm of [...battlefield]) {
     if (!iids.includes(perm.card.iid)) continue;
-    perm.tapped = true;
+    tapPerm(state, perm, player);
     // A Treasure is sacrificed when it is tapped for mana; a token simply ceases to exist.
     if (manaAbilitySacrifices(getCard(state, perm.card.defId))) {
       battlefield.splice(battlefield.indexOf(perm), 1);
@@ -115,4 +118,19 @@ export function abilityManaCost(state: GameState, perm: { card: { defId: string 
   }
   generic = Math.max(0, generic - printed.generic);
   return { ...cost, generic, colored };
+}
+
+/** "You may activate abilities of creatures you control as though those creatures had haste" (Shang-Chi). */
+export const abilityHaste = (state: GameState, player: PlayerId): boolean => state.players[player].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).hasteForAbilities);
+
+/** "Activate only if there are two or more creature cards in your graveyard" / "...if you control a creature with toughness 4 or greater": why the ability can't be used now (null: it can). */
+export function abilityNeed(state: GameState, player: PlayerId, ability: { needYardCreatures?: number; needToughness?: number }): string | null {
+  const me = state.players[player];
+  if (ability.needYardCreatures !== undefined && me.graveyard.filter((c) => getCard(state, c.defId).type === "creature").length < ability.needYardCreatures) {
+    return `it needs ${ability.needYardCreatures} creature cards in your graveyard`;
+  }
+  if (ability.needToughness !== undefined && !me.battlefield.some((p) => getCard(state, p.card.defId).type === "creature" && toughnessOf(state, p) >= ability.needToughness!)) {
+    return `it needs a creature with toughness ${ability.needToughness} or greater`;
+  }
+  return null;
 }
