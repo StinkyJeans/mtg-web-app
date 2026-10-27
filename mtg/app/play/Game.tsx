@@ -33,7 +33,7 @@ import { ResignDialog, VictoryDialog } from "./EndDialogs";
 import { GraveyardDialog, Pile } from "./Piles";
 import ShuffleStage from "./ShuffleStage";
 import { shufflePending } from "./shuffleStep";
-import { handDraws, hideDrawn, holdPiles, isPileBusy, playDeal, playDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
+import { handDraws, hideDrawn, holdLibraryCounts, holdPiles, isPileBusy, playDeal, playDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
 import type { Draw } from "./pileFx";
 import { announcementsFrom, describeEvents, endReason, playerName } from "./log";
 import type { Announcement } from "./log";
@@ -301,7 +301,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             setAnnouncements([]);
           });
           // The opening seven are dealt from the library into the hand.
-          void openingDeal(handDraws(fresh, seat), true);
+          void openingDeal(handDraws(fresh, seat), true, fresh);
         }}
       />
     );
@@ -455,8 +455,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    * The start of a match: the opening hand stays hidden while the loading screen fades and, for the players, "Welcome to the
    * Battle Field, Now Duel!" shows on the board. Then the cards are dealt from the library.
    */
-  async function openingDeal(hand: Draw[], greet: boolean) {
+  async function openingDeal(hand: Draw[], greet: boolean, start?: GameState) {
     hideDrawn(hand);
+    const first = start ?? gameRef.current;
+    if (first) holdLibraryCounts(first); // the libraries show 60 until the cards are dealt
     setIntro(true);
     const release = holdPiles(); // clicks wait for the cards
     try {

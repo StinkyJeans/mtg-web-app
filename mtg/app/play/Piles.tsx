@@ -5,6 +5,7 @@ import { cardImageUrl } from "@/lib/cards";
 import CardView from "./CardView";
 import { playerName } from "./log";
 import { SleeveBack } from "./AppearanceDialog";
+import { useUnseenCards } from "./pileFx";
 
 /** The back of a card: used for the library and by the draw animation. */
 export const CARD_BACK = "bg-gradient-to-br from-amber-700 via-amber-900 to-stone-900";
@@ -22,6 +23,8 @@ const LABEL_SIZE = "clamp(0.55rem, 9cqh, 0.8rem)";
  */
 export function Pile({ state, owner, kind, compact, onOpen, deckName, sleeve }: { state: GameState; owner: PlayerId; kind: "library" | "graveyard" | "exile"; compact?: boolean; onOpen?: () => void; deckName?: string; sleeve?: { css: string; edge: string } }) {
   const cards = state.players[owner][kind];
+  const unseen = useUnseenCards(owner);
+  const shown = cards.length + (kind === "library" ? unseen : 0); // (the opening hands are dealt on screen: the library counts down)
   const top = kind !== "library" ? state.cards[cards[cards.length - 1]?.defId ?? ""] : undefined;
   const label = kind === "library" ? "Library" : kind === "graveyard" ? "Graveyard" : "Exile";
   const clickable = kind !== "library" && cards.length > 0 && onOpen;
@@ -54,7 +57,7 @@ export function Pile({ state, owner, kind, compact, onOpen, deckName, sleeve }: 
       data-pile={`${kind}-${owner}`}
       onClick={clickable ? onOpen : undefined}
       disabled={!clickable}
-      aria-label={`${playerName(owner)}'s ${label.toLowerCase()}: ${cards.length} cards`}
+      aria-label={`${playerName(owner)}'s ${label.toLowerCase()}: ${shown} cards`}
       title={clickable ? `Look through ${playerName(owner)}'s graveyard` : undefined}
       className={`${PILE_BOX} relative justify-center gap-3 ${
         kind === "graveyard" ? "border-white/25" : "border-[#fcd34d]/70"
@@ -80,7 +83,7 @@ export function Pile({ state, owner, kind, compact, onOpen, deckName, sleeve }: 
       )}
       <div className="flex min-w-0 flex-col text-left">
         <span className="font-semibold uppercase font-display tracking-wide text-slate-300" style={{ fontSize: LABEL_SIZE }}>{label}</span>
-        <span className="font-bold text-white" style={{ fontSize: COUNT_SIZE }}>{cards.length}</span>
+        <span className="font-bold text-white" style={{ fontSize: COUNT_SIZE }}>{shown}</span>
         {kind === "library" && deckName && (
           <span title={deckName} className={`truncate text-slate-300 ${compact ? "max-w-24" : "max-w-40 text-xs"}`} style={compact ? { fontSize: LABEL_SIZE } : undefined}>
             {deckName}

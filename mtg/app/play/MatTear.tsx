@@ -3,6 +3,7 @@
 import { useMemo } from "react";
 import { useAnimationsOn } from "@/lib/motion";
 
+// (Always mounted, whatever the life total, so that a tear starts from the whole mat and slides: mounting it already torn would show the tear at once.)
 // The playmat as a sheet of paper. As its player loses life it tears away from the edges, bite by ragged bite, leaving a pale torn
 // rim and the dark table underneath, until at 0 life nothing is left. The tearing is a clip-path with the same number of points at
 // every life total, so the browser slides it from one shape to the next, slowly. (It repaints while it moves, which happens only
@@ -54,7 +55,7 @@ function polygon(list: Bite[], tear: number, shrink = 1): string {
     const edge = Math.floor(i / PER_EDGE);
     const f = (i % PER_EDGE) / PER_EDGE; // how far along that side
     const wiggle = ((i * 7919) % 13) / 13; // a little sideways jitter, so the torn edge is not a neat staircase
-    const along = Math.max(0, Math.min(100, f * 100 + (wiggle - 0.5) * 2.2 * (eaten > 0 ? 1 : 0)));
+    const along = Math.max(0, Math.min(100, f * 100 + (wiggle - 0.5) * 1.2 * (eaten > 0 ? 1 : 0)));
     switch (edge) {
       case 0:
         return `${along}% ${depth}%`; // top, left to right: the tear goes down
@@ -77,13 +78,13 @@ export function MatTear({ life, mat, seed }: { life: number; mat: string; seed: 
   const on = useAnimationsOn();
   const list = useMemo(() => bites(seed), [seed]);
   const tear = tearOf(life);
-  const move = on ? "clip-path 2.4s cubic-bezier(0.45, 0.05, 0.35, 1)" : "none";
+  const move = on ? "clip-path 2.4s steps(12, end)" : "none";
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-2xl">
       {/* the pale torn rim, a little further out than the mat itself */}
-      {tear > 0 && <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #efe6d2, #cfc3a8)", clipPath: polygon(list, tear, 0.86), transition: move }} />}
+      <div className="absolute inset-0" style={{ background: "linear-gradient(135deg, #cdbfa0, #8f8468)", opacity: 0.9, clipPath: polygon(list, tear, 0.93), transition: move, willChange: "clip-path", transform: "translateZ(0)" }} />
       {/* the mat */}
-      <div className="absolute inset-0" style={{ background: `linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), ${mat}`, clipPath: tear > 0 ? polygon(list, tear) : undefined, transition: move }} />
+      <div className="absolute inset-0" style={{ background: `linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), ${mat}`, clipPath: polygon(list, tear), transition: move, willChange: "clip-path, transform", transform: "translateZ(0)" }} />
       {/* a worried red glow at the edge of what is left */}
       {tear > 0.3 && <div className={`mat-lowlife ${on ? "mat-lowlife-moving" : ""}`} data-stage={tear > 0.8 ? 3 : tear > 0.5 ? 2 : 1} />}
     </div>

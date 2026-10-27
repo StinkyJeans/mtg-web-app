@@ -12,6 +12,8 @@ type Hit = Extract<GameEvent, { type: "combatDamage" }>;
 const LUNGE_MS = 820;
 const IMPACT_AT = 0.45; // fraction of the lunge at which the hit lands
 const STAGGER_MS = 150; // delay between attackers, so each hit can be seen
+const AIM_MS = 330; // the aiming lines: drawn, held, and gone just as the attackers charge
+const AIM_LEAD_MS = 320; // how long the attackers wait, lines drawn, before they charge
 const BETWEEN_GROUPS_MS = 250; // pause after the blocked fights, before the unblocked attackers go
 
 let playing = false;
@@ -21,6 +23,7 @@ let flashEdges = true;
 let crowd = 1;
 let flashed = false;
 let numberSlot = 0;
+let bursts = 0; // impact flashes shown in this wave
 /** True while an attack is being animated, so the game can ignore clicks until it has finished. */
 export const isCombatPlaying = () => playing;
 
@@ -40,6 +43,7 @@ const centerOf = (r: DOMRect) => ({ x: r.left + r.width / 2, y: r.top + r.height
 
 /** A red "-3" that rises from the point of impact and fades. */
 function floatNumber(at: DOMRect, amount: number) {
+  if (crowd > 2 && numberSlot >= 3) return; // with a crowd, the first three hits show their numbers (the life total shows the rest)
   const note = document.createElement("div");
   note.textContent = `-${amount}`;
   const c = centerOf(at);
@@ -142,27 +146,162 @@ function impactBurst(x: number, y: number, power = 1) {
   }
 }
 
-/** The edges of the screen flash for a moment: a hit you feel. Opacity only, so it costs next to nothing. */
+/**
+ * The edges of the screen flash for a moment: a hit you feel. Four thin strips along the edges (one gradient over the whole screen
+ * would be a layer the size of the window, blended over everything, which is slow on a busy page). Opacity only.
+ */
 function screenFlash(rgb: string, strength: number) {
   if (!flashEdges || flashed) return; // the attacker doesn't get the flash, the player who was hit does, and once for a whole wave of attackers
   flashed = true;
-  const el = document.createElement("div");
-  Object.assign(el.style, { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "64", background: `radial-gradient(ellipse at center, rgba(${rgb}, 0) 45%, rgba(${rgb}, ${strength}) 100%)` });
-  document.body.appendChild(el);
-  el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.18 }, { opacity: 0 }], { duration: 460, easing: "ease-out" }).finished.then(() => el.remove());
+  const edge = `rgba(${rgb}, ${strength})`;
+  const clear = `rgba(${rgb}, 0)`;
+  const strips: [string, Partial<CSSStyleDeclaration>][] = [
+    [`linear-gradient(to bottom, ${edge}, ${clear})`, { left: "0", right: "0", top: "0", height: "16vh" }],
+    [`linear-gradient(to top, ${edge}, ${clear})`, { left: "0", right: "0", bottom: "0", height: "16vh" }],
+    [`linear-gradient(to right, ${edge}, ${clear})`, { top: "16vh", bottom: "16vh", left: "0", width: "12vw" }],
+    [`linear-gradient(to left, ${edge}, ${clear})`, { top: "16vh", bottom: "16vh", right: "0", width: "12vw" }],
+  ];
+  for (const [background, place] of strips) {
+    const el = document.createElement("div");
+    Object.assign(el.style, { position: "fixed", pointerEvents: "none", zIndex: "64", background, willChange: "opacity", ...place });
+    document.body.appendChild(el);
+    el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.18 }, { opacity: 0 }], { duration: 460, easing: "ease-out" }).finished.then(() => el.remove());
+  }
 }
+
+const lifePulsing = new Set<HTMLElement>(); // life numbers that are pulsing right now
 
 /** A player's life total pulses red when it is hit. */
 function flashLife(el: HTMLElement) {
-  if (el.getAnimations().some((a) => a.playState === "running" && a.effect?.getTiming().duration === 520)) return; // already pulsing from another hit
-  el.animate(
-    [
-      { transform: "scale(1)" },
-      { transform: "scale(1.8)", offset: 0.25 },
-      { transform: "scale(1)" },
-    ],
-    { duration: 520, easing: "ease-out" },
-  );
+  if (lifePulsing.has(el)) return; // already pulsing from another hit
+  // A copy of the number does the pulsing, on a layer of its own over the page: scaling the real one would repaint the panel it sits in.
+  const r = el.getBoundingClientRect();
+  const look = getComputedStyle(el);
+  const copy = document.createElement("div");
+  copy.textContent = el.textContent;
+  Object.assign(copy.style, {
+    position: "fixed",
+    left: `${r.left + r.width / 2}px`,
+    top: `${r.top + r.height / 2}px`,
+    fontFamily: look.fontFamily,
+    fontSize: look.fontSize,
+    fontWeight: look.fontWeight,
+    lineHeight: "1",
+    color: "#ef4444",
+    textShadow: "0 0 10px rgba(239, 68, 68, 0.9), 0 0 2px #000",
+    willChange: "transform, opacity",
+    zIndex: "66",
+    pointerEvents: "none",
+  });
+  document.body.appendChild(copy);
+  lifePulsing.add(el);
+  copy
+    .animate(
+      [
+        { transform: "translate(-50%, -50%) scale(1)", opacity: 0 },
+        { transform: "translate(-50%, -50%) scale(1.7)", opacity: 1, offset: 0.25 },
+        { transform: "translate(-50%, -50%) scale(2.3)", opacity: 0 },
+      ],
+      { duration: 520, easing: "ease-out" },
+    )
+    .finished.then(() => {
+      copy.remove();
+      lifePulsing.delete(el);
+    });
+}
+
+/** A thin glowing line from an attacker to what it is about to hit: it draws itself out, holds for a moment, and fades. */
+function aimLine(from: DOMRect, to: DOMRect, delay: number) {
+  const a = centerOf(from);
+  const b = centerOf(to);
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  const line = document.createElement("div");
+  Object.assign(line.style, {
+    position: "fixed",
+    left: `${a.x}px`,
+    top: `${a.y - 1.5}px`,
+    width: `${len}px`,
+    height: "3px",
+    borderRadius: "2px",
+    background: "linear-gradient(90deg, rgba(254, 202, 202, 0.15), rgba(254, 226, 226, 0.95))",
+    transformOrigin: "0 50%",
+    willChange: "transform, opacity",
+    zIndex: "59",
+    pointerEvents: "none",
+    opacity: "0",
+  });
+  const angle = Math.atan2(b.y - a.y, b.x - a.x);
+  document.body.appendChild(line);
+  line
+    .animate(
+      [
+        { transform: `rotate(${angle}rad) scaleX(0)`, opacity: 0 },
+        { transform: `rotate(${angle}rad) scaleX(1)`, opacity: 1, offset: 0.5 },
+        { transform: `rotate(${angle}rad) scaleX(1)`, opacity: 1, offset: 0.7 },
+        { transform: `rotate(${angle}rad) scaleX(1)`, opacity: 0 },
+      ],
+      { duration: AIM_MS, delay, easing: "ease-out", fill: "backwards" },
+    )
+    .finished.then(() => line.remove());
+}
+
+/** The red chevron that marks an attacking creature, and the streak that trails it as it charges (both ride on the moving card). */
+function attackMarks(ghost: HTMLElement, ux: number, uy: number, width: number, height: number) {
+  const chevron = document.createElement("div");
+  Object.assign(chevron.style, {
+    position: "absolute",
+    left: "50%",
+    top: "-16px",
+    marginLeft: "-13px",
+    width: "0",
+    height: "0",
+    borderLeft: "13px solid transparent",
+    borderRight: "13px solid transparent",
+    borderBottom: "15px solid #ef4444",
+    pointerEvents: "none",
+  });
+  ghost.appendChild(chevron);
+  if (crowd > 3) return null; // with many attackers the streaks are left out
+  const streak = document.createElement("div");
+  const angle = Math.atan2(-uy, -ux); // behind the card, away from where it is going
+  Object.assign(streak.style, {
+    position: "absolute",
+    left: "50%",
+    top: "50%",
+    width: `${Math.max(width, height) * 1.9}px`,
+    height: `${width * 0.55}px`,
+    marginTop: `${-width * 0.275}px`,
+    borderRadius: "999px",
+    background: "linear-gradient(90deg, rgba(254, 215, 170, 0.85), rgba(255, 255, 255, 0))",
+    transformOrigin: "0 50%",
+    transform: `rotate(${angle}rad)`,
+    opacity: "0",
+    willChange: "opacity",
+    pointerEvents: "none",
+    zIndex: "-1",
+  });
+  ghost.appendChild(streak);
+  return streak;
+}
+
+/** A hot flash at the moment of impact (a gradient disc, so it costs nothing to draw). */
+function flare(x: number, y: number, power: number) {
+  const size = 90 + 60 * power;
+  const el = document.createElement("div");
+  Object.assign(el.style, {
+    position: "fixed",
+    left: `${x - size / 2}px`,
+    top: `${y - size / 2}px`,
+    width: `${size}px`,
+    height: `${size}px`,
+    borderRadius: "50%",
+    background: "radial-gradient(circle, rgba(255, 251, 235, 0.95) 0%, rgba(253, 186, 116, 0.75) 35%, rgba(239, 68, 68, 0) 70%)",
+    willChange: "transform, opacity",
+    zIndex: "65",
+    pointerEvents: "none",
+  });
+  document.body.appendChild(el);
+  el.animate([{ transform: "scale(0.2)", opacity: 1 }, { transform: "scale(1.5)", opacity: 0.8, offset: 0.35 }, { transform: "scale(1.9)", opacity: 0 }], { duration: 380, easing: "ease-out" }).finished.then(() => el.remove());
 }
 
 /** Sends one attacker at `target`, runs the hit effects at the moment of impact, and brings it home. */
@@ -203,7 +342,11 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
   const contact = { x: (end.x + b.x) / 2, y: (end.y + b.y) / 2 };
 
   // The moving card is a copy drawn on top of everything, so it isn't clipped by the board it came from.
-  const ghost = attacker.cloneNode(true) as HTMLElement;
+  // With several attackers at once, each moving copy is just the card's picture (a whole copy of the card, text and badges and all,
+  // five times over, is what slows the screen); a lone attacker is copied in full.
+  const art = crowd > 2 ? attacker.querySelector("img")?.currentSrc : "";
+  const ghost = art ? document.createElement("div") : (attacker.cloneNode(true) as HTMLElement);
+  if (art) Object.assign(ghost.style, { background: `center / cover url("${art}")`, borderRadius: "8px", border: "1px solid #52525b" });
   ghost.removeAttribute("data-card-iid");
   Object.assign(ghost.style, {
     position: "fixed",
@@ -223,6 +366,9 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
   });
   document.body.appendChild(ghost);
   attacker.style.visibility = "hidden";
+  const streak = attackMarks(ghost, ux, uy, width, height);
+  streak?.animate([{ opacity: 0 }, { opacity: 0, offset: 0.16 / IMPACT_AT }, { opacity: 0.9, offset: 0.7 }, { opacity: 0 }], { duration: LUNGE_MS * IMPACT_AT, easing: "linear", fill: "forwards" });
+  const tilt = ux >= 0 ? 9 : -9; // it banks into the charge
 
   const motion = ghost.animate(
     [
@@ -230,7 +376,7 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
       // wind up: pull back before charging, then accelerate into the target
       { transform: `translate(${-ux * 22}px, ${-uy * 22}px) scale(1.12) rotate(-3deg)`, offset: 0.16, easing: "cubic-bezier(0.55, 0, 1, 0.45)" },
       // contact: arrives at full speed
-      { transform: `translate(${mx}px, ${my}px) scale(1.1)`, offset: IMPACT_AT, easing: "ease-out" },
+      { transform: `translate(${mx}px, ${my}px) scale(1.14) rotate(${tilt}deg)`, offset: IMPACT_AT, easing: "ease-out" },
       // rebound: bounces back off the target
       { transform: `translate(${mx - ux * 38}px, ${my - uy * 38}px) scale(1.1) rotate(-5deg)`, offset: IMPACT_AT + 0.14, easing: "ease-in-out" },
       // back home
@@ -243,7 +389,11 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
   await waitUntil(motion, LUNGE_MS * IMPACT_AT);
   playSound(targetIsPlayer ? "hit" : "clash");
   const dealt = hits.filter((h) => h.source === attackerId).reduce((n, h) => n + h.amount, 0);
-  impactBurst(contact.x, contact.y, Math.min(1.6, 0.6 + dealt * 0.12));
+  if (crowd <= 2 || bursts++ < 2) {
+    // (with a crowd, only the first two hits get the full flash)
+    impactBurst(contact.x, contact.y, Math.min(1.6, 0.6 + dealt * 0.12));
+    flare(contact.x, contact.y, Math.min(1.6, 0.6 + dealt * 0.12));
+  }
   screenFlash(targetIsPlayer ? "239, 68, 68" : "251, 191, 36", Math.min(0.34, 0.08 + dealt * 0.03));
   const attackerNow = new DOMRect(end.x - width / 2, end.y - height / 2, width, height);
   for (const hit of hits) {
@@ -296,7 +446,7 @@ export async function playCombat(events: GameEvent[], attackerIds: string[], opt
   }
 
   // One charge per attacker: at the creature blocking it, or (when nobody blocked it) at the player's life total.
-  type Charge = { run: () => Promise<void>; unblocked: boolean };
+  type Charge = { run: () => Promise<void>; unblocked: boolean; aim: [HTMLElement, HTMLElement] };
   const charges: Charge[] = [];
   for (const id of attackerIds) {
     const attacker = cardEl(id);
@@ -309,7 +459,7 @@ export async function playCombat(events: GameEvent[], attackerIds: string[], opt
     const target = cardId ? cardEl(cardId) : playerHit ? lifeEl(playerHit.target) : null;
     if (!attacker || !target) continue;
     const related = hits.filter((h) => h.source === id || h.target === id);
-    charges.push({ run: () => lunge(attacker, target, atPlayer, related, id), unblocked: atPlayer });
+    charges.push({ run: () => lunge(attacker, target, atPlayer, related, id), unblocked: atPlayer, aim: [attacker, target] });
   }
 
   /** Starts the charges one after another, a moment apart, and resolves when the last one is home. */
@@ -317,7 +467,11 @@ export async function playCombat(events: GameEvent[], attackerIds: string[], opt
     crowd = group.length;
     flashed = false;
     numberSlot = 0;
-    return Promise.all(group.map((c, i) => wait(i * STAGGER_MS).then(c.run)));
+    bursts = 0;
+    // First the attackers pick their targets: a line from each, then they go
+    if (group.length <= 3) group.forEach((c, i) => aimLine(c.aim[0].getBoundingClientRect(), c.aim[1].getBoundingClientRect(), i * 40));
+    if (group.length === 0) return Promise.resolve([]);
+    return wait(AIM_LEAD_MS).then(() => Promise.all(group.map((c, i) => wait(i * STAGGER_MS).then(c.run))));
   };
 
   playing = true;
@@ -332,3 +486,4 @@ export async function playCombat(events: GameEvent[], attackerIds: string[], opt
     playing = false;
   }
 }
+

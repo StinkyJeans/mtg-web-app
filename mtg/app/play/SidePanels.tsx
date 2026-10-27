@@ -6,6 +6,7 @@ import { availableMana, MANA_COLORS } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { ManaSymbol } from "./ManaSymbols";
 import { playerName } from "./log";
+import { useUnseenCards } from "./pileFx";
 import { lifeColor, PLAYER_STYLE } from "./theme";
 
 export interface ChatMessage {
@@ -65,6 +66,7 @@ export function PlayersPanel({
   /** Shows a Resign button on each player. */
   onResign?: (id: PlayerId) => void;
 }) {
+  const unseen = { p1: useUnseenCards("p1"), p2: useUnseenCards("p2") }; // (the opening hands are dealt on screen: the libraries count down)
   return (
     <section className={panel}>
       <h2 className={title}>{heading}</h2>
@@ -113,7 +115,7 @@ export function PlayersPanel({
                 ✋ Hand <b>{p.hand.length}</b>
               </span>
               <span className="rounded bg-amber-50 py-0.5" title="Cards in library">
-                📚 Library <b>{p.library.length}</b>
+                📚 Library <b>{p.library.length + unseen[id]}</b>
               </span>
               <span className="rounded bg-stone-100 py-0.5" title="Cards in graveyard">
                 ⚰️ Yard <b>{p.graveyard.length}</b>

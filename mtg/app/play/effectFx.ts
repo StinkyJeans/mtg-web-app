@@ -144,6 +144,52 @@ function popIn(el: HTMLElement) {
   el.animate([{ transform: "scale(0.55)", opacity: 0 }, { transform: "scale(1.09)", opacity: 1, offset: 0.62 }, { transform: "scale(1)", opacity: 1 }], { duration: 420, easing: "ease-out" });
 }
 
+/**
+ * A card arrives on the battlefield, the way a creature is cast in Arena: it drops in big and settles, a streak of its colour sweeps
+ * in from where it was played, and where it lands there is a flash and a ring.
+ */
+function arrive(el: HTMLElement, b: Box, color: string, land = false) {
+  el.animate(
+    [
+      { transform: "scale(1.5) rotate(-5deg)", opacity: 0 },
+      { transform: "scale(1.12) rotate(1deg)", opacity: 1, offset: 0.4, easing: "ease-in" },
+      { transform: "scale(0.95)", offset: 0.62, easing: "ease-out" },
+      { transform: "scale(1)", opacity: 1 },
+    ],
+    { duration: 520, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" },
+  );
+  const c = center(b);
+  // the comet: a short streak of light that flies in from where the card was played (a hand: the bottom of the screen for the player
+  // at the bottom, the top for the one at the top) and ends on the card
+  const fromBelow = c.y > window.innerHeight / 2;
+  const origin = { x: c.x + (window.innerWidth / 2 - c.x) * 0.25, y: fromBelow ? window.innerHeight + 30 : -30 }; // (mostly straight up from the hand, a little towards its middle)
+  const angle = Math.atan2(origin.y - c.y, origin.x - c.x);
+  const travel = Math.min(Math.hypot(origin.x - c.x, origin.y - c.y), 380);
+  const tail = 150;
+  const dir = `rotate(${angle}rad)`;
+  if (!land) void piece(
+    { left: `${c.x}px`, top: `${c.y - 4}px`, width: `${tail}px`, height: "8px", borderRadius: "6px", transformOrigin: "0 50%", background: `linear-gradient(90deg, #fff, ${color} 35%, rgba(255,255,255,0))` },
+    null,
+    [
+      { transform: `${dir} translateX(${travel}px)`, opacity: 0 },
+      { transform: `${dir} translateX(${travel * 0.7}px)`, opacity: 1, offset: 0.25 },
+      { transform: `${dir} translateX(0px)`, opacity: 1, offset: 0.85 },
+      { transform: `${dir} translateX(0px)`, opacity: 0 },
+    ],
+    420,
+    0,
+    "cubic-bezier(0.3, 0.1, 0.6, 1)",
+  );
+  // the landing: a hot flash and a ring, as the card comes down
+  void piece(
+    { left: `${c.x - 70}px`, top: `${c.y - 70}px`, width: "140px", height: "140px", borderRadius: "50%", background: `radial-gradient(circle, rgba(255,255,255,0.9) 0%, ${color} 40%, transparent 70%)` },
+    null,
+    [{ transform: "scale(0.2)", opacity: 0 }, { transform: "scale(0.5)", opacity: 0, offset: 0.35 }, { transform: "scale(1)", opacity: 0.85, offset: 0.55 }, { transform: "scale(1.7)", opacity: 0 }],
+    620,
+  );
+  ring(b, color, 280, 1.5);
+}
+
 /** A card turns over (a Marvel hero transforming). */
 function flip(el: HTMLElement) {
   el.animate([{ transform: "perspective(600px) rotateY(0deg)" }, { transform: "perspective(600px) rotateY(90deg)", offset: 0.45 }, { transform: "perspective(600px) rotateY(0deg)" }], { duration: 560, easing: "ease-in-out" });
@@ -232,7 +278,12 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
       const el = cardEl(perm.card.iid);
       if (!el) continue;
       if (!old) {
-        if (shown++ < 6) jobs.push(() => popIn(el));
+        if (shown++ < 6) {
+          const box = boxOf(el);
+          const color = tintOf(after.cards[perm.card.defId]);
+          const land = after.cards[perm.card.defId]?.type === "land";
+          jobs.push(() => (box ? arrive(el, box, color, land) : popIn(el)));
+        }
         continue;
       }
       const box = boxOf(el);

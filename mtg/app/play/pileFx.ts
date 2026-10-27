@@ -1,3 +1,4 @@
+import { useSyncExternalStore } from "react";
 import { playerToAct } from "@mtg/engine";
 import type { CardDef, GameState, PlayerId } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
@@ -10,6 +11,29 @@ import { sleeveOf } from "@/lib/playmat";
 //   data-pile="library-p1"   on each pile ("library" or "graveyard", then the owner)
 
 let busy = false;
+
+// The opening hands are dealt in the engine before anyone sees a card, so its libraries are already 53 long. On screen they stay 60
+// until the cards actually leave them: `unseen` is how many cards each library still shows that the engine has already moved to the hand.
+const unseen: Record<PlayerId, number> = { p1: 0, p2: 0 };
+const listeners = new Set<() => void>();
+const setUnseen = (p1: number, p2: number) => {
+  if (unseen.p1 === p1 && unseen.p2 === p2) return;
+  unseen.p1 = p1;
+  unseen.p2 = p2;
+  listeners.forEach((l) => l());
+};
+/** The libraries show their cards before the opening hands were dealt (call it as soon as the match is on the screen). */
+export const holdLibraryCounts = (s: GameState) => setUnseen(s.players.p1.hand.length, s.players.p2.hand.length);
+export const releaseLibraryCounts = () => setUnseen(0, 0);
+const dealtOne = () => setUnseen(Math.max(0, unseen.p1 - 1), Math.max(0, unseen.p2 - 1));
+/** How many cards of this player's library are still shown, though they are already in the hand. */
+export function useUnseenCards(owner: PlayerId): number {
+  return useSyncExternalStore(
+    (l) => (listeners.add(l), () => void listeners.delete(l)),
+    () => unseen[owner],
+    () => 0,
+  );
+}
 /** True while a card is flying, so the game can ignore clicks until it has landed. */
 let holds = 0;
 export const isPileBusy = () => busy || holds > 0;
@@ -268,6 +292,7 @@ async function dealOne(d: Draw, delay: number) {
   const library = pileEl("library", d.owner);
   const slot = cardEl(d.iid);
   await wait(delay);
+  dealtOne(); // the number on the library goes down as the card leaves it
   if (!library || !slot) {
     showCard(d.iid);
     return;
@@ -355,15 +380,18 @@ export async function riffleElement(src: HTMLElement, big = 1.25): Promise<void>
 
 /** The opening hand (or a mulligan's new one): the cards are dealt from the library straight into the hand, one after another. */
 export async function playDeal(draws: Draw[], shuffleSound = true): Promise<void> {
-  if (draws.length === 0) return;
+  if (draws.length === 0) return releaseLibraryCounts();
   if (shuffleSound) playSound("shuffle");
-  if (!animationsEnabled()) return;
-  draws.forEach((_, i) => playSound("draw", 0.35 + i * 0.11));
+  if (!animationsEnabled()) return releaseLibraryCounts();
+  draws.forEach((_, i) => playSound("draw", 0.35 + i * 0.24));
   busy = true;
   try {
     await untilBattlefieldShown();
-    await Promise.all(draws.map((d, i) => dealOne(d, i * 110)));
+    // a new hand after a mulligan: the library shows the cards it had before they were drawn
+    if (unseen[draws[0].owner] === 0) setUnseen(draws[0].owner === "p1" ? draws.length : unseen.p1, draws[0].owner === "p2" ? draws.length : unseen.p2);
+    await Promise.all(draws.map((d, i) => dealOne(d, i * 240)));
   } finally {
+    releaseLibraryCounts();
     busy = false;
     for (const d of draws) showCard(d.iid);
   }
