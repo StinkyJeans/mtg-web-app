@@ -221,10 +221,12 @@ async function flyDraw(d: Draw, delay: number) {
     // 1. the card leaves the top of the library and comes to the middle of the screen
     await outer.animate(
       [
-        { transform: `translate(0, 0) scale(${startScale})` },
-        { transform: `translate(${middle.x - from.x}px, ${middle.y - from.y}px) scale(1.7)` },
+        { transform: `translate(0, 0) scale(${startScale}) rotate(-8deg)` },
+        // a curve, not a straight line: it lifts off the pile and swings in
+        { transform: `translate(${(middle.x - from.x) * 0.45}px, ${(middle.y - from.y) * 0.45 - 70}px) scale(1.2) rotate(4deg)`, offset: 0.5 },
+        { transform: `translate(${middle.x - from.x}px, ${middle.y - from.y}px) scale(1.7) rotate(0deg)` },
       ],
-      { duration: 520, easing: "ease-out", fill: "forwards" },
+      { duration: 560, easing: "cubic-bezier(.25,.8,.3,1)", fill: "forwards" },
     ).finished;
 
     // 2. it turns over and shows itself
@@ -239,9 +241,10 @@ async function flyDraw(d: Draw, delay: number) {
     await outer.animate(
       [
         { transform: outer.style.transform || `translate(${middle.x - from.x}px, ${middle.y - from.y}px) scale(1.7)` },
-        { transform: `translate(${to.x - from.x}px, ${to.y - from.y}px) scale(${rect.width / W})` },
+        { transform: `translate(${(middle.x + to.x) / 2 - from.x}px, ${(middle.y + to.y) / 2 - from.y + 40}px) scale(${(1.7 + rect.width / W) / 2}) rotate(-3deg)`, offset: 0.5 },
+        { transform: `translate(${to.x - from.x}px, ${to.y - from.y}px) scale(${rect.width / W}) rotate(0deg)` },
       ],
-      { duration: 480, easing: "ease-in-out", fill: "forwards" },
+      { duration: 520, easing: "cubic-bezier(.4,0,.2,1)", fill: "forwards" },
     ).finished;
   } finally {
     outer.remove();

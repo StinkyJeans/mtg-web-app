@@ -1,3 +1,5 @@
+import { useEffect, useState } from "react";
+
 const KEY = "mtg-animations";
 
 /**
@@ -20,4 +22,16 @@ export function setAnimationsEnabled(on: boolean): void {
   } catch {
     // ignore: the switch just won't be remembered
   }
+}
+
+/** Follows the Animations switch in the top bar, for pictures that move by themselves (CSS animations can't read the switch). */
+export function useAnimationsOn(): boolean {
+  const [on, setOn] = useState(true);
+  useEffect(() => {
+    const update = () => setOn(animationsEnabled());
+    update();
+    window.addEventListener("mtg-animations", update);
+    return () => window.removeEventListener("mtg-animations", update);
+  }, []);
+  return on;
 }

@@ -80,7 +80,7 @@ export type GameEvent =
   | { type: "lifeGained"; player: PlayerId; amount: number }
   | { type: "lifeLost"; player: PlayerId; amount: number }
   | { type: "spellCast"; player: PlayerId; iid: string; tapped: string[]; targets: TargetChoice[] }
-  | { type: "abilityActivated"; player: PlayerId; iid: string; name: string; text: string }
+  | { type: "abilityActivated"; player: PlayerId; iid: string; name: string; text: string; targets?: TargetChoice[] }
   | { type: "permanentEntered"; player: PlayerId; iid: string }
   | { type: "damage"; source: string; target: string | PlayerId; amount: number }
   | { type: "effect"; text: string }
@@ -290,7 +290,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
         if (kw(next, perm, "defender")) return fail(`${nameOf(next, perm)} has defender and can't attack.`);
         if (forbidden(next, perm, "cantAttack")) return fail(`${nameOf(next, perm)} can't attack.`);
         if (perm.tapped) return fail("A tapped creature can't attack.");
-        if (perm.summoningSick && !kw(next, perm, "haste")) return fail("A creature that just arrived can't attack.");
+        if (perm.summoningSick && !kw(next, perm, "haste")) return fail(`${nameOf(next, perm)} just arrived this turn, so it can't attack yet (summoning sickness). It can attack from your next turn, or right away if it has haste.`);
         chosen.push(perm);
       }
       for (const perm of chosen) {

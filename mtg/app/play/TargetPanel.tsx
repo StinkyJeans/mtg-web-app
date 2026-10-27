@@ -44,7 +44,7 @@ export function TargetPanel({
   const cardsToClick = options.some(onBoard);
   const listed = options.filter((t) => !onBoard(t));
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-sky-500/50 bg-sky-50 p-3">
+    <section className="panel-in flex flex-col gap-2 rounded-lg border border-sky-500/50 bg-sky-50 p-3">
       <h2 className="text-base font-semibold text-sky-800">
         {title}
         <span className="font-normal text-sky-700">

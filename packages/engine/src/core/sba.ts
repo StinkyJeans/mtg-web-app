@@ -3,7 +3,7 @@ import type { GameEvent } from "../actions.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { GameState, Permanent } from "../types.js";
-import { findPermanentOrNull, isCreature, isPlaneswalker, isProtectedFrom, kw, qualityOfDef, toughnessOf } from "./permanents.js";
+import { findPermanentOrNull, isCreature, isPlaneswalker, isProtectedFrom, kw, nameOf, qualityOfDef, toughnessOf } from "./permanents.js";
 import { putIntoGraveyard, regenerateInstead } from "./zones.js";
 
 // State-based actions (rule 704).
@@ -57,6 +57,10 @@ function stateBasedActionsOnce(state: GameState, events: GameEvent[]): void {
     for (const perm of dead) {
       // Lethal damage or deathtouch can be regenerated away; zero toughness cannot.
       if (toughnessOf(state, perm) > 0 && regenerateInstead(state, perm)) continue;
+      // Say why: the rules kill a creature by themselves, which looks like a bug when you don't know them.
+      const tough = toughnessOf(state, perm);
+      const why = tough <= 0 ? "its toughness is 0 or less" : perm.damage >= tough ? `it has ${perm.damage} damage, as much as its toughness (${tough})` : "it was damaged by a creature with deathtouch";
+      events.push({ type: "effect", text: `Why: ${nameOf(state, perm)} is destroyed because ${why}.` });
       putIntoGraveyard(state, perm, p.id, events);
     }
   }
@@ -72,7 +76,10 @@ function stateBasedActionsOnce(state: GameState, events: GameEvent[]): void {
   }
   // Rule 704.5i: a planeswalker with no loyalty is put into its owner's graveyard.
   for (const p of Object.values(state.players)) {
-    for (const walker of p.battlefield.filter((perm) => isPlaneswalker(state, perm) && (perm.loyalty ?? 0) <= 0)) putIntoGraveyard(state, walker, p.id, events);
+    for (const walker of p.battlefield.filter((perm) => isPlaneswalker(state, perm) && (perm.loyalty ?? 0) <= 0)) {
+      events.push({ type: "effect", text: `Why: ${nameOf(state, walker)} goes to the graveyard because it has no loyalty left.` });
+      putIntoGraveyard(state, walker, p.id, events);
+    }
   }
   // Rule 704.5m: an Aura attached to something that is no longer on the battlefield goes to its owner's graveyard.
   for (const p of Object.values(state.players)) {
@@ -85,7 +92,10 @@ function stateBasedActionsOnce(state: GameState, events: GameEvent[]): void {
     for (const aura of p.battlefield.filter(hostGone)) {
       // Equipment stays on the battlefield, unattached. An Aura without something to enchant goes to the graveyard.
       if ((getCard(state, aura.card.defId).typeLine ?? "").includes("Equipment")) delete aura.attachedTo;
-      else putIntoGraveyard(state, aura, p.id, events);
+      else {
+        events.push({ type: "effect", text: `Why: ${nameOf(state, aura)} goes to the graveyard because what it was attached to is gone (or can no longer have it).` });
+        putIntoGraveyard(state, aura, p.id, events);
+      }
     }
   }
   // Rule 704.5s: a Saga with as many lore counters as its last chapter is sacrificed once that chapter's ability has left the stack.
@@ -94,18 +104,35 @@ function stateBasedActionsOnce(state: GameState, events: GameEvent[]): void {
       const saga = parseCard(getCard(state, perm.card.defId)).saga;
       if (!saga || (perm.lore ?? 0) < saga.final) continue;
       const waiting = state.stack.some((i) => i.kind === "ability" && i.source === perm.card.iid) || state.triggerQueue.some((q) => q.item.source === perm.card.iid) || state.pendingChoice?.item.source === perm.card.iid;
-      if (!waiting) putIntoGraveyard(state, perm, p.id, events);
+      if (!waiting) {
+        events.push({ type: "effect", text: `Why: ${nameOf(state, perm)} is sacrificed because its last chapter has been used.` });
+        putIntoGraveyard(state, perm, p.id, events);
+      }
     }
   }
-  // Rule 704.5j (the legend rule): of two legendary permanents with the same name, only one stays (the one that has been there longest).
+  // Rule 704.5j (the legend rule): of two legendary permanents with the same name that a player controls, they choose one to keep and the rest go to the graveyard.
   for (const p of Object.values(state.players)) {
-    const seen = new Set<string>();
-    for (const perm of [...p.battlefield]) {
+    if (state.pendingPick) break;
+    const byName = new Map<string, Permanent[]>();
+    for (const perm of p.battlefield) {
       const def = getCard(state, perm.card.defId);
-      if (!/\bLegendary\b/.test((def.typeLine ?? "").split("—")[0])) continue;
-      if (seen.has(def.name)) putIntoGraveyard(state, perm, p.id, events);
-      else seen.add(def.name);
+      if (/\bLegendary\b/.test((def.typeLine ?? "").split("—")[0])) byName.set(def.name, [...(byName.get(def.name) ?? []), perm]);
     }
+    const twin = [...byName].find(([, perms]) => perms.length > 1);
+    if (!twin) continue;
+    const [name, perms] = twin;
+    events.push({ type: "effect", text: `Legend rule: ${p.id === "p1" ? "Player 1" : "Player 2"} controls more than one ${name}. Why: a legendary permanent can only be controlled once by the same player, so one has to go.` });
+    state.pendingPick = {
+      player: p.id,
+      prompt: `Legend rule: you control more than one ${name}. Choose the one to keep: the other goes to the graveyard`,
+      kind: "legend",
+      options: perms.map((x) => x.card.iid),
+      optional: false,
+      owner: p.id,
+      remaining: 1,
+      ordered: [],
+      source: { iid: perms[0].card.iid, name, defId: perms[0].card.defId },
+    };
   }
   const losers = Object.values(state.players).filter((p) => p.life <= 0 || p.drewFromEmpty);
   if (losers.length === 2 && !state.winner) {

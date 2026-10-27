@@ -15,6 +15,12 @@ const STAGGER_MS = 150; // delay between attackers, so each hit can be seen
 const BETWEEN_GROUPS_MS = 250; // pause after the blocked fights, before the unblocked attackers go
 
 let playing = false;
+/** Whether this screen belongs to the player being attacked: only they see the edges of the screen flash. (Set for each attack.) */
+let flashEdges = true;
+/** How many attackers are charging at the same moment (and how many numbers have been shown for them): with a crowd, each one gets lighter effects. */
+let crowd = 1;
+let flashed = false;
+let numberSlot = 0;
 /** True while an attack is being animated, so the game can ignore clicks until it has finished. */
 export const isCombatPlaying = () => playing;
 
@@ -36,15 +42,19 @@ const centerOf = (r: DOMRect) => ({ x: r.left + r.width / 2, y: r.top + r.height
 function floatNumber(at: DOMRect, amount: number) {
   const note = document.createElement("div");
   note.textContent = `-${amount}`;
-  const { x, y } = centerOf(at);
+  const c = centerOf(at);
+  // several numbers on the same life total fan out sideways instead of piling up on top of each other
+  const x = c.x + (crowd > 1 ? ((numberSlot++ % 5) - 2) * 26 : 0);
+  const y = c.y;
   Object.assign(note.style, {
     position: "fixed",
     left: `${x}px`,
     top: `${y}px`,
     zIndex: "70",
     pointerEvents: "none",
+    willChange: "transform, opacity",
     fontWeight: "800",
-    fontSize: "30px",
+    fontSize: `${26 + Math.min(amount, 9) * 3}px`, // a bigger hit is a bigger number
     color: "#dc2626",
     textShadow: "0 0 3px #fff, 0 0 3px #fff, 0 2px 6px rgba(0,0,0,.4)",
   });
@@ -52,8 +62,9 @@ function floatNumber(at: DOMRect, amount: number) {
   note
     .animate(
       [
-        { transform: "translate(-50%, -50%) scale(0.6)", opacity: 0 },
-        { transform: "translate(-50%, -90%) scale(1.25)", opacity: 1, offset: 0.2 },
+        { transform: "translate(-50%, -50%) scale(0.35)", opacity: 0 },
+        { transform: "translate(-50%, -92%) scale(1.6)", opacity: 1, offset: 0.13 },
+        { transform: "translate(-50%, -110%) scale(1.15)", opacity: 1, offset: 0.3 },
         { transform: "translate(-50%, -220%) scale(1)", opacity: 0 },
       ],
       { duration: 1000, easing: "ease-out" },
@@ -65,19 +76,21 @@ function floatNumber(at: DOMRect, amount: number) {
 function recoil(el: HTMLElement, ux: number, uy: number) {
   const px = ux * 28;
   const py = uy * 28;
+  // A brightness flash means repainting the card every frame, so with several attackers at once the shove alone is shown.
+  const flash = crowd <= 2;
   el.animate(
     [
-      { transform: "translate(0, 0) rotate(0deg)", filter: "none" },
-      { transform: `translate(${px}px, ${py}px) rotate(${ux >= 0 ? 6 : -6}deg)`, filter: "brightness(1.8) saturate(1.6)", offset: 0.22 },
-      { transform: `translate(${-px * 0.25}px, ${-py * 0.25}px) rotate(${ux >= 0 ? -2 : 2}deg)`, filter: "brightness(1.15)", offset: 0.55 },
-      { transform: "translate(0, 0) rotate(0deg)", filter: "none" },
+      { transform: "translate(0, 0) rotate(0deg)", ...(flash ? { filter: "none" } : {}) },
+      { transform: `translate(${px}px, ${py}px) rotate(${ux >= 0 ? 6 : -6}deg)`, ...(flash ? { filter: "brightness(1.8) saturate(1.6)" } : {}), offset: 0.22 },
+      { transform: `translate(${-px * 0.25}px, ${-py * 0.25}px) rotate(${ux >= 0 ? -2 : 2}deg)`, ...(flash ? { filter: "brightness(1.15)" } : {}), offset: 0.55 },
+      { transform: "translate(0, 0) rotate(0deg)", ...(flash ? { filter: "none" } : {}) },
     ],
     { duration: 480, easing: "ease-out" },
   );
 }
 
 /** The flash at the point where two cards (or a card and a life total) collide: a shock ring and sparks. */
-function impactBurst(x: number, y: number) {
+function impactBurst(x: number, y: number, power = 1) {
   const ring = document.createElement("div");
   Object.assign(ring.style, {
     position: "fixed",
@@ -89,17 +102,19 @@ function impactBurst(x: number, y: number) {
     marginTop: "-11px",
     borderRadius: "50%",
     border: "4px solid #fde047",
-    boxShadow: "0 0 26px 10px rgba(251, 146, 60, 0.85)",
+    ...(crowd > 2 ? { background: "radial-gradient(circle, rgba(253, 224, 71, 0.55), rgba(251, 146, 60, 0))" } : { boxShadow: "0 0 26px 10px rgba(251, 146, 60, 0.85)" }), // (a big blurred glow, five times over, is what slows the screen)
+    willChange: "transform, opacity",
     zIndex: "65",
     pointerEvents: "none",
   });
   document.body.appendChild(ring);
-  ring.animate([{ transform: "scale(0.3)", opacity: 1 }, { transform: "scale(6.5)", opacity: 0 }], { duration: 440, easing: "ease-out" }).finished.then(() =>
+  ring.animate([{ transform: "scale(0.3)", opacity: 1 }, { transform: `scale(${3.5 + 3 * power})`, opacity: 0 }], { duration: 440, easing: "ease-out" }).finished.then(() =>
     ring.remove(),
   );
 
-  for (let i = 0; i < 10; i++) {
-    const angle = (i / 10) * Math.PI * 2 + Math.random() * 0.4;
+  const sparks = crowd > 2 ? 3 : 7 + Math.round(power * 5);
+  for (let i = 0; i < sparks; i++) {
+    const angle = (i / sparks) * Math.PI * 2 + Math.random() * 0.4;
     const spark = document.createElement("div");
     Object.assign(spark.style, {
       position: "fixed",
@@ -127,13 +142,24 @@ function impactBurst(x: number, y: number) {
   }
 }
 
+/** The edges of the screen flash for a moment: a hit you feel. Opacity only, so it costs next to nothing. */
+function screenFlash(rgb: string, strength: number) {
+  if (!flashEdges || flashed) return; // the attacker doesn't get the flash, the player who was hit does, and once for a whole wave of attackers
+  flashed = true;
+  const el = document.createElement("div");
+  Object.assign(el.style, { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "64", background: `radial-gradient(ellipse at center, rgba(${rgb}, 0) 45%, rgba(${rgb}, ${strength}) 100%)` });
+  document.body.appendChild(el);
+  el.animate([{ opacity: 0 }, { opacity: 1, offset: 0.18 }, { opacity: 0 }], { duration: 460, easing: "ease-out" }).finished.then(() => el.remove());
+}
+
 /** A player's life total pulses red when it is hit. */
 function flashLife(el: HTMLElement) {
+  if (el.getAnimations().some((a) => a.playState === "running" && a.effect?.getTiming().duration === 520)) return; // already pulsing from another hit
   el.animate(
     [
-      { transform: "scale(1)", color: "#dc2626" },
-      { transform: "scale(1.8)", color: "#7f1d1d", offset: 0.25 },
-      { transform: "scale(1)", color: "#dc2626" },
+      { transform: "scale(1)" },
+      { transform: "scale(1.8)", offset: 0.25 },
+      { transform: "scale(1)" },
     ],
     { duration: 520, easing: "ease-out" },
   );
@@ -192,7 +218,8 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
     scale: "none",
     rotate: "none",
     transition: "none",
-    boxShadow: "0 26px 30px rgba(0, 0, 0, 0.4)",
+    ...(crowd > 2 ? {} : { boxShadow: "0 26px 30px rgba(0, 0, 0, 0.4)" }),
+    willChange: "transform",
   });
   document.body.appendChild(ghost);
   attacker.style.visibility = "hidden";
@@ -215,7 +242,9 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
   playSound("charge", (LUNGE_MS * 0.16) / 1000); // as it leaves the wind-up
   await waitUntil(motion, LUNGE_MS * IMPACT_AT);
   playSound(targetIsPlayer ? "hit" : "clash");
-  impactBurst(contact.x, contact.y);
+  const dealt = hits.filter((h) => h.source === attackerId).reduce((n, h) => n + h.amount, 0);
+  impactBurst(contact.x, contact.y, Math.min(1.6, 0.6 + dealt * 0.12));
+  screenFlash(targetIsPlayer ? "239, 68, 68" : "251, 191, 36", Math.min(0.34, 0.08 + dealt * 0.03));
   const attackerNow = new DOMRect(end.x - width / 2, end.y - height / 2, width, height);
   for (const hit of hits) {
     if (hit.source === attackerId) {
@@ -235,6 +264,13 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
     }
   }
 
+  // Hit-stop: a heavy hit freezes the picture for a heartbeat, so it lands with weight.
+  const stop = dealt >= 5 ? 95 : dealt >= 3 ? 60 : 0;
+  if (stop > 0) {
+    motion.pause();
+    await wait(stop);
+    motion.play();
+  }
   await motion.finished;
   ghost.remove();
   attacker.style.visibility = "";
@@ -251,7 +287,8 @@ export function attackersIn(before: GameState | null | undefined, events: GameEv
  * Plays the animation for the combat damage in `events`, then resolves. `attackerIds` are the creatures that
  * attacked. Resolves immediately if the player turned animations off, or if the cards can't be found.
  */
-export async function playCombat(events: GameEvent[], attackerIds: string[]): Promise<void> {
+export async function playCombat(events: GameEvent[], attackerIds: string[], opts: { flash?: boolean } = {}): Promise<void> {
+  flashEdges = opts.flash !== false;
   const hits = events.filter((e): e is Hit => e.type === "combatDamage");
   if (!animationsEnabled()) {
     if (hits.length > 0) playSound(hits.some((h) => isPlayer(h.target)) ? "hit" : "clash");
@@ -276,7 +313,12 @@ export async function playCombat(events: GameEvent[], attackerIds: string[]): Pr
   }
 
   /** Starts the charges one after another, a moment apart, and resolves when the last one is home. */
-  const playAll = (group: Charge[]) => Promise.all(group.map((c, i) => wait(i * STAGGER_MS).then(c.run)));
+  const playAll = (group: Charge[]) => {
+    crowd = group.length;
+    flashed = false;
+    numberSlot = 0;
+    return Promise.all(group.map((c, i) => wait(i * STAGGER_MS).then(c.run)));
+  };
 
   playing = true;
   try {

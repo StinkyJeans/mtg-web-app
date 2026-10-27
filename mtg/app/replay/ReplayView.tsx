@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { powerOf, toughnessOf } from "@mtg/engine";
 import type { CardDef, GameState, PlayerId } from "@mtg/engine";
@@ -12,6 +12,7 @@ import { describeEvents } from "../play/log";
 import { Skeleton } from "../Skeleton";
 
 const SPEEDS = [0.5, 1, 2, 4];
+const LINES = new WeakMap<Step, string[]>(); // the log text of each step, once worked out
 
 /** A match played again, move by move, with both hands open. */
 export default function ReplayView({ id }: { id: string }) {
@@ -31,7 +32,7 @@ export default function ReplayView({ id }: { id: string }) {
     <main className="cards-glass relative flex flex-1 flex-col gap-3 p-3 text-slate-100 lg:h-[calc(100dvh-2.7rem)] lg:flex-none lg:overflow-hidden">
       <div className="page-atmosphere" aria-hidden="true" />
       {error && (
-        <div className="glass mx-auto mt-16 flex max-w-lg flex-col items-center gap-4 p-8 text-center">
+        <div className="glass glass-flat mx-auto mt-16 flex max-w-lg flex-col items-center gap-4 p-8 text-center">
           <h1 className="page-title !text-2xl">No replay</h1>
           <p className="text-slate-200">{error}</p>
           <Link href="/" className="btn-gold">
@@ -40,7 +41,7 @@ export default function ReplayView({ id }: { id: string }) {
         </div>
       )}
       {!error && !replay && (
-        <div className="glass flex flex-1 flex-col gap-3 p-5" role="status" aria-label="Loading the replay">
+        <div className="glass glass-flat flex flex-1 flex-col gap-3 p-5" role="status" aria-label="Loading the replay">
           <Skeleton className="h-10 w-1/3" />
           <Skeleton className="h-40 w-full" />
           <Skeleton className="h-40 w-full" />
@@ -82,14 +83,23 @@ function Viewer({ replay }: { replay: Replay }) {
   }, [last, zoomed]);
 
   // the game text says "Player 1" and "Player 2": the replay shows the players' real names
-  const lines = useMemo(() => steps.map((s, i) => (i === 0 ? ["The match begins."] : describeEvents(s.events, s.state).map((l) => l.replaceAll("Player 1", replay.names.p1).replaceAll("Player 2", replay.names.p2)))), [steps, replay.names]);
+  // worked out one step at a time, when first needed (a long match has hundreds of steps)
+  const lines = (i: number) => {
+    const s = steps[i];
+    let l = LINES.get(s);
+    if (!l) {
+      l = i === 0 ? ["The match begins."] : describeEvents(s.events, s.state).map((x) => x.replaceAll("Player 1", replay.names.p1).replaceAll("Player 2", replay.names.p2));
+      LINES.set(s, l);
+    }
+    return l;
+  };
   const name = (p: PlayerId) => replay.names[p];
   const result = replay.winner === "draw" ? "A draw" : replay.winner ? `${name(replay.winner)} won` : "";
   const g = step.state;
 
   return (
     <>
-      <header className="glass flex shrink-0 flex-wrap items-center gap-3 !rounded-2xl px-4 py-2">
+      <header className="glass glass-flat flex shrink-0 flex-wrap items-center gap-3 !rounded-2xl px-4 py-2">
         <Link href="/" className="btn-ghost !px-3 !py-1.5" aria-label="Back to the dashboard">
           ← Back
         </Link>
@@ -103,18 +113,18 @@ function Viewer({ replay }: { replay: Replay }) {
       {built.broken && <p className="shrink-0 rounded-xl border border-amber-400/40 bg-amber-950/50 px-3 py-2 text-sm text-[#fde68a]">The replay stops at step {last}: the game rules have changed since this match, so the rest can&apos;t be shown. ({built.broken})</p>}
 
       <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_17rem]">
-        <section className="glass flex min-h-0 flex-col gap-2 p-3" aria-label="The table">
+        <section className="glass glass-flat flex min-h-0 flex-col gap-2 p-3" aria-label="The table">
           <Side g={g} who="p2" name={name("p2")} onZoom={setZoomed} />
           <Stack g={g} />
           <Side g={g} who="p1" name={name("p1")} onZoom={setZoomed} />
         </section>
-        <aside className="glass flex min-h-0 flex-col gap-2 p-3" aria-label="What happened">
+        <aside className="glass glass-flat flex min-h-0 flex-col gap-2 p-3" aria-label="What happened">
           <h2 className="font-display text-sm font-bold uppercase tracking-widest text-[#ffe29a]">What happened</h2>
           <LogList lines={lines} steps={steps} at={at} onJump={setAt} name={name} />
         </aside>
       </div>
 
-      <footer className="glass flex shrink-0 flex-wrap items-center gap-3 !rounded-2xl px-4 py-2">
+      <footer className="glass glass-flat flex shrink-0 flex-wrap items-center gap-3 !rounded-2xl px-4 py-2">
         <div className="flex items-center gap-1.5">
           <button onClick={() => (setPlaying(false), setAt(0))} aria-label="Back to the start" className="btn-ghost !px-2.5 !py-1.5">
             ⏮
@@ -150,7 +160,7 @@ function Viewer({ replay }: { replay: Replay }) {
 }
 
 /** One player: life, piles, the hand (face up) and the battlefield. */
-function Side({ g, who, name, onZoom }: { g: GameState; who: PlayerId; name: string; onZoom: (d: CardDef) => void }) {
+const Side = memo(function Side({ g, who, name, onZoom }: { g: GameState; who: PlayerId; name: string; onZoom: (d: CardDef) => void }) {
   const p = g.players[who];
   const active = g.active === who && g.phase !== "mulligan";
   const lands = p.battlefield.filter((x) => g.cards[x.card.defId].type === "land");
@@ -182,7 +192,7 @@ function Side({ g, who, name, onZoom }: { g: GameState; who: PlayerId; name: str
       </div>
     </div>
   );
-}
+});
 
 /** What is waiting to resolve. */
 function Stack({ g }: { g: GameState }) {
@@ -201,21 +211,25 @@ function Stack({ g }: { g: GameState }) {
 }
 
 /** Every step so far; the current one is highlighted and kept in view. Click a line to jump there. */
-function LogList({ lines, steps, at, onJump, name }: { lines: string[][]; steps: Step[]; at: number; onJump: (i: number) => void; name: (p: PlayerId) => string }) {
+function LogList({ lines, steps, at, onJump, name }: { lines: (i: number) => string[]; steps: Step[]; at: number; onJump: (i: number) => void; name: (p: PlayerId) => string }) {
   const current = useRef<HTMLLIElement>(null);
   useEffect(() => {
-    current.current?.scrollIntoView({ block: "nearest" });
+    const el = current.current;
+    const box = el?.parentElement;
+    if (!el || !box) return;
+    // scroll the list itself, not the page (scrollIntoView can move every scrolling ancestor, which relayouts the whole screen)
+    if (el.offsetTop < box.scrollTop || el.offsetTop + el.offsetHeight > box.scrollTop + box.clientHeight) box.scrollTop = el.offsetTop - box.clientHeight / 2;
   }, [at]);
-  const rows = steps.flatMap((s, i) => (lines[i].length > 0 ? [{ i, s }] : []));
+  const rows = steps.flatMap((s, i) => (lines(i).length > 0 ? [{ i, s }] : []));
   return (
-    <ol className="flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1 text-[13px]">
+    <ol className="relative flex min-h-0 flex-1 flex-col gap-1 overflow-y-auto pr-1 text-[13px]">
       {rows.map(({ i, s }) => {
         const on = i === at || (i < at && !rows.some((r) => r.i > i && r.i <= at));
         return (
           <li key={i} ref={on ? current : undefined}>
             <button onClick={() => onJump(i)} className={`w-full rounded-lg px-2 py-1 text-left leading-snug transition ${on ? "bg-amber-400/25 ring-1 ring-amber-300/60" : i > at ? "opacity-40 hover:opacity-80" : "hover:bg-white/10"}`}>
               {s.who && <span className="mr-1 text-[10px] font-bold uppercase text-slate-400">{name(s.who)}</span>}
-              {lines[i].join(" ")}
+              {lines(i).join(" ")}
             </button>
           </li>
         );

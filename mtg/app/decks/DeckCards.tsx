@@ -11,11 +11,11 @@ export function Quantity({ def, qty, onChange }: { def: CardDef; qty: number; on
   const over = qty > MAX_COPIES && !isBasicLand(def);
   return (
     <>
-      <button onClick={() => onChange(def, -1)} className="rounded bg-zinc-300 px-2 hover:bg-zinc-400" aria-label={`Remove one ${def.name}`}>
+      <button onClick={() => onChange(def, -1)} className="rounded bg-white/15 px-2 hover:bg-white/30" aria-label={`Remove one ${def.name}`}>
         −
       </button>
-      <span className={`w-5 text-center ${over ? "font-bold text-amber-700" : ""}`}>{qty}</span>
-      <button onClick={() => onChange(def, 1)} className="rounded bg-zinc-300 px-2 hover:bg-zinc-400" aria-label={`Add one ${def.name}`}>
+      <span className={`w-5 text-center ${over ? "font-bold text-amber-200" : ""}`}>{qty}</span>
+      <button onClick={() => onChange(def, 1)} className="rounded bg-white/15 px-2 hover:bg-white/30" aria-label={`Add one ${def.name}`}>
         +
       </button>
     </>
@@ -40,18 +40,18 @@ export default function DeckCards({
   if (groups.length === 0) {
     return (
       <section className="flex flex-col items-start gap-2">
-        <p className="text-zinc-600">This deck has no cards yet.</p>
-        <button onClick={onAdd} className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400">
+        <p className="text-slate-300">This deck has no cards yet.</p>
+        <button onClick={onAdd} className="btn-gold">
           Add cards
         </button>
       </section>
     );
   }
   return (
-    <section className="flex flex-col gap-4">
+    <section className="glass flex flex-col gap-4 p-4">
       {groups.map((g) => (
         <div key={g.label}>
-          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-600">
+          <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-300">
             {g.label} ({g.cards.reduce((n, d) => n + entries[d.id], 0)})
           </h3>
           <div className="flex flex-wrap gap-3">

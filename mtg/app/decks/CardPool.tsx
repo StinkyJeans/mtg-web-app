@@ -34,20 +34,20 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
   const toggleColor = refine((c: string) => setColors((cs) => COLORS.filter((x) => (x === c ? !cs.includes(c) : cs.includes(x)))));
 
   return (
-    <section className={hidden ? "hidden" : "flex flex-col gap-3"}>
+    <section className={hidden ? "hidden" : "glass flex flex-col gap-3 p-4"}>
       <div className="flex flex-wrap items-center gap-2">
         <input
           value={query}
           onChange={(e) => refine(setQuery)(e.target.value)}
           placeholder="Search cards"
-          className="rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1.5 text-sm outline-none focus:border-amber-400"
+          className="rounded-xl border border-white/25 bg-white/10 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-400 outline-none backdrop-blur focus:border-amber-300"
         />
         {TYPES.map((t) => (
           <TypeButton key={t} type={t} active={type === t} onClick={() => refine(setType)(t)} />
         ))}
       </div>
       <div className="flex flex-wrap items-center gap-2 text-sm">
-        <span className="text-zinc-600">Colors</span>
+        <span className="text-slate-300">Colors</span>
         {COLORS.map((c) => (
           <button
             key={c}
@@ -60,16 +60,16 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
           </button>
         ))}
         {colors.length > 0 && (
-          <button type="button" onClick={() => refine(setColors)([])} className="text-xs text-zinc-600 underline hover:text-zinc-800">
+          <button type="button" onClick={() => refine(setColors)([])} className="text-xs text-slate-300 underline hover:text-white">
             Any color
           </button>
         )}
-        <span className="text-xs text-zinc-500">
+        <span className="text-xs text-slate-400">
           {colors.length > 0 ? "Cards of these colors, plus colorless ones. " : ""}
           {loading ? "Loading…" : `${total.toLocaleString()} cards`}
         </span>
       </div>
-      {result?.error && <p className="text-sm text-red-600">{result.error}</p>}
+      {result?.error && <p className="text-sm text-red-300">{result.error}</p>}
       {!result && <CardSkeletons count={CARDS_PAGE_SIZE} size="md" className="flex flex-wrap gap-2" />}
       <div className={`flex flex-wrap gap-2 transition-opacity ${loading ? "opacity-50" : ""}`}>
         {result?.cards.map((def) => (
@@ -78,14 +78,14 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
           </div>
         ))}
       </div>
-      <div className="flex items-center gap-3 text-sm">
-        <button disabled={page === 0} onClick={() => setPage(page - 1)} className="rounded bg-zinc-200 px-3 py-1 disabled:opacity-40">
+      <div className="mx-auto flex items-center gap-3 text-sm">
+        <button disabled={page === 0} onClick={() => setPage(page - 1)} className="btn-ghost !px-3 !py-1">
           ← Prev
         </button>
-        <span className="text-zinc-600">
+        <span className="text-slate-300">
           Page {page + 1} of {pages.toLocaleString()}
         </span>
-        <button disabled={page + 1 >= pages} onClick={() => setPage(page + 1)} className="rounded bg-zinc-200 px-3 py-1 disabled:opacity-40">
+        <button disabled={page + 1 >= pages} onClick={() => setPage(page + 1)} className="btn-ghost !px-3 !py-1">
           Next →
         </button>
       </div>

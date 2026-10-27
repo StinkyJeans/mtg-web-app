@@ -1,5 +1,6 @@
 "use client";
 
+import { useAnimationsOn } from "@/lib/motion";
 import { useEffect, useRef, useState } from "react";
 import { availableMana, MANA_COLORS } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
@@ -36,9 +37,14 @@ function LifeTotal({ id, value }: { id: PlayerId; value: number }) {
     return () => cancelAnimationFrame(frame);
   }, [value]);
 
+  const on = useAnimationsOn();
+  const danger = value <= 5 ? 2 : value <= 10 ? 1 : 0; // 2: glowing red and pumping slowly, 1: a slow amber glow
   return (
-    <span data-life={id} className={`font-display inline-block text-4xl font-bold tabular-nums ${value <= 5 ? "text-red-600" : value <= 10 ? "text-amber-600" : "text-emerald-700"}`}>
-      {shown}
+    <span className="relative inline-flex items-center justify-center">
+      {danger > 0 && <span aria-hidden="true" className={`life-halo ${danger === 2 ? "life-halo-red" : "life-halo-amber"} ${on ? "life-halo-moving" : ""}`} />}
+      <span data-life={id} className={`font-display relative inline-block text-4xl font-bold tabular-nums ${danger === 2 ? "text-red-600 life-pump" : danger === 1 ? "text-amber-600" : "text-emerald-700"} ${danger === 2 && on ? "life-pump-moving" : ""}`}>
+        {shown}
+      </span>
     </span>
   );
 }

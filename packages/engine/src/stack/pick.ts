@@ -233,6 +233,21 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     return null;
   }
 
+  if (pick.kind === "legend") {
+    // The legend rule: keep the chosen one, the others go to the graveyard.
+    if (!iid || !pick.options.includes(iid)) return "Choose the one to keep.";
+    state.pendingPick = null;
+    for (const other of pick.options.filter((o) => o !== iid)) {
+      const found = findPermanentOrNull(state, other);
+      if (!found) continue;
+      events.push({ type: "effect", text: `${getCard(state, found.perm.card.defId).name} is put into the graveyard (the legend rule).` });
+      putIntoGraveyard(state, found.perm, found.owner.id, events);
+    }
+    checkStateBasedActions(state, events);
+    finish();
+    return null;
+  }
+
   if (pick.kind === "mayCost") {
     // The artifact or creature is sacrificed (it is on the battlefield) or the card is discarded (it is in the hand); then "if you do" happens.
     if (iid === undefined) {

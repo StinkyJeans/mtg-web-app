@@ -17,7 +17,7 @@ const BASICS: [color: string, id: string][] = [
 ];
 const CURVE_TOP = 6; // costs of 6 and more share the last bar
 
-const heading = "text-xs font-semibold uppercase tracking-wide text-zinc-600";
+const heading = "text-xs font-semibold uppercase tracking-wide text-slate-300";
 const copies = (cards: CardDef[], entries: DeckEntries) => cards.reduce((n, d) => n + entries[d.id], 0);
 
 interface Props {
@@ -34,26 +34,26 @@ interface Props {
 export default function DeckSidebar({ rows, groups, entries, status, emptyText, onChange, onZoom }: Props) {
   const zoom = useHoverZoom(); // the big card next to the row the mouse is over
   return (
-    <aside className="flex h-fit flex-col gap-3 rounded-lg border border-zinc-200 bg-zinc-100 p-3 lg:sticky lg:top-4">
+    <aside className="glass flex h-fit flex-col gap-3 p-4 lg:sticky lg:top-4">
       <div className="flex items-baseline justify-between">
-        <h2 className="font-semibold">Deck</h2>
-        <span className="text-sm text-zinc-600">{status.count} cards</span>
+        <h2 className="font-display text-lg font-bold text-[#ffe29a]">Deck</h2>
+        <span className="text-sm text-slate-300">{status.count} cards</span>
       </div>
       <Status status={status} />
-      {groups.length > 0 && <p className="text-xs text-zinc-600">{groups.map((g) => `${copies(g.cards, entries)} ${g.label.toLowerCase()}`).join(" · ")}</p>}
+      {groups.length > 0 && <p className="text-xs text-slate-300">{groups.map((g) => `${copies(g.cards, entries)} ${g.label.toLowerCase()}`).join(" · ")}</p>}
       <Curve rows={rows} entries={entries} />
       <BasicLands entries={entries} onChange={onChange} />
-      {rows.length === 0 && <p className="text-sm text-zinc-500">{emptyText}</p>}
+      {rows.length === 0 && <p className="text-sm text-slate-400">{emptyText}</p>}
       <ul className="flex max-h-[50vh] flex-col gap-1 overflow-y-auto">
         {rows.map((def) => (
-          <li key={def.id} className="flex items-center gap-2 rounded bg-zinc-200/60 px-2 py-1 text-sm" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
+          <li key={def.id} className="flex items-center gap-2 rounded bg-white/10 px-2 py-1 text-sm" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
             <span className="flex w-6 justify-center">
               <ManaSymbol symbol={String(def.cost)} />
             </span>
             <button
               type="button"
               onClick={() => onZoom(def)}
-              className={`flex-1 cursor-zoom-in truncate text-left hover:underline ${def.playable === false ? "text-red-600" : ""}`}
+              className={`flex-1 cursor-zoom-in truncate text-left hover:underline ${def.playable === false ? "text-red-300" : ""}`}
               title={`${def.name} (click to enlarge)`}
             >
               {def.name}
@@ -68,15 +68,15 @@ export default function DeckSidebar({ rows, groups, entries, status, emptyText, 
 }
 
 function Status({ status }: { status: DeckStatus }) {
-  if (status.ready) return <p className="text-sm text-emerald-600">Ready to play.</p>;
+  if (status.ready) return <p className="text-sm text-emerald-300">Ready to play.</p>;
   return (
     <ul className="flex flex-col gap-1 text-xs">
       {status.errors.map((e, i) => (
-        <li key={`${i}-${e}`} className="text-amber-700">
+        <li key={`${i}-${e}`} className="text-amber-200">
           {e}
         </li>
       ))}
-      {status.unplayable.length > 0 && <li className="text-red-600">Can&apos;t be played yet: {status.unplayable.map((c) => c.name).join(", ")}</li>}
+      {status.unplayable.length > 0 && <li className="text-red-300">Can&apos;t be played yet: {status.unplayable.map((c) => c.name).join(", ")}</li>}
     </ul>
   );
 }
@@ -92,7 +92,7 @@ function Curve({ rows, entries }: { rows: CardDef[]; entries: DeckEntries }) {
       <h3 className={heading}>Mana curve</h3>
       <div className="mt-1 flex items-end gap-1" role="img" aria-label={`Mana curve: ${bins.map((n, cost) => `${n} costing ${cost}`).join(", ")}`}>
         {bins.map((n, cost) => (
-          <div key={cost} className="flex flex-1 flex-col items-center gap-0.5 text-[10px] text-zinc-600">
+          <div key={cost} className="flex flex-1 flex-col items-center gap-0.5 text-[10px] text-slate-300">
             <span>{n || ""}</span>
             <div className="w-full rounded-t bg-amber-500" style={{ height: Math.round((n / max) * 40) }} />
             <span>{cost === CURVE_TOP ? `${cost}+` : cost}</span>
@@ -132,15 +132,15 @@ function BasicLands({ entries, onChange }: { entries: DeckEntries; onChange: (de
               onClick={() => onChange(def, 1)}
               aria-label={`Add a ${def.name} (${entries[id] ?? 0} in the deck)`}
               title={`Add a ${def.name}`}
-              className="flex flex-1 flex-col items-center gap-0.5 rounded bg-zinc-200 py-1 hover:bg-zinc-300"
+              className="flex flex-1 flex-col items-center gap-0.5 rounded bg-white/10 py-1 hover:bg-white/20"
             >
               <ManaSymbol symbol={color} />
-              <span className="text-xs text-zinc-700">{entries[id] ?? 0}</span>
+              <span className="text-xs text-slate-200">{entries[id] ?? 0}</span>
             </button>
           );
         })}
       </div>
-      <p className="mt-1 text-[11px] text-zinc-500">Most decks play about 17 lands in 40 cards, 24 in 60.</p>
+      <p className="mt-1 text-[11px] text-slate-400">Most decks play about 17 lands in 40 cards, 24 in 60.</p>
     </div>
   );
 }

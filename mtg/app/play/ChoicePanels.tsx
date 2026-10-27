@@ -4,7 +4,7 @@
 export function XPanel({ name, max, x, onChange, onCast, onCancel }: { name: string; max: number; x: number; onChange: (x: number) => void; onCast: () => void; onCancel: () => void }) {
   const step = "h-8 w-8 rounded border border-zinc-400 bg-white text-lg font-bold hover:bg-zinc-100 disabled:opacity-30";
   return (
-    <section className="flex flex-wrap items-center gap-3 rounded-lg border border-orange-500/50 bg-orange-50 p-3">
+    <section className="panel-in flex flex-wrap items-center gap-3 rounded-lg border border-orange-500/50 bg-orange-50 p-3">
       <h2 className="text-sm font-semibold text-orange-800">{name}: choose X</h2>
       <div className="flex items-center gap-2">
         <button onClick={() => onChange(x - 1)} disabled={x <= 0} aria-label="Lower X" className={step}>
@@ -42,7 +42,7 @@ export function ChoicePanel({
 }) {
   void onDone;
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-indigo-500/50 bg-indigo-50 p-3">
+    <section className="panel-in flex flex-col gap-2 rounded-lg border border-indigo-500/50 bg-indigo-50 p-3">
       <h2 className="text-sm font-semibold text-indigo-800">{title}</h2>
       <div className="flex flex-col gap-2">
         {options.map((o, i) => (

@@ -378,7 +378,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     text: ability.text,
     ...(paidX !== undefined ? { x: paidX } : sacrificedPower !== undefined ? { x: sacrificedPower } : {}),
   });
-  events.push({ type: "abilityActivated", player, iid, name: def.name, text: ability.text });
+  events.push({ type: "abilityActivated", player, iid, name: def.name, text: ability.text, ...(targets.length > 0 ? { targets } : {}) });
   queueWard(state, state.stack[state.stack.length - 1]);
   openRound(state, OPPONENT[player]);
   return null;
@@ -399,7 +399,7 @@ export function activateLoyalty(state: GameState, player: PlayerId, iid: string,
   perm.loyalty = (perm.loyalty ?? 0) + ability.cost;
   perm.loyaltyUsed = true;
   state.stack.push({ kind: "ability", id: newId(state), controller: player, source: iid, sourceName: def.name, effects: ability.effects, targets, specs: ability.targets, text: ability.text });
-  events.push({ type: "abilityActivated", player, iid, name: def.name, text: ability.text });
+  events.push({ type: "abilityActivated", player, iid, name: def.name, text: ability.text, ...(targets.length > 0 ? { targets } : {}) });
   queueWard(state, state.stack[state.stack.length - 1]);
   openRound(state, OPPONENT[player]);
   checkStateBasedActions(state, events); // a walker that paid its last loyalty is gone, but its ability still resolves

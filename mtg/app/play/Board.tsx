@@ -1,5 +1,6 @@
 "use client";
 
+import { MatTear } from "./MatTear";
 import { powerOf, toughnessOf } from "@mtg/engine";
 import type { CardDef, GameState, Permanent, PlayerId } from "@mtg/engine";
 import type { Inspected } from "./CardDetail";
@@ -9,7 +10,7 @@ import { PLAYER_STYLE } from "./theme";
 
 export type Interaction = (p: Permanent) => { onClick?: () => void; ring: string; note?: string; combat?: { tone: string; label: string; why?: string }; dim?: boolean };
 
-export function Side({ label, children, player, tone, grow, mat, zones, overlay }: { label: string; children: React.ReactNode; player?: PlayerId; tone?: "emerald"; grow?: boolean; mat?: string; zones?: React.ReactNode; overlay?: React.ReactNode }) {
+export function Side({ label, children, player, tone, grow, mat, zones, overlay, life }: { label: string; children: React.ReactNode; player?: PlayerId; tone?: "emerald"; grow?: boolean; mat?: string; zones?: React.ReactNode; overlay?: React.ReactNode; life?: number }) {
   const style = player ? PLAYER_STYLE[player] : null;
   if (mat) {
     // A playmat: the player's chosen surface, and the library and graveyard in their own zones on the right.
@@ -17,8 +18,9 @@ export function Side({ label, children, player, tone, grow, mat, zones, overlay 
       <section
         data-mat={player}
         className={`playmat relative flex flex-col gap-1 rounded-2xl border-2 border-black/60 px-3 py-1.5 text-white ${grow ? "min-h-0 flex-1 overflow-hidden" : "shrink-0"}`}
-        style={{ background: `linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), ${mat}` }}
+        style={life !== undefined && life <= 12 ? { background: "#0b0a0f" } : { background: `linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), ${mat}` }}
       >
+        {life !== undefined && life <= 12 && <MatTear life={life} mat={mat} seed={player === "p2" ? 7 : 3} />}
         <h2 className="relative z-[1] flex items-center gap-2 font-display text-sm font-bold uppercase tracking-widest text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.8)]">
           {style && <span className={`inline-block h-3 w-3 rounded-full ring-2 ring-white/70 ${style.bar}`} aria-hidden="true" />}
           {label}
@@ -224,7 +226,7 @@ export function Battlefield({
     </div>
   );
   return (
-    <Side player={owner} grow {...side}>
+    <Side player={owner} grow life={state.players[owner].life} {...side}>
       {top ? lands : creatures}
       <LandsDivider landsBelow={!top} onMat />
       {top ? creatures : lands}

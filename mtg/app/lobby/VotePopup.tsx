@@ -162,35 +162,41 @@ function CoinStep({ room }: { room: RoomSnapshot }) {
 
   return (
     <section className="flex flex-col items-center gap-3 text-center">
-      <h2 className="text-2xl font-extrabold">Coin toss</h2>
-      <CoinDisplay result={result} onLanded={onLanded} className="h-64 w-[min(22rem,80vw)]" />
+      <h2 className="font-display text-3xl font-extrabold uppercase tracking-[0.2em] text-[#ffe29a] [text-shadow:0_2px_18px_rgba(244,180,61,0.45)]">Coin toss</h2>
+      <div className="relative">
+        {/* a pool of warm light under the coin */}
+        <div className="pointer-events-none absolute inset-x-6 -inset-y-2 rounded-full bg-[radial-gradient(closest-side,rgba(244,180,61,0.35),transparent)]" aria-hidden="true" />
+        <CoinDisplay result={result} onLanded={onLanded} className="relative h-64 w-[min(22rem,80vw)]" />
+      </div>
       {!landed ? (
         <p className="text-[15px] text-slate-200">
           {name(coin.caller)} called <span className="font-bold capitalize text-[#fde68a]">{call}</span>…
         </p>
       ) : (
         <>
-          <p className="text-lg">
-            It&apos;s <span className="font-extrabold capitalize">{result}</span>! <span className="font-bold text-[#fde68a]">{name(winner)}</span> wins the flip.
+          <p className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 rounded-full border border-amber-200/30 bg-amber-300/10 px-5 py-2 text-lg">
+            <span className="font-display text-sm font-bold uppercase tracking-widest text-amber-200/80">It&apos;s</span>
+            <span className="font-display text-2xl font-extrabold capitalize text-[#ffe29a]">{result}</span>
+            <span className="text-slate-100"><span className="font-bold text-[#fde68a]">{name(winner)}</span> wins the flip</span>
           </p>
           {coin.chose ? (
-            <p className="rounded-xl bg-emerald-400/20 px-4 py-2 text-[15px] font-semibold text-[#a7f3d0]">
+            <p className="rounded-full border border-emerald-300/30 bg-emerald-400/15 px-5 py-2 text-[15px] font-semibold text-[#a7f3d0]">
               {name(winner)} chose to go {coin.chose}. Starting the match…
             </p>
           ) : iWon ? (
             <>
               <p className="text-[15px] text-slate-200">Who goes first?</p>
               <div className="flex gap-3">
-                <button onClick={() => send("order", { first: true })} className="rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-6 py-3 text-base font-extrabold text-black hover:-translate-y-0.5">
+                <button onClick={() => send("order", { first: true })} className="btn-gold !px-7 !py-3 text-base">
                   Go first
                 </button>
-                <button onClick={() => send("order", { first: false })} className="rounded-xl border border-white/30 bg-white/10 px-6 py-3 text-base font-bold hover:bg-white/20">
+                <button onClick={() => send("order", { first: false })} className="btn-ghost !px-7 !py-3 text-base">
                   Go second
                 </button>
               </div>
             </>
           ) : (
-            <p className="rounded-xl bg-white/10 px-4 py-2 text-[15px]">Waiting for {name(winner)} to choose who goes first…</p>
+            <p className="rounded-full border border-white/15 bg-white/10 px-5 py-2 text-[15px] text-slate-200">Waiting for {name(winner)} to choose who goes first…</p>
           )}
         </>
       )}
@@ -205,23 +211,23 @@ function CallStep({ room }: { room: RoomSnapshot }) {
   return (
     <section className="flex flex-col items-center gap-4 text-center">
       <div>
-        <h2 className="text-2xl font-extrabold">Coin toss</h2>
+        <h2 className="font-display text-3xl font-extrabold uppercase tracking-[0.2em] text-[#ffe29a] [text-shadow:0_2px_18px_rgba(244,180,61,0.45)]">Coin toss</h2>
         <p className="mt-1 text-[15px] text-slate-200">Whoever wins the toss chooses who goes first.</p>
       </div>
       {caller === room.you ? (
         <>
           <p className="text-lg font-semibold">Call it!</p>
           <div className="flex gap-3">
-            <button onClick={() => send("call", { side: "heads" })} className="rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-6 py-3 text-base font-extrabold text-black hover:-translate-y-0.5">
+            <button onClick={() => send("call", { side: "heads" })} className="btn-gold !px-7 !py-3 text-base">
               Heads
             </button>
-            <button onClick={() => send("call", { side: "tails" })} className="rounded-xl border border-white/30 bg-white/10 px-6 py-3 text-base font-bold hover:bg-white/20">
+            <button onClick={() => send("call", { side: "tails" })} className="btn-ghost !px-7 !py-3 text-base">
               Tails
             </button>
           </div>
         </>
       ) : (
-        <p className="rounded-xl bg-white/10 px-4 py-2 text-[15px]">Waiting for {callerName} to call heads or tails…</p>
+        <p className="rounded-full border border-white/15 bg-white/10 px-5 py-2 text-[15px] text-slate-200">Waiting for {callerName} to call heads or tails…</p>
       )}
     </section>
   );

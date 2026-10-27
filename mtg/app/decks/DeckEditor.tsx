@@ -14,7 +14,7 @@ import DeckSidebar from "./DeckSidebar";
 import { CardSkeletons, Skeleton } from "../Skeleton";
 
 const tabClass = (on: boolean) =>
-  `rounded-lg px-4 py-1.5 text-sm font-semibold ${on ? "bg-amber-500 text-black" : "bg-zinc-200 text-zinc-700 hover:bg-zinc-300"}`;
+  `rounded-full px-5 py-1.5 text-sm font-bold transition ${on ? "bg-gradient-to-b from-amber-300 to-amber-500 text-black shadow" : "text-slate-200 hover:bg-white/10"}`;
 
 /** How the Deck tab groups the cards. */
 const GROUPS: { label: string; has: (def: CardDef) => boolean }[] = [
@@ -109,7 +109,7 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
     }
   }
 
-  if (loadError) return <Shell>{<p className="text-red-600">Could not load the deck: {loadError}</p>}</Shell>;
+  if (loadError) return <Shell>{<p className="text-red-300">Could not load the deck: {loadError}</p>}</Shell>;
   if (!loaded)
     return (
       <Shell>
@@ -120,31 +120,31 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
 
   return (
     <Shell>
-      <div className="flex flex-wrap items-center gap-3">
+      <div className="relative flex flex-wrap items-center gap-3">
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
           maxLength={120}
           aria-label="Deck name"
-          className="min-w-64 rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-1.5 text-lg font-semibold outline-none focus:border-amber-400"
+          className="glass min-w-64 !rounded-xl px-4 py-2 font-display text-lg font-semibold text-slate-50 outline-none focus:!border-amber-300"
         />
         <button
           onClick={save}
           disabled={saving || !dirty}
-          className="rounded-lg bg-amber-500 px-5 py-1.5 font-semibold text-black hover:bg-amber-400 disabled:opacity-50"
+          className="btn-gold"
         >
           {saving ? "Saving…" : "Save deck"}
         </button>
         {message?.bad ? (
-          <span className="text-sm text-red-600">{message.text}</span>
+          <span className="text-sm text-red-300">{message.text}</span>
         ) : dirty ? (
-          <span className="text-sm text-amber-700">Unsaved changes</span>
+          <span className="text-sm text-amber-200">Unsaved changes</span>
         ) : (
-          message && <span className="text-sm text-emerald-600">{message.text}</span>
+          message && <span className="text-sm text-emerald-300">{message.text}</span>
         )}
       </div>
 
-      <div className="flex gap-2" role="tablist">
+      <div className="glass relative flex w-fit gap-1 !rounded-full p-1" role="tablist">
         <button role="tab" aria-selected={tab === "deck"} onClick={() => setTab("deck")} className={tabClass(tab === "deck")}>
           Deck ({status.count})
         </button>
@@ -153,7 +153,7 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
         </button>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-[1fr_22rem]">
+      <div className="relative grid gap-4 lg:grid-cols-[1fr_22rem]">
         {tab === "deck" && <DeckCards groups={groups} entries={entries} onChange={change} onZoom={setZoomed} onAdd={() => setTab("pool")} />}
         {/* kept mounted while hidden, so the search is still there when you come back */}
         <CardPool hidden={tab !== "pool"} entries={entries} onAdd={(def) => change(def, 1)} onZoom={setZoomed} />
@@ -186,8 +186,9 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
 
 function Shell({ children }: { children: React.ReactNode }) {
   return (
-    <main className="flex flex-1 flex-col gap-4 p-6 text-zinc-900">
-      <Link href="/decks" className="text-sm text-zinc-600 underline hover:text-zinc-800">
+    <main className="cards-glass relative flex flex-1 flex-col gap-4 p-4 text-slate-100 sm:p-6">
+      <div className="page-atmosphere" aria-hidden="true" />
+      <Link href="/decks" className="btn-ghost relative w-fit !px-3 !py-1.5 text-sm">
         ← All decks
       </Link>
       {children}

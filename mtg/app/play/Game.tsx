@@ -28,6 +28,7 @@ import type { Inspected } from "./CardDetail";
 import CoinFlip from "./CoinFlip";
 import EnterBattlefield from "./EnterBattlefield";
 import { attackersIn, isCombatPlaying, playCombat } from "./combatFx";
+import { playCasts, playEffects, playLeaving } from "./effectFx";
 import { ResignDialog, VictoryDialog } from "./EndDialogs";
 import { GraveyardDialog, Pile } from "./Piles";
 import ShuffleStage from "./ShuffleStage";
@@ -392,7 +393,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     r.state.players[as].spareMana = undefined;
     // Combat damage: play the attack on the board as it is now, then show the result.
     const fought = attackersIn(state, r.events);
-    if (fought.length > 0) await playCombat(r.events, fought);
+    // The screen edges flash for the player who is being attacked, not for the attacker (online; hot-seat shares one screen).
+    if (fought.length > 0) await playCombat(r.events, fought, { flash: !online || seat === OPPONENT[state.active] });
     await commit(r);
     setError(null);
   }
@@ -412,6 +414,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       await holdReveal();
     }
     const gone = r.events.flatMap((e) => (e.type === "creatureDied" ? [e.iid] : e.type === "cardsDiscarded" ? e.iids : []));
+    const before = gameRef.current; // the board as it was, to see what this action changed
+    await playCasts(r.events, r.state); // beams fly to their targets, and the result shows as they land
+    await playLeaving(before, r.state, r.events); // exiled or returned cards fade away first
     await playToGraveyard(gone);
     // Only the viewer's own cards are animated: the opponent's hand is just a count, so their draw or mulligan
     // would fly across this screen as if it were the viewer's.
@@ -437,6 +442,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       }
       resetSelection();
     });
+    playEffects(before, r.state, r.events); // beams, numbers, counters, new cards: they play while the game carries on
     hideDrawn(draws);
     await playDraws(draws);
     if (redeal) {

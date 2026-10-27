@@ -22,6 +22,7 @@ const CONFIRM: Partial<Record<PickKind, (name: string) => string>> = {
   handExile: (n) => `Exile ${n}`,
   exileToPlay: (n) => `Exile ${n}`,
   mayCost: (n) => `Sacrifice or discard ${n}`,
+  legend: (n) => `Keep ${n}`,
   handToField: (n) => `Put ${n} onto the battlefield`,
   scry: (n) => `Put ${n} on the bottom`,
   surveil: (n) => `Put ${n} into the graveyard`,
@@ -82,7 +83,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
   if (pick.kind === "color") {
     const names: Record<string, string> = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" };
     return (
-      <section className="flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
+      <section className="panel-in flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
         <PickHeader state={state} onZoom={onZoom} />
         <div className="flex flex-wrap gap-2">
           {pick.options.map((o) => (
@@ -96,7 +97,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
   }
   if (pick.kind === "ward" || pick.kind === "mode" || pick.kind === "mayPay" || pick.kind === "tax" || pick.kind === "toggle" || pick.kind === "topBottom" || pick.kind === "creatureType") {
     return (
-      <section className="flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
+      <section className="panel-in flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
         <PickHeader state={state} onZoom={onZoom} />
         <div className="flex flex-wrap gap-2">
           {(pick.kind === "ward" || pick.kind === "mayPay" || pick.kind === "tax") && (
@@ -140,7 +141,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
   };
   const preview = (def: CardDef) => ({ onMouseEnter: (e: React.MouseEvent<HTMLElement>) => onPreview?.(def, e.currentTarget), onMouseLeave: () => onUnpreview?.() });
   return (
-    <section className="flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
+    <section className="panel-in flex flex-col gap-2 rounded-lg border border-rose-500/50 bg-rose-50 p-3">
       <PickHeader state={state} onZoom={onZoom} />
       <div className="flex flex-wrap gap-2">
         {cards.map((c) => (
