@@ -2,7 +2,6 @@
 
 import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
-import Link from "next/link";
 import type { PlayerId } from "@mtg/engine";
 import { OPPONENT } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
@@ -121,9 +120,11 @@ export function VictoryDialog({
                 <button onClick={onPlayAgain} autoFocus className="btn-gold !px-7 !py-3 !text-base">
                   Play again
                 </button>
-                <Link href="/" className="btn-ghost !px-6 !py-3 !text-base">
+                {/* A plain link (a full page load) on purpose: a client-side link would keep this finished game in memory, and the next hot-seat game would open on the victory screen. */}
+                {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
+                <a href="/" className="btn-ghost !px-6 !py-3 !text-base">
                   Main menu
-                </Link>
+                </a>
               </>
             )}
           </div>

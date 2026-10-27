@@ -88,11 +88,19 @@ const REMIND_DONE_MS = 6000;
  */
 export function OnlineGame() {
   const { matchId, game } = useOnline();
+  // One "visit" per match. The match id arrives a moment after this screen opens (a while, on a slow connection): that
+  // must not restart the loading screen or the board, so only leaving a match, or moving to another one, starts a new visit.
+  const [seen, setSeen] = useState<string | null>(null);
+  const [visit, setVisit] = useState(0);
+  if (matchId !== seen) {
+    setSeen(matchId);
+    if (seen !== null) setVisit(visit + 1); // (from a match to none, or to a different match; from none to a match is the same visit)
+  }
   return (
     <>
-      <Game key={`game-${matchId ?? "none"}`} online />
+      <Game key={`game-${visit}`} online />
       {/* the loading screen: up until the match has arrived from the server, then it fades */}
-      <EnterBattlefield key={`enter-${matchId ?? "none"}`} ready={game !== null} names={game?.names} />
+      <EnterBattlefield key={`enter-${visit}`} ready={game !== null} names={game?.names} />
     </>
   );
 }

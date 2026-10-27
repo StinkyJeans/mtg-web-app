@@ -293,10 +293,13 @@ async function dealOne(d: Draw, delay: number) {
   }
 }
 
-/** The "entering the battlefield" screen covers the table when a match begins: the deal waits for it to fade, or nobody would see it. */
+/**
+ * The "entering the battlefield" screen covers the table when a match begins: the welcome message and the deal wait until it
+ * has faded away completely, or nobody would see them. (On a slow connection the screen stays up longer, so this can take a while.)
+ */
 export async function untilBattlefieldShown(): Promise<void> {
   const start = Date.now();
-  while (Date.now() - start < 8000 && document.querySelector('.enter-overlay[data-leaving="false"]')) await new Promise((r) => setTimeout(r, 50));
+  while (Date.now() - start < 30_000 && document.querySelector(".enter-overlay")) await new Promise((r) => setTimeout(r, 50));
 }
 
 /**
