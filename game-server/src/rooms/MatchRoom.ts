@@ -2,7 +2,7 @@ import { Room, Client, CloseCode, ServerError, matchMaker } from "colyseus";
 import type { Delayed } from "colyseus";
 import { applyAction, createGame, HIDDEN_CARD_ID, playerToAct, spectatorView, unplayableCards, viewFor } from "@mtg/engine";
 import type { Action, CardDef, GameEvent, GameState, PlayerId } from "@mtg/engine";
-import { accountFromToken, dropLive, friendIdsOf, loadCards, loadLive, saveLive, saveMatch } from "../supabase.js";
+import { accountFromToken, dropLive, friendIdsOf, loadCards, loadLive, saveLive, saveMatch, saveReplay } from "../supabase.js";
 import type { Account } from "../supabase.js";
 import { botPool } from "../botPool.js";
 import { LIMITS, passwordGuesses } from "../limits.js";
@@ -97,6 +97,22 @@ interface SavedMatch {
   coin: RoomSnapshot["coin"];
   game: GameState | null;
   deckNames: Record<PlayerId, string>;
+  replay?: Replay | null;
+}
+
+/** Everything needed to play a finished match again: the engine is deterministic, so the seed, the decks and the actions are enough. */
+export interface Replay {
+  v: 1;
+  seed: number;
+  starting: PlayerId;
+  names: Record<PlayerId, string>;
+  decks: Record<PlayerId, string[]>;
+  cards: GameState["cards"];
+  /** Every action in order: who did it, what, and the mana the player chose to spare (see applyFor). */
+  log: { p: PlayerId; a: Action; s?: string[] }[];
+  winner?: PlayerId | "draw";
+  reason?: string | null;
+  at: string;
 }
 
 const RECONNECT_SECONDS = 60;
@@ -133,6 +149,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   private mismatch = false;
   private coin: RoomSnapshot["coin"] = null;
   private game: GameState | null = null;
+  private replay: Replay | null = null;
   private winner: PlayerId | "draw" | null = null;
   private endReason: string | null = null;
   private deckNames: Record<PlayerId, string> = { p1: "", p2: "" };
@@ -377,6 +394,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.mismatch = saved.mismatch;
     this.coin = saved.coin;
     this.game = saved.game;
+    this.replay = saved.replay ?? null;
     this.deckNames = saved.deckNames;
     const deckIds = this.members.flatMap((m) => m.deck?.ids ?? []);
     if (deckIds.length > 0) Object.assign(this.defs, await loadCards(deckIds)); // the decks chosen before the game started
@@ -613,6 +631,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       coin: this.coin,
       game: this.game,
       deckNames: this.deckNames,
+      replay: this.replay,
     };
   }
 
@@ -649,7 +668,9 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.deckNames = { p1: a.deck!.name, p2: b.deck!.name };
     const decks = { p1: a.deck!.ids, p2: b.deck!.ids };
     try {
-      this.game = createGame(decks, Math.floor(Math.random() * 2 ** 31), this.defs, { startingPlayer: first, mulligan: true, shuffleStep: true });
+      const seed = Math.floor(Math.random() * 2 ** 31);
+      this.game = createGame(decks, seed, this.defs, { startingPlayer: first, mulligan: true, shuffleStep: true });
+      this.replay = { v: 1, seed, starting: first, names: { p1: a.account.username, p2: b.account.username }, decks, cards: this.game.cards, log: [], at: new Date().toISOString() };
     } catch (e) {
       // a deck the engine can't play got through: send both players back to choose again, instead of leaving the match stuck
       console.error("Could not start the match:", e instanceof Error ? e.message : e);
@@ -759,6 +780,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     if (action.type !== "concede" && playerToAct(state) !== seat) return { ok: false as const, error: "It isn't your turn to act." };
     const held = spare && spare.length > 0 ? { ...state, players: { ...state.players, [seat]: { ...state.players[seat], spareMana: spare } } } : state;
     const r = applyAction(held, seat, action);
+    if (r.ok) this.replay?.log.push({ p: seat, a: action, ...(spare && spare.length > 0 ? { s: spare } : {}) });
     if (r.ok) r.state.players[seat].spareMana = undefined;
     return r;
   }
@@ -792,8 +814,10 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     const events: GameEvent[] = [];
     const turn = s.turn;
     for (let i = 0; i < 6 && s.turn === turn && !s.winner && s.phase !== "cleanup"; i++) {
-      const r = applyAction(s, playerToAct(s), { type: "passPhase" });
+      const who = playerToAct(s);
+      const r = applyAction(s, who, { type: "passPhase" });
       if (!r.ok) return i === 0 ? r : { ok: true as const, state: s, events };
+      this.replay?.log.push({ p: who, a: { type: "passPhase" } });
       s = r.state;
       events.push(...r.events);
     }
@@ -809,6 +833,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       // someone left: the game state itself records the result
       const r = applyAction(this.game, winner === "p1" ? "p2" : "p1", { type: "concede" });
       if (r.ok) {
+        this.replay?.log.push({ p: winner === "p1" ? "p2" : "p1", a: { type: "concede" } });
         this.game = r.state;
         this.sendUpdate(r.events);
       }
@@ -821,7 +846,12 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.forget(); // the result is recorded below; there is nothing left to bring back
     const a = this.members.find((x) => x.seat === "p1");
     const b = this.members.find((x) => x.seat === "p2");
-    if (a && b && !this.bot && began) void saveMatch({ p1: a.account.id, p2: b.account.id, winner: winner === "draw" ? null : (winner === "p1" ? a : b).account.id, turns: this.game?.turn ?? 0 });
+    const replay = this.replay;
+    if (replay) {
+      replay.winner = winner;
+      replay.reason = reason;
+    }
+    if (a && b && !this.bot && began) void saveMatch({ p1: a.account.id, p2: b.account.id, winner: winner === "draw" ? null : (winner === "p1" ? a : b).account.id, turns: this.game?.turn ?? 0 }).then((id) => (id && replay ? saveReplay(id, replay) : undefined));
     this.publish();
   }
 

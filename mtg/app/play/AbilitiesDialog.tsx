@@ -17,10 +17,12 @@ interface Props {
   onAbility: (a: Activatable) => void;
   onLoyalty: (a: LoyaltyOption) => void;
   onCast: (plan: CastPlan) => void;
+  /** Opened from a card on the battlefield: only that card's abilities. */
+  only?: string;
 }
 
 /** The abilities pop-up: everything that can be used right now, and what can't yet and why. Choosing one closes it. */
-export default function AbilitiesDialog({ state, actor, list, onClose, onAct, onAbility, onLoyalty, onCast }: Props) {
+export default function AbilitiesDialog({ state, actor, list, onClose, onAct, onAbility, onLoyalty, onCast, only }: Props) {
   const closing =
     <T,>(run: (value: T) => void) =>
     (value: T) => {
@@ -39,7 +41,10 @@ export default function AbilitiesDialog({ state, actor, list, onClose, onAct, on
     <div role="dialog" aria-modal="true" aria-label="Abilities" className="fixed inset-0 z-30 flex items-start justify-center bg-black/40 p-4 pt-24" onClick={onClose}>
       <div className="flex max-h-[80dvh] w-full max-w-3xl flex-col gap-3 overflow-y-auto rounded-2xl bg-white p-4 shadow-2xl" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-extrabold uppercase font-display tracking-wide text-emerald-800">⚡ Abilities</h2>
+          <div>
+            <h2 className="text-lg font-extrabold uppercase font-display tracking-wide text-emerald-800">⚡ {only ? (state.cards[[...state.players.p1.battlefield, ...state.players.p2.battlefield].find((p) => p.card.iid === only)?.card.defId ?? ""]?.name ?? "Abilities") : "Abilities"}</h2>
+            <p className="text-sm text-zinc-600">Pick one. The cost is shown first, then what it does. {only ? "" : "Tip: click a glowing card on the battlefield to see just its abilities."}</p>
+          </div>
           <button onClick={onClose} aria-label="Close" className="rounded-full border border-zinc-300 px-3 leading-7 hover:bg-zinc-100">
             ✕
           </button>
@@ -56,6 +61,7 @@ export default function AbilitiesDialog({ state, actor, list, onClose, onAct, on
           onLoyalty={closing(onLoyalty)}
           locked={lockedAbilities(state, actor)}
           warnings={abilityWarnings(state, actor)}
+          only={only}
           flashbacks={list.flashbacks}
           exileLands={list.exileLands}
           onPlayLand={closing((iid: string) => onAct({ type: "playLand", iid }))}

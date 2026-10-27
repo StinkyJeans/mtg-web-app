@@ -469,6 +469,9 @@ function MatchRowItem({ m }: { m: MatchLine }) {
         {m.turns ? `${m.turns} turn${m.turns === 1 ? "" : "s"} · ` : ""}
         {new Date(m.playedAt).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}
       </span>
+      <Link href={`/replay/${m.id}`} className="btn-ghost !px-2.5 !py-1 !text-xs" title="Watch this match again, move by move" aria-label={`Replay the match against ${m.opponent}`}>
+        ▶ Replay
+      </Link>
     </li>
   );
 }

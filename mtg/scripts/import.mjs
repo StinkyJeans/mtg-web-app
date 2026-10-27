@@ -292,7 +292,6 @@ async function importImages() {
 // The list grows by itself as the engine learns more cards: run `decks` again after a `cards` import. Any official deck in
 // the database that is not in that list is removed by `decks`.
 const KEEP_DECKS = new Set(["Eerie_SOS", "Lifegain_SOS", "Angels_ECL", "Pirates_ECL"]);
-const isFoundationsPack = (meta) => meta.code === "FDN" && meta.type === "Jumpstart";
 const PACK_TYPE = "Jumpstart pack";
 const DECK_SIZE = 60; // every deck offered is this many cards
 const PACK_SIZE = 20; // a pack: three of them make a deck

@@ -55,6 +55,7 @@ import { abilityList, countAbilities, lockedAbilities } from "./abilityInfo";
 import { Battlefield, Side } from "./Board";
 import type { LaneContext } from "./Board";
 import CastPlanPanels from "./CastPlanPanels";
+import { splitAbility } from "./abilityText";
 import { cardNameAnywhere, paymentOf, preparedSpell } from "./castInfo";
 import type { CastPlan } from "./castInfo";
 import { AttackTargetsPanel, DamagePanel } from "./CombatPanels";
@@ -150,7 +151,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [zoomed, setZoomed] = useState<CardDef | null>(null); // card shown large in the popup
   const [resigning, setResigning] = useState<PlayerId | null>(null); // player being asked to confirm a resignation
   // A spell or ability being set up: its targets are picked one by one, then `build` makes the action.
-  const [targeting, setTargeting] = useState<{ title: string; specs: TargetSpec[]; build: (t: TargetChoice[]) => Action; detail?: string } | null>(null);
+  const [targeting, setTargeting] = useState<{ title: string; specs: TargetSpec[]; build: (t: TargetChoice[]) => Action; detail?: string; cost?: string } | null>(null);
   const [chosen, setChosen] = useState<TargetChoice[]>([]);
   const [aimed, setAimed] = useState<TargetChoice | null>(null); // a target clicked, waiting for "Confirm target"
   const [confirmSkip, setConfirmSkip] = useState(false); // "Skip attack" and "No blocks" ask once more while a creature could attack or block
@@ -165,6 +166,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [attackTargets, setAttackTargets] = useState<Record<string, string>>({}); // attacker iid -> planeswalker iid
   const [handHover, setHandHover] = useState<{ def: CardDef; left: number; top: number } | null>(null); // the big card shown while the mouse is over a card
   const [abilitiesOpen, setAbilitiesOpen] = useState(false); // the abilities pop-up
+  const [abilityFocus, setAbilityFocus] = useState<string | null>(null); // a battlefield card clicked to see only its abilities
   const [viewingYard, setViewingYard] = useState<{ owner: PlayerId; zone: "graveyard" | "exile" } | null>(null); // whose graveyard or exile is open
   const [endNote, setEndNote] = useState<string | null>(null); // how the game ended, for the win popup
   const [stageSeen, setStageSeen] = useState(false); // the shuffle step was on screen
@@ -572,7 +574,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       act({ type: "activateAbility", iid: a.iid, index: a.index, targets: [], ...extra });
     } else {
       setChosen([]);
-      setTargeting({ title: readable(a.text, cardNameAnywhere(state, a.iid)), specs: a.specs, build: (targets) => ({ type: "activateAbility", iid: a.iid, index: a.index, targets, ...extra }) });
+      setTargeting({ title: readable(a.text, cardNameAnywhere(state, a.iid)), cost: splitAbility(a.text, cardNameAnywhere(state, a.iid)).cost ?? undefined, specs: a.specs, build: (targets) => ({ type: "activateAbility", iid: a.iid, index: a.index, targets, ...extra }) });
     }
   }
 
@@ -654,6 +656,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         };
       }
     }
+    // A card of yours that has something to do right now (an ability, loyalty, crew, cycling): it glows, and a click shows just its abilities.
+    if (owner === actor && mine && !state.pendingChoice && !targeting && !plan && abilityIids.has(iid)) {
+      return { ring: "ring-2 ring-emerald-400", note: "⚡ Ability", onClick: () => setAbilityFocus(iid) };
+    }
     return { ring: "" };
   }
 
@@ -692,6 +698,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   }
   const abilities = abilityList(state, actor);
   const abilityCount = countAbilities(abilities);
+  const abilityIids = new Set<string>([...abilities.abilities.map((x) => x.iid), ...abilities.loyalty.map((x) => x.iid), ...abilities.crews.map((x) => x.iid)]);
   const abilityLocked = lockedAbilities(state, actor).length;
   const inspect = (def: Inspected["def"], status?: string[]) => setInspected({ def, status });
   const lane: LaneContext = { state, attackingIds: attackerIds, onInspect: inspect, onZoom: setZoomed, onPreview: showPreview, onUnpreview: () => setHandHover(null) };
@@ -848,6 +855,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             controller={actor}
             title={state.pendingChoice ? `${state.pendingChoice.item.sourceName}: triggered ability` : (targeting?.title ?? "")}
             detail={state.pendingChoice ? readable(state.pendingChoice.item.text, state.pendingChoice.item.sourceName) : targeting?.detail}
+            cost={state.pendingChoice ? undefined : targeting?.cost}
             specs={state.pendingChoice ? state.pendingChoice.specs : (targeting?.specs ?? [])}
             chosen={chosen}
             aimed={aimed}
@@ -918,12 +926,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         </div>
       </aside>
 
-      {abilitiesOpen && !state.pendingChoice && !targeting && (
+      {(abilitiesOpen || abilityFocus) && !state.pendingChoice && !targeting && (
         <AbilitiesDialog
+          only={abilityFocus ?? undefined}
           state={state}
           actor={actor}
           list={abilities}
-          onClose={() => setAbilitiesOpen(false)}
+          onClose={() => (setAbilitiesOpen(false), setAbilityFocus(null))}
           onAct={act}
           onAbility={startAbility}
           onLoyalty={startLoyalty}

@@ -130,17 +130,37 @@ export async function loadCards(ids: string[]): Promise<Record<string, CardDef>>
 }
 
 /** Records a finished match. A failure is only logged: the game itself is over either way. */
-export async function saveMatch(match: { p1: string; p2: string; winner: string | null; turns: number }): Promise<void> {
-  if (match.p1.startsWith("dev-") || match.p2.startsWith("dev-")) return; // test accounts have no profile
+export async function saveMatch(match: { p1: string; p2: string; winner: string | null; turns: number }): Promise<string | null> {
+  if (match.p1.startsWith("dev-") || match.p2.startsWith("dev-")) return null; // test accounts have no profile
   try {
     const res = await fetch(`${URL}/rest/v1/matches`, {
       method: "POST",
-      headers: { apikey: SECRET, "content-type": "application/json", prefer: "return=minimal" },
+      headers: { apikey: SECRET, "content-type": "application/json", prefer: "return=representation" },
       body: JSON.stringify(match),
     });
-    if (!res.ok) console.warn("Could not save the match:", res.status, await res.text());
+    if (!res.ok) {
+      console.warn("Could not save the match:", res.status, await res.text());
+      return null;
+    }
+    return ((await res.json()) as { id?: string }[])[0]?.id ?? null;
   } catch (e) {
     console.warn("Could not save the match:", e);
+    return null;
+  }
+}
+
+/**
+ * The replay of a finished match: its seed, decks and every action, so the engine can play it again move by move.
+ * It is a file in a private Storage bucket ("replays", one JSON per match). The website serves it only to the two players.
+ */
+export async function saveReplay(matchId: string, replay: unknown): Promise<void> {
+  try {
+    const headers = { apikey: SECRET, authorization: `Bearer ${SECRET}` };
+    await fetch(`${URL}/storage/v1/bucket`, { method: "POST", headers: { ...headers, "content-type": "application/json" }, body: JSON.stringify({ id: "replays", name: "replays", public: false }) }).catch(() => undefined); // exists already: fine
+    const res = await fetch(`${URL}/storage/v1/object/replays/${matchId}.json`, { method: "POST", headers: { ...headers, "content-type": "application/json", "x-upsert": "true" }, body: JSON.stringify(replay) });
+    if (!res.ok) console.warn("Could not save the replay:", res.status, await res.text());
+  } catch (e) {
+    console.warn("Could not save the replay:", e);
   }
 }
 

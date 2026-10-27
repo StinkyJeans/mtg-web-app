@@ -3,6 +3,7 @@
 import { legalTargets } from "@mtg/engine";
 import type { GameState, PlayerId, TargetChoice, TargetSpec } from "@mtg/engine";
 import { Help, targetKey, targetName } from "./cardText";
+import { ManaText } from "./ManaSymbols";
 
 /** Picks the targets one need at a time. `onDone` gets them all; `onCancel` is missing when a choice is forced. */
 export function TargetPanel({
@@ -10,6 +11,7 @@ export function TargetPanel({
   controller,
   title,
   detail,
+  cost,
   specs,
   chosen,
   aimed,
@@ -22,6 +24,8 @@ export function TargetPanel({
   title: string;
   /** What the ability does, shown under the title. */
   detail?: string;
+  /** What was paid to use the ability (shown as a reminder). */
+  cost?: string;
   specs: TargetSpec[];
   chosen: TargetChoice[];
   /** Clicked but not yet confirmed. */
@@ -49,6 +53,11 @@ export function TargetPanel({
           {specs.length > 1 ? ` (${chosen.length + 1}/${specs.length})` : ""}
         </span>
       </h2>
+      {cost && (
+        <p className="flex flex-wrap items-center gap-1.5 text-sm text-sky-900">
+          <span className="font-semibold">You pay:</span> <ManaText text={cost} />
+        </p>
+      )}
       {detail && (
         <div className="rounded bg-white px-3 py-2 text-[15px] leading-relaxed text-zinc-800">
           <div className="mb-0.5 text-xs font-bold uppercase font-display tracking-wider text-sky-700">What it does</div>

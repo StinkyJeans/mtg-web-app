@@ -39,13 +39,37 @@ function rowToDef(row: CardRow): CardDef {
 }
 
 /** Definitions for specific cards (e.g. the ones in a deck), keyed by id. */
+// Cards already fetched in this tab: the deck lists, the profile and the deck pickers all ask for the same cards, so each card is
+// downloaded and parsed once, and the chunks of a big deck go out together instead of one after the other.
+const known = new Map<string, CardDef>();
+const KNOWN_LIMIT = 6000;
+const asking = new Map<string, Promise<void>>(); // the same chunk asked twice at once is asked once
+
 export async function fetchCardsByIds(ids: string[]): Promise<Record<string, CardDef>> {
   const unique = [...new Set(ids)];
+  const missing = unique.filter((id) => !known.has(id));
+  const chunks: string[][] = [];
+  for (let i = 0; i < missing.length; i += 200) chunks.push(missing.slice(i, i + 200));
+  await Promise.all(
+    chunks.map((chunk) => {
+      const key = chunk.join(",");
+      let pending = asking.get(key);
+      if (!pending) {
+        pending = (async () => {
+          const { data, error } = await createClient().from("cards").select(COLUMNS).in("id", chunk);
+          if (error) throw new Error(error.message);
+          if (known.size > KNOWN_LIMIT) known.clear();
+          for (const row of data as CardRow[]) known.set(row.id, rowToDef(row));
+        })().finally(() => asking.delete(key));
+        asking.set(key, pending);
+      }
+      return pending;
+    }),
+  );
   const out: Record<string, CardDef> = {};
-  for (let i = 0; i < unique.length; i += 200) {
-    const { data, error } = await createClient().from("cards").select(COLUMNS).in("id", unique.slice(i, i + 200));
-    if (error) throw new Error(error.message);
-    for (const row of data as CardRow[]) out[row.id] = rowToDef(row);
+  for (const id of unique) {
+    const def = known.get(id);
+    if (def) out[id] = def;
   }
   return out;
 }

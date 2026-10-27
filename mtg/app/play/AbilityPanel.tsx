@@ -3,6 +3,7 @@
 import type { Activatable, Crewable, Cyclable, GameState, LoyaltyOption } from "@mtg/engine";
 import { ManaText } from "./ManaSymbols";
 import { Help, readable } from "./cardText";
+import { CostChips, lockHint, splitAbility } from "./abilityText";
 
 /** The name of a card in either player's hand. */
 const cardName = (state: GameState, iid: string) => {
@@ -27,6 +28,7 @@ export function AbilityPanel({
   onFlashback,
   locked = [],
   warnings = {},
+  only,
 }: {
   state: GameState;
   abilities: Activatable[];
@@ -47,7 +49,18 @@ export function AbilityPanel({
   locked?: { key: string; where: "hand" | "battlefield"; label: React.ReactNode; reason: string; help?: string }[];
   /** "iid-index" -> a warning, for abilities that would change nothing right now. */
   warnings?: Record<string, string>;
+  /** Show only this card's abilities (the pop-up opened by clicking a card). */
+  only?: string;
 }) {
+  if (only) {
+    abilities = abilities.filter((a) => a.iid === only);
+    cycles = cycles.filter((c) => c.iid === only);
+    crews = crews.filter((c) => c.iid === only);
+    loyalty = loyalty.filter((l) => l.iid === only);
+    flashbacks = [];
+    exileLands = [];
+    locked = locked.filter((l) => l.key.includes(only));
+  }
   if (abilities.length === 0 && cycles.length === 0 && crews.length === 0 && loyalty.length === 0 && flashbacks.length === 0 && exileLands.length === 0 && locked.length === 0) return null;
   const nameOfPerm = (iid: string) => {
     for (const p of Object.values(state.players)) {
@@ -121,14 +134,29 @@ export function AbilityPanel({
             <span className="font-semibold">{nameOfPerm(a.iid)}</span>
             {Object.values(state.players).some((p) => p.hand.some((c) => c.iid === a.iid)) && <span className="ml-1 rounded bg-sky-100 px-1.5 text-sm text-sky-800">from hand</span>}
             {Object.values(state.players).some((p) => p.graveyard.some((c) => c.iid === a.iid)) && <span className="ml-1 rounded bg-stone-200 px-1.5 text-sm text-stone-700">from graveyard</span>}
-            : {readable(a.text, nameOfPerm(a.iid))}
+            {a.maxX !== undefined && <span className="ml-1 rounded bg-orange-100 px-1.5 text-sm text-orange-800">you choose X (up to {a.maxX})</span>}
+            <span className="block pt-1">
+              {(() => {
+                const parts = splitAbility(a.text, nameOfPerm(a.iid));
+                return (
+                  <>
+                    {parts.cost && <CostChips cost={parts.cost} cardName={nameOfPerm(a.iid)} />} <span>{parts.effect}</span>
+                  </>
+                );
+              })()}
+            </span>
             {warnings[`${a.iid}-${a.index}`] && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-sm font-semibold text-amber-800">⚠ {warnings[`${a.iid}-${a.index}`]}</span>}
             <Help text={a.text} large />
           </button>
         ))}
         {locked.map((l) => (
           <button key={l.key} disabled title={l.reason} className="cursor-not-allowed rounded-lg border border-zinc-300 bg-zinc-100 px-3 py-2 text-left text-base text-zinc-600 opacity-80">
-            {l.label} <span className="rounded bg-zinc-200 px-1.5 text-sm text-zinc-700">{l.where === "hand" ? "from hand" : "on battlefield"}</span> <span className="text-sm italic">— {l.reason}</span>
+            {l.label} <span className="rounded bg-zinc-200 px-1.5 text-sm text-zinc-700">{l.where === "hand" ? "from hand" : "on battlefield"}</span>
+            <span className="mt-1 block text-sm">
+              <span className="font-semibold text-zinc-700">Can&apos;t yet: </span>
+              <span className="italic">{l.reason}</span>
+              {lockHint(l.reason) && <span className="block text-zinc-600">→ {lockHint(l.reason)}</span>}
+            </span>
             {l.help && <Help text={l.help} max={2} large />}
           </button>
         ))}
