@@ -227,7 +227,7 @@ export function readTwoTypeLord(line: string, out: ParsedCard): boolean {
 }
 
 export function readLord(line: string, out: ParsedCard): boolean {
-  const lord = /^(other )?(attacking )?((?:[a-z]+(?:, and |, | and )?)+?)(?: creatures)? you control ((?:get|have) .+)$/.exec(line);
+  const lord = /^(other )?(attacking )?([a-z]+(?:(?:, and |, | and )[a-z]+)*)(?: creatures)? you control ((?:get|have) .+)$/.exec(line);
   if (lord && !/^(creatures|nonland permanents|permanents)$/.test(lord[3])) {
     const names = lord[3].split(/, and |, | and /).map((n) => singularType(n.trim()));
     const st = parseStatic(`creatures you control ${lord[4]}`);

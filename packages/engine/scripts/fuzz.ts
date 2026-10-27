@@ -38,6 +38,7 @@ const TYPES = [["Land", "land"], ["Creature", "creature"], ["Planeswalker", "pla
 const slug = (n: string) => n.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
 const defs: Record<string, CardDef> = {};
+const setOf = new Map<string, string>(); // card id -> set code (FUZZ_SET=msh plays only that set's cards)
 for (const line of lines) {
   const c = JSON.parse(line);
   if (c.layout !== "normal" || c.card_faces) continue;
@@ -57,7 +58,10 @@ for (const line of lines) {
     colors: c.colors ?? [],
     keywords: (c.keywords ?? []).map((k: string) => k.toLowerCase()),
   };
-  if (["land", "creature", "artifact", "enchantment", "planeswalker", "instant", "sorcery"].includes(type) && isSupportedCard(def)) defs[def.id] = def;
+  if (["land", "creature", "artifact", "enchantment", "planeswalker", "instant", "sorcery"].includes(type) && isSupportedCard(def)) {
+    defs[def.id] = def;
+    setOf.set(def.id, String(c.set));
+  }
 }
 const all = Object.values(defs);
 console.log(`${all.length} playable real cards loaded (${lines.length} in the cache)`);
@@ -96,7 +100,7 @@ if (JUMPSTART) {
 
 /** FUZZ_COVER=1: game n is built around the n-th playable non-land card (4 copies in each deck), so every card gets played. */
 let focus: CardDef | null = null;
-const coverList = process.env.FUZZ_COVER ? all.filter((d) => d.type !== "land") : [];
+const coverList = process.env.FUZZ_COVER ? all.filter((d) => d.type !== "land" && (!process.env.FUZZ_SET || setOf.get(d.id) === process.env.FUZZ_SET)) : [];
 
 function buildDeck(rng: Rng): string[] {
   if (JUMPSTART) {
@@ -316,7 +320,7 @@ function transition(before: GameState, after: GameState, events: GameEvent[], ac
       const def = after.cards[perm.card.defId];
       if (def.type !== "creature" && !perm.crewed) continue;
       const tough = toughnessOf(after, perm);
-      const indestructible = (def.keywords ?? []).includes("indestructible") || (perm.tempKeywords ?? []).includes("indestructible") || staticEffectsOn(after, perm).some((st) => st.keywords.includes("indestructible"));
+      const indestructible = (def.keywords ?? []).includes("indestructible") || (perm.tempKeywords ?? []).includes("indestructible") || (perm.kwCounters ?? []).includes("indestructible") || staticEffectsOn(after, perm).some((st) => st.keywords.includes("indestructible"));
       if (perm.damage >= tough && !indestructible && tough > 0 && after.stack.length === 0 && !after.priority) problems.push(`${def.name} has ${perm.damage} damage on ${tough} toughness and is still alive`);
     }
   }
@@ -381,6 +385,8 @@ for (let g = 0; g < games; g++) {
   // FUZZ_DECK=file.json (a list of card ids): both players play exactly that deck, to test one official deck.
   const fixed: string[] | null = process.env.FUZZ_DECK ? JSON.parse(fs.readFileSync(process.env.FUZZ_DECK, "utf8")) : null;
   focus = coverList.length ? coverList[(seed - 1) % coverList.length] : null;
+  if (process.env.FUZZ_PROGRESS) fs.appendFileSync(process.env.FUZZ_PROGRESS, `game ${g + 1}: ${focus ? focus.name : "random"}
+`);
   const decks = fixed ? { p1: [...fixed], p2: [...fixed] } : { p1: buildDeck(rng), p2: buildDeck(rng) };
   let state: GameState;
   try {

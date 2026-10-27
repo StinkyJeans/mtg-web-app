@@ -14,8 +14,13 @@ const nextConfig: NextConfig = {
     return [
       {
         // The wallpapers are large (the videos are 6 to 11 MB). Keep them for a week; the browser may keep playing an old one for that long if a file is swapped under the same name.
-        source: "/:folder(backgrounds|music)/:path*",
+        source: "/:folder(backgrounds|music|playermats|cardsleeves)/:path*",
         headers: [{ key: "Cache-Control", value: "public, max-age=604800, stale-while-revalidate=2592000" }],
+      },
+      {
+        // The logo and the tab icon are 48 KB each and rarely change: a day on the device, then one more week while it is checked again in the background.
+        source: "/:file(logo|icon).svg",
+        headers: [{ key: "Cache-Control", value: "public, max-age=86400, stale-while-revalidate=604800" }],
       },
       {
         // The service worker itself is always checked, so an update reaches everyone.
