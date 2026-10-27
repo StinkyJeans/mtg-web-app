@@ -23,7 +23,9 @@ import {
 import type { Action, Activatable, CardDef, GameEvent, GameState, Permanent, PlayerId, TargetChoice, TargetSpec } from "@mtg/engine";
 import { useBattlefieldBackground } from "@/lib/background";
 import { dismissNotice, leaveRoom, send as netSend, useOnline } from "@/lib/online/session";
-import CardDetail, { CardImage, Lightbox } from "./CardDetail";
+import { Lightbox } from "./CardDetail";
+import { HoverDetail, HoverPreview } from "./HoverPanels";
+import { PREVIEW_W, setInspected, setPreview } from "./hoverStore";
 import type { Inspected } from "./CardDetail";
 import CoinFlip from "./CoinFlip";
 import EnterBattlefield from "./EnterBattlefield";
@@ -75,7 +77,6 @@ import { useOnlineMatch } from "./useOnlineMatch";
 const newSeed = () => Date.now() % 2_147_483_647;
 
 /** Width of the big card shown while the mouse is over a card in hand. */
-const HAND_ZOOM_W = 320;
 /** How long "Your turn" stays on screen; matches the turn-splash animation in globals.css. */
 const TURN_SPLASH_MS = 1800;
 const WELCOME_MS = 2300; // how long "Welcome to the Battle Field, Now Duel!" stays up before the cards are dealt
@@ -157,7 +158,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [assign, setAssign] = useState<Record<string, Record<string, number>>>({}); // attacker -> blocker -> damage
   const [localChat, setChat] = useState<ChatMessage[]>([]);
   const chat: ChatMessage[] = online ? net.chat.map((m) => ({ id: m.id, from: m.from, text: m.text })) : localChat;
-  const [inspected, setInspected] = useState<Inspected | null>(null);
   const [zoomed, setZoomed] = useState<CardDef | null>(null); // card shown large in the popup
   const [resigning, setResigning] = useState<PlayerId | null>(null); // player being asked to confirm a resignation
   // A spell or ability being set up: its targets are picked one by one, then `build` makes the action.
@@ -174,7 +174,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [xValue, setXValue] = useState(0);
   const [abilityX, setAbilityX] = useState<{ a: Activatable; payWith?: string } | null>(null); // an ability with {X} in its cost, waiting for the player's X
   const [attackTargets, setAttackTargets] = useState<Record<string, string>>({}); // attacker iid -> planeswalker iid
-  const [handHover, setHandHover] = useState<{ def: CardDef; left: number; top: number } | null>(null); // the big card shown while the mouse is over a card
   const [abilitiesOpen, setAbilitiesOpen] = useState(false); // the abilities pop-up
   const [abilityFocus, setAbilityFocus] = useState<string | null>(null); // a battlefield card clicked to see only its abilities
   const [viewingYard, setViewingYard] = useState<{ owner: PlayerId; zone: "graveyard" | "exile" } | null>(null); // whose graveyard or exile is open
@@ -183,6 +182,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [stageDone, setStageDone] = useState(false); // ...and the decks are back at their libraries
   const [intro, setIntro] = useState(false); // the loading screen and the welcome message are still on: the decks wait for them
   const stageDoneRef = useRef(false);
+  useEffect(() => () => (setInspected(null), setPreview(null)), []); // (what the mouse was over does not follow the player to another page)
   const [welcome, setWelcome] = useState(false); // "Welcome to the Battle Field, Now Duel!" while it is on screen
   const [turnSplash, setTurnSplash] = useState(0); // online: counts "Your turn" splashes, 0 while none is on screen
 
@@ -430,7 +430,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     // flushSync puts the new cards on the page right away, so they can be hidden before they are ever painted.
     flushSync(() => {
       setGame(r.state);
-      setHandHover(null);
+      setPreview(null);
       setLog((l) => [...describeEvents(r.events, r.state).reverse(), ...l].slice(0, 60));
       setEndNote(endReason(r.events, r.state));
       // Online: the opponent passed the turn. Said loudly, in case this player looked away while waiting.
@@ -712,16 +712,16 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   /** Shows the card big next to the element the mouse is over: above it when there is room, otherwise below. */
   function showPreview(def: CardDef, el: HTMLElement) {
     const r = el.getBoundingClientRect();
-    const h = HAND_ZOOM_W * 1.4;
+    const h = PREVIEW_W * 1.4;
     const top = r.top - 8 - h >= 8 ? r.top - 8 - h : Math.min(r.bottom + 8, window.innerHeight - h - 8);
-    setHandHover({ def, left: Math.min(Math.max(8, r.left + r.width / 2 - HAND_ZOOM_W / 2), window.innerWidth - HAND_ZOOM_W - 8), top: Math.max(8, top) });
+    setPreview({ def, left: Math.min(Math.max(8, r.left + r.width / 2 - PREVIEW_W / 2), window.innerWidth - PREVIEW_W - 8), top: Math.max(8, top) });
   }
   const abilities = abilityList(state, actor);
   const abilityCount = countAbilities(abilities);
   const abilityIids = new Set<string>([...abilities.abilities.map((x) => x.iid), ...abilities.loyalty.map((x) => x.iid), ...abilities.crews.map((x) => x.iid)]);
   const abilityLocked = lockedAbilities(state, actor).length;
   const inspect = (def: Inspected["def"], status?: string[]) => setInspected({ def, status });
-  const lane: LaneContext = { state, attackingIds: attackerIds, onInspect: inspect, onZoom: setZoomed, onPreview: showPreview, onUnpreview: () => setHandHover(null) };
+  const lane: LaneContext = { state, attackingIds: attackerIds, onInspect: inspect, onZoom: setZoomed, onPreview: showPreview, onUnpreview: () => setPreview(null) };
   // Choosing attackers or blockers: the player's combat zone shows even while it is empty.
   const combatSetup = (id: PlayerId) => mine && (state.phase === "attackers" || state.phase === "blockers") && id === actor;
 
@@ -927,7 +927,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             handPick={handPick}
             onClick={clickHandCard}
             onPreview={showPreview}
-            onUnpreview={() => setHandHover(null)}
+            onUnpreview={() => setPreview(null)}
             onInspect={(def) => inspect(def)}
             onZoom={setZoomed}
           />
@@ -942,7 +942,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           <PlayersPanel state={state} order={[other]} actor={actor} onResign={online ? undefined : setResigning} heading={watching ? "Player" : "Opponent"} />
         </div>
         <div className="min-h-0 flex-1 lg:overflow-y-auto">
-          <CardDetail inspected={inspected} />
+          <HoverDetail />
         </div>
       </aside>
 
@@ -960,14 +960,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         />
       )}
 
-      {mine && <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} onPreview={showPreview} onUnpreview={() => setHandHover(null)} />}
-      {viewingYard && <GraveyardDialog state={state} owner={viewingYard.owner} zone={viewingYard.zone} onClose={() => (setHandHover(null), setViewingYard(null))} onZoom={setZoomed} onPreview={showPreview} onUnpreview={() => setHandHover(null)} />}
+      {mine && <PickPanel state={state} onPick={(iid) => act({ type: "pick", iid })} onZoom={setZoomed} onPreview={showPreview} onUnpreview={() => setPreview(null)} />}
+      {viewingYard && <GraveyardDialog state={state} owner={viewingYard.owner} zone={viewingYard.zone} onClose={() => (setPreview(null), setViewingYard(null))} onZoom={setZoomed} onPreview={showPreview} onUnpreview={() => setPreview(null)} />}
 
-      {handHover && !zoomed && !state.winner && (
-        <div className="pointer-events-none fixed z-40 overflow-hidden rounded-2xl shadow-2xl ring-4 ring-white/80" style={{ left: handHover.left, top: handHover.top, width: HAND_ZOOM_W }}>
-          <CardImage def={handHover.def} size="normal" className="block w-full" fallback={<div className="bg-slate-800 p-4 text-sm text-white">{handHover.def.name}</div>} />
-        </div>
-      )}
+      <HoverPreview hidden={!!zoomed || !!state.winner} />
 
       {zoomed && <Lightbox def={zoomed} onClose={() => setZoomed(null)} />}
 

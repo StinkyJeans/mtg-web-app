@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useAnimationsOn } from "@/lib/motion";
 
 // The playmat as a sheet of paper. As its player loses life it tears away from the edges, bite by ragged bite, leaving a worn
@@ -96,11 +96,23 @@ export function MatTear({ life, mat, seed }: { life: number; mat: string; seed: 
     });
   }, [seed]);
   const fade = on ? "opacity 1.6s ease-in-out" : "none";
+  // A stage is only put on the page once the tear reaches it (at full life there is nothing of it at all, and a hundred shapes that
+  // never show would cost every layout and style pass of the board). It starts see-through and is faded in a moment later; a stage that
+  // has been shown stays, so it can fade back out when life goes up again.
+  const reached = STAGES.filter((at) => life <= at).length;
+  const [shown, setShown] = useState(reached);
+  const [lit, setLit] = useState(reached);
+  if (reached > shown) setShown(reached);
+  useEffect(() => {
+    let second = 0;
+    const first = requestAnimationFrame(() => (second = requestAnimationFrame(() => setLit(reached))));
+    return () => (cancelAnimationFrame(first), cancelAnimationFrame(second));
+  }, [reached]);
   return (
     <div aria-hidden="true" className="pointer-events-none absolute inset-0 z-0 overflow-hidden rounded-2xl">
       <div className="absolute inset-0" style={{ background: `linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), ${mat}` }} />
-      {stages.map((s) => {
-        const torn = life <= s.at ? 1 : 0;
+      {stages.slice(0, shown).map((s, index) => {
+        const torn = index < lit ? 1 : 0;
         return (
           // each stage fades as one: its strips are the same colour, so where they overlap nothing shows
           <div key={s.at} className="absolute inset-0">
