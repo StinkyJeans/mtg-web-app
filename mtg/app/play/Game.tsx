@@ -727,8 +727,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
   return (
     <main
-      className="battlefield-bg flex flex-col gap-2 p-2 text-zinc-900 lg:[--card-h:clamp(74px,11.8dvh,150px)] lg:has-[.action-box>*]:[--card-h:clamp(58px,9dvh,110px)] lg:h-[calc(100dvh-2.5rem)] lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_17rem] lg:overflow-hidden"
-      style={{ "--bf-image": background.css, "--bf-dim": background.dim, ...(state.phase === "attackers" ? { "--card-h": "clamp(60px, 10.5dvh, 130px)" } : state.phase === "blockers" ? { "--card-h": "clamp(56px, 9dvh, 110px)" } : {}) } as React.CSSProperties}
+      className="battlefield-bg flex flex-col gap-2 p-2 text-zinc-900 lg:[--card-h:clamp(74px,11.8dvh,150px)] lg:h-[calc(100dvh-2.5rem)] lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_17rem] lg:overflow-hidden"
+      style={{ "--bf-image": background.css, "--bf-dim": background.dim } as React.CSSProperties}
     >
       {/* Left: players, chat, log */}
       <aside className="flex flex-col gap-2 lg:min-h-0 lg:overflow-y-auto">
@@ -771,7 +771,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       {lookOpen && <AppearanceDialog look={look} cursor={{ on: cursorOn, set: setCursorOn }} onClose={() => setLookOpen(false)} first={actor} />}
 
       {/* Center: the battle */}
-      <section className="flex flex-col gap-1.5 lg:min-h-0">
+      <section className="flex flex-col gap-1.5 lg:min-h-0 lg:[--hand-h:clamp(74px,11.8dvh,150px)] lg:has-[.action-box>*]:[--hand-h:clamp(58px,9dvh,110px)]">
         <Battlefield
           owner={other}
           top
@@ -918,6 +918,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         />
 
         {!watching && (
+        // Only the hand gets smaller while a choice panel is open or in combat: the battlefields are fitted by FitToHeight, so making their
+        // cards smaller too (as this once did) meant laying out the whole board again for every phase.
+        <div className="contents lg:[--card-h:var(--hand-h)]" style={state.phase === "attackers" ? ({ "--card-h": "clamp(60px, 10.5dvh, 130px)" } as React.CSSProperties) : state.phase === "blockers" ? ({ "--card-h": "clamp(56px, 9dvh, 110px)" } as React.CSSProperties) : undefined}>
         <Side label={`${playerName(actor)}'s hand`} tone="emerald">
           <HandRow
             state={state}
@@ -932,6 +935,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             onZoom={setZoomed}
           />
         </Side>
+        </div>
         )}
       </section>
 

@@ -966,6 +966,10 @@ body.mtg-cursor :is(input:not([type="checkbox"]):not([type="range"]), textarea) 
 }
 /* the board under the result screen is hidden: stop its pulsing glows from repainting */
 body:has(.victory-backdrop) :is(.castable-glow, .combat-block, .combat-threat, .combat-free, .combat-best, .combat-safe, .combat-good, .combat-risky, .combat-trade, .combat-chump) { animation-play-state: paused; }
+/* a choice in front of the board (a creature type, scry, the graveyard...): the dialog is a plain dark layer (a backdrop blur would re-blur the whole
+   board every frame), and what pulses underneath stops until it closes */
+body:has(.game-modal) :is(.castable-glow, .combat-block, .combat-threat, .combat-free, .combat-best, .combat-safe, .combat-good, .combat-risky, .combat-trade, .combat-chump, .mat-lowlife-moving, .life-halo-moving, .life-pump-moving) { animation-play-state: paused; }
+body:has(.game-modal) .castable-glow::after { animation-play-state: paused; }
 .victory-card {
   --accent: #f4b43d;
   --glow: rgba(244, 180, 61, 0.3);

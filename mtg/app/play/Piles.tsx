@@ -99,7 +99,7 @@ export function GraveyardDialog({ state, owner, zone = "graveyard", onClose, onZ
   const cards = [...state.players[owner][zone]].reverse();
   const title = zone === "exile" ? "exile" : "graveyard";
   return (
-    <div role="dialog" aria-modal="true" aria-label={title} className="fixed inset-0 z-30 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+    <div role="dialog" aria-modal="true" aria-label={title} className="game-modal fixed inset-0 z-30 flex items-center justify-center bg-black/70 p-4">
       <div className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-3 rounded-2xl border border-white/25 bg-slate-950/50 p-4 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150 [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">
         <div className="flex items-center justify-between">
           <h2 className="font-display text-xl font-bold tracking-wide text-white">

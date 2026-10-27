@@ -367,7 +367,16 @@ interface RestrictedMana {
  * "{T}: Add {U}. This mana can't be spent to cast a nonartifact spell."
  * (A creature of the chosen type's abilities are paid without it.) A line with a restriction that isn't understood is not returned.
  */
+const restrictedCache = new WeakMap<CardDef, RestrictedMana[]>();
 export function restrictedMana(def: CardDef): RestrictedMana[] {
+  const known = restrictedCache.get(def);
+  if (known) return known;
+  const out = parseRestrictedMana(def);
+  restrictedCache.set(def, out);
+  return out;
+}
+
+function parseRestrictedMana(def: CardDef): RestrictedMana[] {
   const out: RestrictedMana[] = [];
   const text = (def.text ?? "").replace(/\([^)]*\)/g, "").toLowerCase();
   for (const m of text.matchAll(/^\{t\}: add (\{[wubrgc]\}|one mana of any color|two mana of any one color)\. (?:spend this mana only to (.+?)|(this mana can't be spent to cast a nonartifact spell))\.?$/gm)) {

@@ -18,8 +18,18 @@ starfish surrakar survivor synth tentacle tetravite thalakos thopter thrull tief
 urzan vampire varmint vedalken volver wall walrus warlock warrior weasel weird werewolf whale wizard wolf wolverine wombat worm wraith wurm yeti
 zombie zubera eternal gamma hero inhuman kree skrull sorcerer spy villain`.split(/\s+/);
 
-/** The subtypes on a card's type line (lowercase): "Creature — Zombie Wizard" is ["zombie", "wizard"]. A changeling is every creature type, in every zone. */
+const subtypeCache = new WeakMap<CardDef, string[]>();
+
+/**
+ * The subtypes on a card's type line (lowercase): "Creature — Zombie Wizard" is ["zombie", "wizard"]. A changeling is every creature type, in every zone.
+ * Worked out once for each card: this is asked for every card, over and over, whenever the game checks what can be cast, and a changeling's list is
+ * every creature type there is. The lists are only ever read.
+ */
 export function defSubtypes(def: CardDef): string[] {
+  const known = subtypeCache.get(def);
+  if (known) return known;
   const printed = ((def.typeLine ?? "").split(" // ")[0].split("—")[1] ?? "").toLowerCase().split(/\s+/).filter(Boolean);
-  return (def.keywords ?? []).some((k) => k.toLowerCase() === "changeling") ? [...new Set([...printed, ...CREATURE_TYPES])] : printed;
+  const all = (def.keywords ?? []).some((k) => k.toLowerCase() === "changeling") ? [...new Set([...printed, ...CREATURE_TYPES])] : printed;
+  subtypeCache.set(def, all);
+  return all;
 }
