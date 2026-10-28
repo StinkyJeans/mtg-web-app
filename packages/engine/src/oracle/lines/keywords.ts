@@ -48,6 +48,14 @@ export function readKeywordLine(line: string, out: ParsedCard): boolean {
   return false;
 }
 
+// "Toxic 2"
+export function readToxic(line: string, out: ParsedCard): boolean {
+  const m = /^toxic (\d+)$/.exec(line);
+  if (!m) return false;
+  out.toxic = (out.toxic ?? 0) + Number(m[1]);
+  return true;
+}
+
 export function readNoRulesEffect(line: string, out: ParsedCard): boolean {
   if (/^(?:devoid|partner|changeling)$/.test(line)) return true;
   return false;

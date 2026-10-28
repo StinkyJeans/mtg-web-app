@@ -263,6 +263,9 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
     } else if (e.type === "lifeLost" && !hadCombat && !events.some((x) => x.type === "damage")) {
       const b = boxOf(lifeEl(e.player));
       if (b) add(() => floatText(b, `-${e.amount}`, BAD, 80, 30));
+    } else if (e.type === "poisoned" && !hadCombat) {
+      const b = boxOf(document.querySelector<HTMLElement>(`[data-poison="${e.player}"]`) ?? lifeEl(e.player));
+      if (b) add(() => floatText(b, `☠ +${e.amount}`, "#4d7c0f", 80, 30));
     } else if (e.type === "countered") {
       const b = boxOf(document.querySelector("[data-resolve-zone]")) ?? { x: window.innerWidth / 2 - 40, y: window.innerHeight / 2 - 20, w: 80, h: 40 };
       add(() => floatText(b, "Countered!", "#f97316", 0, 30));

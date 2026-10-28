@@ -31,6 +31,13 @@ export function changeLife(state: GameState, player: PlayerId, delta: number, ev
   if (delta > 0) onLifeGained(state, player);
 }
 
+/** Poison counters: from infect and toxic damage, and from "target opponent gets a poison counter". */
+export function addPoison(state: GameState, player: PlayerId, amount: number, events: GameEvent[]): void {
+  if (amount <= 0) return;
+  state.players[player].poison = (state.players[player].poison ?? 0) + amount;
+  events.push({ type: "poisoned", player, amount });
+}
+
 /** "Whenever you gain life, ...": the player's permanents with that trigger queue it. */
 export function onLifeGained(state: GameState, player: PlayerId): void {
   for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "lifeGained");

@@ -76,9 +76,10 @@ export type GameEvent =
   | { type: "cardDrawn"; player: PlayerId; iid: string }
   | { type: "attackersDeclared"; player: PlayerId; attackers: string[] }
   | { type: "blockersDeclared"; player: PlayerId; blocks: Block[] }
-  | { type: "combatDamage"; source: string; target: string | PlayerId; amount: number }
+  | { type: "combatDamage"; source: string; target: string | PlayerId; amount: number; /** Dealt by a creature with infect: poison counters or -1/-1 counters. */ infect?: true }
   | { type: "lifeGained"; player: PlayerId; amount: number }
   | { type: "lifeLost"; player: PlayerId; amount: number }
+  | { type: "poisoned"; player: PlayerId; amount: number }
   | { type: "spellCast"; player: PlayerId; iid: string; tapped: string[]; targets: TargetChoice[] }
   | { type: "abilityActivated"; player: PlayerId; iid: string; name: string; text: string; targets?: TargetChoice[] }
   | { type: "permanentEntered"; player: PlayerId; iid: string }
@@ -207,7 +208,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       if (idx < 0) return fail("That card is not in your hand.");
       if (getCard(next, zone[idx].defId).type !== "land") return fail("That card is not a land.");
       const [card] = zone.splice(idx, 1);
-      me.battlefield.push({ card, tapped: (zone === me.exile && tappedLand) || entersTappedNow(next, player, getCard(next, card.defId)), summoningSick: false, damage: 0, enteredTurn: next.turn });
+      me.battlefield.push({ card, tapped: (zone === me.exile && tappedLand) || entersTappedNow(next, player, getCard(next, card.defId)), summoningSick: true, damage: 0, enteredTurn: next.turn });
       me.landsPlayedThisTurn++;
       events.push({ type: "landPlayed", player, iid: card.iid });
       queueTriggers(next, card, player, "enters"); // "When this land enters, you gain 1 life."

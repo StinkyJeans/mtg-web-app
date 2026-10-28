@@ -380,7 +380,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     }
     case "searchLand": {
       const land = take(owner.library, iid);
-      owner.battlefield.push({ card: land, tapped: pick.entersTapped !== false, summoningSick: false, damage: 0, enteredTurn: state.turn });
+      owner.battlefield.push({ card: land, tapped: pick.entersTapped !== false, summoningSick: true, damage: 0, enteredTurn: state.turn });
       events.push({ type: "permanentEntered", player: pick.owner, iid });
       landEntered(state, pick.owner);
       askAsEnters(state, owner.battlefield[owner.battlefield.length - 1], pick.owner);

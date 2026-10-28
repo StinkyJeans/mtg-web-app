@@ -53,11 +53,11 @@ export function readAttackWithOthers(line: string, out: ParsedCard): boolean {
 }
 
 export function readBecomesTarget(line: string, out: ParsedCard): boolean {
-  const allyTargeted = /^whenever a creature you control becomes the target of a spell or ability an opponent controls,? (.+)$/.exec(line);
+  const allyTargeted = /^whenever a creature you control becomes the target of a (spell or ability an opponent controls|spell),? (.+)$/.exec(line);
   if (allyTargeted) {
     // "...put a +1/+1 counter on target creature you control other than that creature."
-    const text = allyTargeted[1].replace(/(target creature you control) other than that creature/, "$1");
-    const notOther = text !== allyTargeted[1];
+    const text = allyTargeted[2].replace(/(target creature you control) other than that creature/, "$1");
+    const notOther = text !== allyTargeted[2];
     const ctx = newCtx(true);
     const effects = /\bthat creature\b/.test(text) ? null : parseEffectText(text, ctx);
     if (!effects || effects.length === 0) {
@@ -65,7 +65,7 @@ export function readBecomesTarget(line: string, out: ParsedCard): boolean {
       return true;
     }
     const targets = notOther ? ctx.targets.map((t) => (t.label === "target creature you control" ? { ...t, notOther: true, label: "target creature you control other than that creature" } : t)) : ctx.targets;
-    out.triggers.push({ event: "allyTargeted", byOpponent: true, effects, targets, text: line });
+    out.triggers.push({ event: "allyTargeted", ...(allyTargeted[1] === "spell" ? { bySpell: true } : { byOpponent: true }), effects, targets, text: line });
     return true;
   }
   const targeted = /^when ~ becomes the target of a spell or ability,? (.+)$/.exec(line);

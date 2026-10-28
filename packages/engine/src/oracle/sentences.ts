@@ -1,6 +1,6 @@
 import type { Amount, CardFilter, CountSpec, Effect, Ref, TokenSpec } from "../effects.js";
 import { parseManaCost } from "../mana.js";
-import { amountOf, CARD_TYPES, forEachCount, isKeyword, keywordList, parseCount, singularType, toAmount, toNumber } from "./words.js";
+import { amountOf, CARD_TYPES, COLOR_OF, forEachCount, isKeyword, keywordList, parseCount, singularType, toAmount, toNumber } from "./words.js";
 import { isCreatureRef, isPermanentRef, isPlayerRef, refFor } from "./targets.js";
 import type { Ctx } from "./targets.js";
 import { parseClause } from "./effectText.js";
@@ -341,6 +341,31 @@ const damageDraw: SentenceParser = (s, ctx) =>
 /** "When this Vehicle enters, it becomes an artifact creature until end of turn." */
 const becomeCreature: SentenceParser = (s) => (s === "~ becomes an artifact creature until end of turn" ? [{ type: "crewed" }] : null);
 
+/** A creature land: "~ becomes a 1/1 Phyrexian Blinkmoth artifact creature with flying and infect until end of turn. It's still a land." (colorless: a color would change too) */
+const animateLand: SentenceParser = (s) => {
+  const m = /^@@animateland (\d+)\/(\d+) ([a-z ]+?)(?: with ([a-z ,]+?))?@@$/.exec(s);
+  const keywords = m?.[4] ? keywordList(m[4]) : [];
+  const subtypes = m ? m[3].split(" ") : [];
+  if (!m || !keywords || subtypes.some((w) => w === "and" || COLOR_OF[w])) return null;
+  const what = { t: "self" as const };
+  return [{ type: "becomeCreatureNow", what, subtypes }, { type: "setBase", what, power: Number(m[1]), toughness: Number(m[2]) }, ...keywords.map((keyword): Effect => ({ type: "grant", keyword, what }))];
+};
+
+/** "Target creature can't be the target of spells or abilities your opponents control this turn." */
+const untargetable: SentenceParser = (s, ctx) => {
+  const m = /^(target creature(?: you control)?) can't be the target of spells or abilities your opponents control this turn$/.exec(s);
+  const what = m ? refFor(m[1], ctx) : null;
+  return what ? [{ type: "untargetable", what }] : null;
+};
+
+/** "Each opponent gets a poison counter." / "Target player gets two poison counters." */
+const poison: SentenceParser = (s, ctx) => {
+  const m = /^(each opponent|target opponent|target player|that player) gets? (a|an|one|two|three|four|\d+) poison counters?$/.exec(s);
+  const who = m ? refFor(m[1], ctx) : null;
+  if (!who || !isPlayerRef(who, ctx)) return null;
+  return [{ type: "poison", who, amount: m![2] === "a" || m![2] === "an" ? 1 : (toNumber(m![2]) ?? 1) }];
+};
+
 /** Lightstall Inquisitor: "Each opponent exiles a card from their hand and may play that card for as long as it remains exiled. ..." */
 const exileToPlay: SentenceParser = (s) => {
   const m = /^@@exiletoplay (\d+)@@$/.exec(s);
@@ -514,7 +539,7 @@ const becomeCopy: SentenceParser = (s, ctx) => {
 
 /** "Counter target spell unless its controller pays {2}." */
 const counterUnless: SentenceParser = (s, ctx) => {
-  const m = /^counter (target spell|that spell) unless its controller pays ((?:\{[^}]+\})+)$/.exec(s);
+  const m = /^counter (target (?:noncreature |creature )?spell|that spell) unless its controller pays ((?:\{[^}]+\})+)$/.exec(s);
   const what = m ? (m[1] === "that spell" ? (ctx.targets.length > 0 && ctx.targets[ctx.targets.length - 1].kind === "spell" ? ({ t: "target", i: ctx.targets.length - 1 } as const) : null) : refFor(m[1], ctx)) : null;
   return m && what && parseManaCost(m[2]) ? [{ type: "counterUnlessPay", what, cost: m[2] }] : null;
 };
@@ -634,7 +659,7 @@ const putSavedCounters: SentenceParser = (s, ctx) => {
 /** A Case of the Uneaten Feast: 'Creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn.' */
 const yardCastable: SentenceParser = (s) => (s === 'creature cards in your graveyard gain "you may cast ~ from your graveyard" until end of turn' ? [{ type: "yardCastable" }] : null);
 
-const PARSERS: SentenceParser[] = [...MARVEL_SENTENCES, connive, tokenForPlayer, ifControlOther, airbend, exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, damageDraw, becomeCreature, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
+const PARSERS: SentenceParser[] = [...MARVEL_SENTENCES, connive, tokenForPlayer, ifControlOther, airbend, exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, damageDraw, becomeCreature, animateLand, untargetable, poison, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
 
 export function parseSimple(s: string, ctx: Ctx): Effect[] | null {
   for (const parse of PARSERS) {

@@ -5,7 +5,7 @@ import { parseCard } from "../../oracle.js";
 import { nextRandom } from "../../state.js";
 import type { CardInstance, GameState, Permanent, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isPlaneswalker, nameOf, playerLabel, toughnessOf } from "../permanents.js";
-import { changeLife } from "../zones.js";
+import { addPoison, changeLife } from "../zones.js";
 import { creatureDamaged, excessDamageDealt, queueTriggers } from "../triggers.js";
 
 /** A spell, ability or creature dealing damage, with what changes how its damage works. */
@@ -14,6 +14,8 @@ export interface DamageSource {
   controller: PlayerId;
   deathtouch: boolean;
   lifelink: boolean;
+  /** Infect: damage to players is poison counters, damage to creatures is -1/-1 counters. */
+  infect: boolean;
 }
 
 /** What every effect handler gets: the game, the spell or ability being run, and helpers bound to them. */
@@ -66,7 +68,8 @@ export function dealDamage(
   state.lastExcess = 0; // only damage to a creature has an excess
   if (target.k === "player") {
     if (state.players[source.controller].doubleDamage && target.id !== source.controller) amount *= 2; // "it deals double that damage instead"
-    changeLife(state, target.id, -amount, events);
+    if (source.infect) addPoison(state, target.id, amount, events);
+    else changeLife(state, target.id, -amount, events);
   } else if (isPlaneswalker(state, target.perm)) {
     target.perm.loyalty = (target.perm.loyalty ?? 0) - amount; // damage to a planeswalker removes that much loyalty
   } else {
@@ -75,7 +78,8 @@ export function dealDamage(
     const needed = source.deathtouch ? Math.min(1, lethal) : lethal;
     state.lastExcess = Math.max(0, amount - needed); // "you gain life equal to the excess damage dealt this way"
     if (amount > needed && victim) excessDamageDealt(state, victim);
-    target.perm.damage += amount;
+    if (source.infect) target.perm.minusCounters = (target.perm.minusCounters ?? 0) + amount;
+    else target.perm.damage += amount;
     if (source.deathtouch) target.perm.deathtouched = true;
     if (victim) creatureDamaged(state, target.perm, victim, amount); // "Whenever ~ is dealt damage"
   }

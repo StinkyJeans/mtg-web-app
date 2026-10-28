@@ -66,6 +66,7 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
     p.doubleDamage = undefined;
     p.lifeGainedThisTurn = 0;
     p.lifeLostThisTurn = 0;
+    p.landsEnteredThisTurn = undefined;
     p.attackedThisTurn = undefined;
     p.spellsCastThisTurn = 0;
     p.yardCastable = undefined;
@@ -86,6 +87,8 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
       perm.usedAbilities = [];
       perm.crewed = false; // a Vehicle stops being a creature at end of turn
       perm.crewedBy = undefined;
+      perm.tempSubtypes = undefined;
+      perm.untargetableBy = undefined;
       perm.loyaltyUsed = false;
       perm.cantBlockTurn = false;
       perm.noRegen = false;

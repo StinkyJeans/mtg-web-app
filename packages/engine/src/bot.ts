@@ -55,6 +55,7 @@ function creatureValue(s: GameState, p: Permanent): number {
   if (has(s, p, "double strike")) v += pw * 1.5;
   if (has(s, p, "deathtouch")) v += 2.5;
   if (has(s, p, "lifelink")) v += pw * 0.6;
+  if (has(s, p, "infect")) v += pw * 0.8; // ten poison counters kill: each point of power counts double
   if (has(s, p, "trample")) v += pw * 0.3;
   if (has(s, p, "menace")) v += 0.6;
   if (has(s, p, "vigilance")) v += 0.4;
@@ -77,6 +78,10 @@ function permValue(s: GameState, p: Permanent): number {
 }
 
 const lifeScore = (life: number) => (life <= 0 ? -500 : life - Math.max(0, 8 - life) * 0.9);
+/** A poison counter is worth about two life, more as the tenth gets close. */
+const poisonScore = (poison: number) => (poison >= 10 ? 500 : poison * 2 + Math.max(0, poison - 6) * 1.8);
+/** How much a creature's hit is worth in life: infect damage is poison counters. */
+const hitValue = (s: GameState, p: Permanent) => power(s, p) * (has(s, p, "infect") ? 2 : 1);
 
 function handValue(s: GameState, id: PlayerId): number {
   const pl = s.players[id];
@@ -97,7 +102,7 @@ function handValue(s: GameState, id: PlayerId): number {
 export function evaluate(s: GameState, me: PlayerId): number {
   if (s.winner) return s.winner === me ? 1e6 : s.winner === "draw" ? 0 : -1e6;
   const opp = OPP[me];
-  let v = lifeScore(s.players[me].life) - lifeScore(s.players[opp].life);
+  let v = lifeScore(s.players[me].life) - lifeScore(s.players[opp].life) - poisonScore(s.players[me].poison ?? 0) + poisonScore(s.players[opp].poison ?? 0);
   for (const p of s.players[me].battlefield) v += permValue(s, p);
   for (const p of s.players[opp].battlefield) v -= permValue(s, p) * 1.05;
   v += handValue(s, me) - s.players[opp].hand.length * 0.8;
@@ -107,10 +112,10 @@ export function evaluate(s: GameState, me: PlayerId): number {
 
 /** Danger of the counter-attack: creatures that attacked stay tapped, so they can't block on the other player's turn. */
 function exposure(s: GameState, me: PlayerId): number {
-  const life = s.players[me].life;
+  const life = Math.min(s.players[me].life, (10 - (s.players[me].poison ?? 0)) * 2);
   const theirs = s.players[OPP[me]].battlefield
     .filter((p) => isCreature(s, p) && !has(s, p, "defender"))
-    .map((p) => power(s, p))
+    .map((p) => hitValue(s, p))
     .sort((a, b) => b - a);
   const blockers = s.players[me].battlefield.filter((p) => isCreature(s, p) && !p.tapped).length;
   const damage = theirs.slice(blockers).reduce((a, b) => a + b, 0);
@@ -154,9 +159,13 @@ function chooseBlocks(s: GameState, who: PlayerId): Block[] {
   const attackers = s.combat.attackers.map((a) => find(s, a.attacker)).filter((p): p is Permanent => !!p);
   const mine = getPossibleBlockers(s).map((iid) => find(s, iid)).filter((p): p is Permanent => !!p);
   const blockedAlready = new Set(forced.map((f) => f.attacker));
-  const incoming = attackers.filter((a) => !blockedAlready.has(a.card.iid)).reduce((n, a) => n + power(s, a), 0);
-  let lifeLeft = s.players[who].life - incoming; // life if nothing else is blocked
-  const lethalThreat = lifeLeft <= 0;
+  const unblocked = attackers.filter((a) => !blockedAlready.has(a.card.iid));
+  // what is left if nothing else is blocked: life, and poison counters still to go (infect)
+  let lifeLeft = s.players[who].life - unblocked.filter((a) => !has(s, a, "infect")).reduce((n, a) => n + power(s, a), 0);
+  let poisonLeft = 10 - (s.players[who].poison ?? 0) - unblocked.filter((a) => has(s, a, "infect")).reduce((n, a) => n + power(s, a), 0);
+  const lethalThreat = lifeLeft <= 0 || poisonLeft <= 0;
+  const spare = (a: Permanent, ap: number) => (has(s, a, "infect") ? (poisonLeft += ap) : (lifeLeft += ap));
+  const low = (n: number) => Math.min(lifeLeft, poisonLeft * 2) <= n;
 
   for (const a of [...attackers].sort((x, y) => power(s, y) - power(s, x))) {
     if (blockedAlready.has(a.card.iid)) continue;
@@ -167,12 +176,12 @@ function chooseBlocks(s: GameState, who: PlayerId): Block[] {
     const wall = ap >= 1 ? cheapest(options.filter((o) => !o.r.bDies)) : undefined; // stops it and lives
     const trade = cheapest(options.filter((o) => o.r.aDies && o.r.bDies));
     let pick = good ?? wall;
-    if (!pick && trade && (creatureValue(s, a) >= trade.v * 0.8 || lifeLeft <= 6 || lethalThreat)) pick = trade;
-    if (!pick && options.length > 0 && (lethalThreat || lifeLeft <= 2) && ap > 0) pick = cheapest(options); // chump block to stay alive
+    if (!pick && trade && (creatureValue(s, a) >= trade.v * 0.8 || low(6) || lethalThreat)) pick = trade;
+    if (!pick && options.length > 0 && (lethalThreat || low(2)) && ap > 0) pick = cheapest(options); // chump block to stay alive
     if (pick) {
       blocks.push({ blocker: pick.b.card.iid, attacker: a.card.iid });
       used.add(pick.b.card.iid);
-      lifeLeft += ap;
+      spare(a, ap);
       continue;
     }
     // two creatures together kill it, and it can kill only one of them
@@ -187,7 +196,7 @@ function chooseBlocks(s: GameState, who: PlayerId): Block[] {
           blocks.push({ blocker: x.b.card.iid, attacker: a.card.iid }, { blocker: y.b.card.iid, attacker: a.card.iid });
           used.add(x.b.card.iid);
           used.add(y.b.card.iid);
-          lifeLeft += ap;
+          spare(a, ap);
           pick = x;
           break;
         }

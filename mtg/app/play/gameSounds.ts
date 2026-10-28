@@ -55,6 +55,7 @@ export function soundsFor(events: GameEvent[], viewer: PlayerId | null): { sound
         add("lifeGain");
         break;
       case "lifeLost":
+      case "poisoned":
         if (!hurt) add("lifeLoss");
         break;
       case "countered":

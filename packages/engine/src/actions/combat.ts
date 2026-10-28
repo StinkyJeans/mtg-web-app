@@ -1,6 +1,7 @@
 import { getCard } from "../cards.js";
 import { parseCard } from "../oracle.js";
 import {
+  addPoison,
   changeLife,
   creatureDamaged,
   checkStateBasedActions,
@@ -156,6 +157,7 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
 
     const gains = new Map<Permanent, number>(); // lifelink: each source is its own life gain
     const sacrifice = new Set<Permanent>(); // "When this creature deals combat damage, sacrifice it"
+    const poison: { player: PlayerId; amount: number }[] = [];
     for (const hit of state.preventCombat ? [] : hits) {
       const { source, target } = hit;
       let { amount } = hit;
@@ -165,19 +167,26 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
       if (amount <= 0) continue; // rule 510.1a: 0 or less damage isn't dealt
       const toPlayer = "battlefield" in target;
       if (toPlayer && state.players[source.card.owner].doubleDamage && target.id !== source.card.owner) amount *= 2;
-      if (toPlayer) {
+      const infect = kw(state, source, "infect");
+      if (toPlayer && !infect) {
         target.life -= amount;
         target.lifeLostThisTurn = (target.lifeLostThisTurn ?? 0) + amount;
+      } else if (toPlayer) {
+        poison.push({ player: target.id, amount });
       } else if (getCard(state, target.card.defId).type === "planeswalker") {
         target.loyalty = (target.loyalty ?? 0) - amount; // damage to a planeswalker removes loyalty
       } else {
-        target.damage += amount;
+        if (infect) target.minusCounters = (target.minusCounters ?? 0) + amount;
+        else target.damage += amount;
         creatureDamaged(state, target, target.card.owner, amount); // "Whenever ~ is dealt damage"
         (target.damagedBy ??= []).push(source.card.iid);
         if (kw(state, source, "deathtouch")) target.deathtouched = true;
       }
       if (kw(state, source, "lifelink")) gains.set(source, (gains.get(source) ?? 0) + amount);
-      events.push({ type: "combatDamage", source: source.card.iid, target: toPlayer ? target.id : target.card.iid, amount });
+      events.push({ type: "combatDamage", source: source.card.iid, target: toPlayer ? target.id : target.card.iid, amount, ...(infect ? { infect: true as const } : {}) });
+      // Toxic: a player dealt combat damage by it also gets that many poison counters.
+      const toxic = toPlayer ? (parseCard(getCard(state, source.card.defId)).toxic ?? 0) : 0;
+      if (toPlayer && toxic > 0) poison.push({ player: target.id, amount: toxic });
       if (source.sacOnDamage) sacrifice.add(source);
       if (toPlayer && onBoard(source.card.iid)) {
         queueTriggers(state, source.card, source.card.owner, "combatDamagePlayer");
@@ -188,6 +197,7 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
         }
       }
     }
+    for (const p of poison) addPoison(state, p.player, p.amount, events);
     for (const doomed of sacrifice) {
       const owner = Object.values(state.players).find((p) => p.battlefield.includes(doomed));
       if (owner) putIntoGraveyard(state, doomed, owner.id, events);

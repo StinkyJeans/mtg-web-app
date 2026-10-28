@@ -247,7 +247,7 @@ function manaColorsOf(state: GameState, perm: Permanent, forSpell?: CardDef, for
   const gate = manaAbility(def)?.gated ?? [];
   const open = gate.length === 0 || gateOpen(state, perm);
   const withChosen = (colors: ManaColor[]) => [...new Set([...(open ? colors : colors.filter((c) => !gate.includes(c))), ...chosen, ...only])];
-  if (def.type === "land") return withChosen(landManaColors(def));
+  if (def.type === "land") return perm.crewed && perm.summoningSick && !hasKeyword(def, "haste") && !(perm.tempKeywords ?? []).includes("haste") ? [] : withChosen(landManaColors(def)); // a land that became a creature this turn is summoning sick
   if (def.type === "artifact") return withChosen(manaAbilityColors(def) ?? []); // artifacts aren't "summoning sick"
   if (def.type === "creature" && (!perm.summoningSick || hasKeyword(def, "haste"))) return withChosen(manaAbilityColors(def) ?? []);
   return [];
@@ -304,6 +304,13 @@ export function payMana(state: GameState, player: PlayerId, cost: ManaCost, forS
   if (!hasFilter) return plain;
   const filtered = payFrom(state, player, cost, forSpell, forAbility, true);
   return filtered.ok ? filtered : plain;
+}
+
+/** Pays for a permanent's ability with its other mana sources when they can: a creature land that animates itself stays untapped to attack. */
+export function payForAbility(state: GameState, player: PlayerId, cost: ManaCost, def: CardDef, sourceIid?: string): PayResult {
+  const me = state.players[player];
+  const others = sourceIid ? payMana({ ...state, players: { ...state.players, [player]: { ...me, spareMana: [...(me.spareMana ?? []), sourceIid] } } }, player, cost, undefined, def) : null;
+  return others?.ok ? others : payMana(state, player, cost, undefined, def);
 }
 
 function payFrom(state: GameState, player: PlayerId, cost: ManaCost, forSpell: CardDef | undefined, forAbility: CardDef | undefined, useFilters: boolean): PayResult {

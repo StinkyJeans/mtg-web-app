@@ -42,10 +42,11 @@ const lifeEl = (id: string) => document.querySelector<HTMLElement>(`[data-life="
 const centerOf = (r: DOMRect) => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
 
 /** A red "-3" that rises from the point of impact and fades. */
-function floatNumber(at: DOMRect, amount: number) {
+/** `infect`: poison counters on a player, -1/-1 counters on a creature. */
+function floatNumber(at: DOMRect, amount: number, infect?: "player" | "creature") {
   if (crowd > 2 && numberSlot >= 3) return; // with a crowd, the first three hits show their numbers (the life total shows the rest)
   const note = document.createElement("div");
-  note.textContent = `-${amount}`;
+  note.textContent = infect === "player" ? `☠ +${amount}` : infect === "creature" ? `-${amount}/-${amount}` : `-${amount}`;
   const c = centerOf(at);
   // several numbers on the same life total fan out sideways instead of piling up on top of each other
   const x = c.x + (crowd > 1 ? ((numberSlot++ % 5) - 2) * 26 : 0);
@@ -59,7 +60,7 @@ function floatNumber(at: DOMRect, amount: number) {
     willChange: "transform, opacity",
     fontWeight: "800",
     fontSize: `${26 + Math.min(amount, 9) * 3}px`, // a bigger hit is a bigger number
-    color: "#dc2626",
+    color: infect ? "#4d7c0f" : "#dc2626",
     textShadow: "0 0 3px #fff, 0 0 3px #fff, 0 2px 6px rgba(0,0,0,.4)",
   });
   document.body.appendChild(note);
@@ -408,9 +409,9 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
         const d = Math.hypot(c.x - end.x, c.y - end.y) || 1;
         recoil(el, (c.x - end.x) / d, (c.y - end.y) / d);
       }
-      floatNumber(el.getBoundingClientRect(), hit.amount);
+      floatNumber(el.getBoundingClientRect(), hit.amount, hit.infect ? (isPlayer(hit.target) ? "player" : "creature") : undefined);
     } else if (hit.target === attackerId) {
-      floatNumber(attackerNow, hit.amount); // the blocker hit back
+      floatNumber(attackerNow, hit.amount, hit.infect ? "creature" : undefined); // the blocker hit back
     }
   }
 

@@ -25,7 +25,7 @@ import {
   tapPerm,
 } from "../core.js";
 import type { CardFilter, TargetChoice, TargetSpec } from "../effects.js";
-import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payMana, withX } from "../mana.js";
+import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payForAbility, payMana, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
@@ -313,7 +313,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     if (!cost) return `${def.name}'s ability can't be used yet.`;
     // "{X}{R}, {T}, Sacrifice ~: It deals X damage": the player chooses X, and pays that much more.
     const x = cost.x ? Math.max(0, Math.floor(chosenX ?? 0)) : 0;
-    const paid = payMana(state, player, cost.x ? withX(cost, x) : cost, undefined, def);
+    const paid = payForAbility(state, player, cost.x ? withX(cost, x) : cost, def, onBoard ? iid : undefined);
     if (!paid.ok) return `Not enough mana for ${def.name}'s ability (${ability.mana}${cost.x ? ` with X = ${x}` : ""}).`;
     paidX = cost.x ? x : undefined;
     applyPayment(state, player, paid, events);

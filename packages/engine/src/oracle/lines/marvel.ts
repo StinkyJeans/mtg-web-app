@@ -38,6 +38,12 @@ export function readAttacksAlone(line: string, out: ParsedCard): boolean {
   return trigger(out, line, "attacksAlone", m[2], who === "~" ? { selfOnly: true } : who === "equipped creature" ? { hostOnly: true } : {}, who === "~" ? "self" : "other");
 }
 
+/** Exalted is that same trigger: each instance gives the lone attacker +1/+1. */
+export function readExalted(line: string, out: ParsedCard): boolean {
+  if (line !== "exalted") return false;
+  return readAttacksAlone("whenever a creature you control attacks alone, that creature gets +1/+1 until end of turn", out);
+}
+
 /** "Whenever equipped creature attacks, tap target creature defending player controls." / "Whenever an equipped creature you control attacks, it connives." */
 export function readEquippedAttacks(line: string, out: ParsedCard): boolean {
   const m = /^whenever (equipped creature|an equipped creature you control) attacks,? (.+)$/.exec(line);

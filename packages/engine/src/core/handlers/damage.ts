@@ -1,7 +1,7 @@
 import { getCard } from "../../cards.js";
 import type { Permanent, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isProtectedFrom, kw, nameOf, playerLabel, powerOf, qualityOfDef } from "../permanents.js";
-import { changeLife } from "../zones.js";
+import { addPoison, changeLife } from "../zones.js";
 import { subjectsOf } from "../targets.js";
 import { dealDamage, type EffectHandlers, type EffectOf, type EffectRun } from "./shared.js";
 
@@ -15,7 +15,7 @@ function fightOrBite({ state, ctx, events, say }: EffectRun, effect: EffectOf<"f
   const first = subjectsOf(state, effect.type === "fight" ? effect.a : effect.from, ctx).find((x) => x.k === "perm");
   const second = subjectsOf(state, effect.type === "fight" ? effect.b : effect.to, ctx).find((x) => x.k === "perm");
   if (first?.k !== "perm" || second?.k !== "perm") return; // a target is gone: nothing happens
-  const traitOf = (perm: Permanent, controller: PlayerId) => ({ name: nameOf(state, perm), controller, deathtouch: kw(state, perm, "deathtouch"), lifelink: kw(state, perm, "lifelink") });
+  const traitOf = (perm: Permanent, controller: PlayerId) => ({ name: nameOf(state, perm), controller, deathtouch: kw(state, perm, "deathtouch"), lifelink: kw(state, perm, "lifelink"), infect: kw(state, perm, "infect") });
   const hit = (from: Permanent, fromOwner: PlayerId, to: Permanent) => {
     const quality = qualityOfDef(getCard(state, from.card.defId));
     if (isProtectedFrom(state, to, quality)) return say(`${nameOf(state, to)} has protection: the damage is prevented.`);
@@ -31,6 +31,9 @@ function fightOrBite({ state, ctx, events, say }: EffectRun, effect: EffectOf<"f
 export const DAMAGE_EFFECTS = {
   gainLife: changeLifeOf,
   loseLife: changeLifeOf,
+  poison({ state, ctx, events, value }, effect) {
+    for (const s of subjectsOf(state, effect.who, ctx)) if (s.k === "player") addPoison(state, s.id, value(effect.amount), events);
+  },
   fight: fightOrBite,
   bite: fightOrBite,
   damage({ state, ctx, events, trait, say, value, preventRegen }, effect) {

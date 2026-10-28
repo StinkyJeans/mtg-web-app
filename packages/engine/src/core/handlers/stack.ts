@@ -102,6 +102,11 @@ export const STACK_EFFECTS = {
   ifKicked({ ctx, nested }, effect) {
     nested(ctx.kicked ? effect.then : (effect.otherwise ?? []));
   },
+  ifNow({ state, ctx, nested }, effect) {
+    // A spell resolves in the phase it was cast in: the stack has to be empty for the game to move on.
+    const holds = effect.cond === "yourMainPhase" ? state.active === ctx.controller && (state.phase === "main1" || state.phase === "main2") : (state.players[ctx.controller].landsEnteredThisTurn ?? 0) > 0;
+    nested(holds ? effect.then : (effect.otherwise ?? []));
+  },
   ifLifeGained({ state, ctx, nested }, effect) {
     if ((state.players[ctx.controller].lifeGainedThisTurn ?? 0) >= effect.atLeast) nested(effect.then);
   },

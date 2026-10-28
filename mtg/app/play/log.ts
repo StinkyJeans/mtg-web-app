@@ -60,6 +60,9 @@ export function describeEvents(events: GameEvent[], state: GameState): string[] 
       case "lifeLost":
         lines.push(`${playerName(e.player)} loses ${e.amount} life.`);
         break;
+      case "poisoned":
+        lines.push(`${playerName(e.player)} gets ${e.amount} poison counter${e.amount === 1 ? "" : "s"} (${state.players[e.player].poison ?? 0} of 10).`);
+        break;
       case "effect":
         lines.push(e.text);
         break;
@@ -83,8 +86,9 @@ export function describeEvents(events: GameEvent[], state: GameState): string[] 
         );
         break;
       case "combatDamage": {
-        const target = e.target === "p1" || e.target === "p2" ? playerName(e.target) : nameOf(state, e.target);
-        lines.push(`${nameOf(state, e.source)} deals ${e.amount} to ${target}.`);
+        const toPlayer = e.target === "p1" || e.target === "p2";
+        const target = toPlayer ? playerName(e.target as PlayerId) : nameOf(state, e.target);
+        lines.push(`${nameOf(state, e.source)} deals ${e.amount} to ${target}${e.infect && !toPlayer ? " as -1/-1 counters" : ""}.`);
         break;
       }
       case "lifeGained":
@@ -114,6 +118,7 @@ export function endReason(events: GameEvent[], state: GameState): string | null 
   const won = events.find((e) => e.type === "gameWon");
   if (!won) return null;
   const loser = OPPONENT[won.player];
+  if ((state.players[loser].poison ?? 0) >= 10) return `${playerName(loser)} got ten poison counters.`;
   return state.players[loser].life <= 0 ? `${playerName(loser)} ran out of life.` : `${playerName(loser)} ran out of cards to draw.`;
 }
 

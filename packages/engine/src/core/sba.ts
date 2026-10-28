@@ -8,6 +8,8 @@ import { putIntoGraveyard, regenerateInstead } from "./zones.js";
 
 // State-based actions (rule 704).
 
+export const POISON_TO_LOSE = 10;
+
 /**
  * "Enchanted creature loses all abilities and is a black Skeleton creature with base power and toughness 1/1": while such an Aura is
  * on it, the creature is a card with just that (`<card>@becomes-skeleton`), and its own card again once the Aura is gone.
@@ -33,7 +35,7 @@ function applyHostBecomes(state: GameState): void {
   }
 }
 
-/** Rule 704.5: 0 life (or drawing from an empty library) loses; creatures with lethal damage or deathtouch die. */
+/** Rule 704.5: 0 life, ten poison counters or drawing from an empty library loses; creatures with lethal damage or deathtouch die. */
 export function checkStateBasedActions(state: GameState, events: GameEvent[]): void {
   // Rule 704.3: keep checking until nothing changes. A creature dying can shrink another one ("power and toughness equal to the
   // number of creatures you control") or leave an Aura without a host.
@@ -134,7 +136,7 @@ function stateBasedActionsOnce(state: GameState, events: GameEvent[]): void {
       source: { iid: perms[0].card.iid, name, defId: perms[0].card.defId },
     };
   }
-  const losers = Object.values(state.players).filter((p) => p.life <= 0 || p.drewFromEmpty);
+  const losers = Object.values(state.players).filter((p) => p.life <= 0 || (p.poison ?? 0) >= POISON_TO_LOSE || p.drewFromEmpty);
   if (losers.length === 2 && !state.winner) {
     // Rule 104.4a: if both players lose at the same time, the game is a draw.
     state.winner = "draw";

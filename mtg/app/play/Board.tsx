@@ -65,8 +65,9 @@ export function LandsDivider({ landsBelow, onMat }: { landsBelow: boolean; onMat
   );
 }
 
-const statusOf = (p: Permanent) =>
-  [p.tapped && "Tapped", p.summoningSick && "Summoning sick", p.damage > 0 && `${p.damage} damage`].filter(Boolean) as string[];
+// A land played this turn is summoning sick too, which only matters once it becomes a creature.
+const statusOf = (p: Permanent, creature: boolean) =>
+  [p.tapped && "Tapped", p.summoningSick && creature && "Summoning sick", p.damage > 0 && `${p.damage} damage`].filter(Boolean) as string[];
 
 /** One row of permanents (lands or creatures). */
 export function Lane({
@@ -137,11 +138,11 @@ export function Lane({
         def={def}
         size={attachment ? "sm" : size}
         tapped={p.tapped}
-        summoningSick={p.summoningSick}
+        summoningSick={p.summoningSick && creature}
         damage={p.damage}
         {...interaction(p)}
         {...(attachment ? { ring: "ring-2 ring-violet-400" } : {})}
-        onHover={() => onInspect(def, statusOf(p))}
+        onHover={() => onInspect(def, statusOf(p, creature))}
         onZoom={() => onZoom(def)}
       />
       </div>

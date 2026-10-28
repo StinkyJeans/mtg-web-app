@@ -152,6 +152,7 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
     .replace(/exile the top card of your library\. during any turn you attacked with ~, you may play that card/g, "@@exiletopplay@@")
     .replace(/you may have it connive\. do this only once each turn/g, "it connives") // the once-a-turn limit is read by the trigger
     .replace(/exile the top card of your library\. you may play that card until your next end step/g, "@@exiletopuntil@@")
+    .replace(/~ becomes an? (\d+\/\d+) ([a-z ]+?) artifact creature( with [a-z ,]+?)? until end of turn\. it's still a land/g, "@@animateland $1 $2$3@@")
     .replace(/exile the top card of your library\. until the end of your next turn, you may play that card/g, "@@exiletopnext@@")
     .replace(/each opponent exiles a card from their hand and may play that card for as long as it remains exiled\. each spell cast this way costs \{(\d+)\} more to cast\. each land played this way enters tapped/g, "@@exiletoplay $1@@")
     .replace(/you may tap any number of untapped creatures you control\. ~ gets \+1\/\+1 until end of turn for each creature tapped this way/g, "@@tapforbonus@@");
@@ -243,6 +244,15 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
         lastGroup = effects.length;
         effects.push({ type: "ifKicked", then });
       }
+      continue;
+    }
+    // "If you cast this spell during your main phase, ... instead." / "Landfall — If you had a land enter the battlefield under your control this turn, ... instead."
+    const nowIf = /^(?:landfall — )?if (you cast ~ during your main phase|you had a land enter the battlefield under your control this turn), (.+) instead$/.exec(sentence);
+    if (nowIf) {
+      const previous = effects.slice(lastGroup);
+      const then = parseClause(nowIf[2], ctx);
+      if (!then || previous.length === 0) return null;
+      effects.splice(lastGroup, previous.length, { type: "ifNow", cond: nowIf[1].startsWith("you cast") ? "yourMainPhase" : "landEntered", then, otherwise: previous });
       continue;
     }
     // "Put a +1/+1 counter on target creature. If that creature is another Hero, put two +1/+1 counters on it instead."

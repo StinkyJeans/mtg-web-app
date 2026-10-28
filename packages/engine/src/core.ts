@@ -34,6 +34,7 @@ export {
   toughnessOf,
 } from "./core/permanents.js";
 export {
+  addPoison,
   changeLife,
   counterStackItem,
   drawCards,

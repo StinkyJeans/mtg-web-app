@@ -24,7 +24,7 @@ import { isToken, putCounters } from "./zones.js";
 // Entering the battlefield and triggered abilities: which triggers fire, and putting them in the queue.
 
 /** Does an "intervening if" (and a spell-cast trigger's timing rules) hold right now? */
-function triggerCondHolds(state: GameState, controller: PlayerId, trigger: TriggeredAbility, extra?: { castCount?: number; byOpponent?: boolean; attackers?: string[] }, sourceIid?: string): boolean {
+function triggerCondHolds(state: GameState, controller: PlayerId, trigger: TriggeredAbility, extra?: { castCount?: number; byOpponent?: boolean; bySpell?: boolean; attackers?: string[] }, sourceIid?: string): boolean {
   const p = state.players[controller];
   const c = trigger.cond;
   if (c?.opponentLostLife && (state.players[OPPONENT[controller]].lifeLostThisTurn ?? 0) === 0) return false;
@@ -49,6 +49,7 @@ function triggerCondHolds(state: GameState, controller: PlayerId, trigger: Trigg
   if (trigger.opponentTurnOnly && state.active === controller) return false;
   if (trigger.firstOnly && (extra?.castCount ?? 1) !== 1) return false;
   if (trigger.byOpponent && !extra?.byOpponent) return false;
+  if (trigger.bySpell && !extra?.bySpell) return false;
   if (c?.attackPowerAtLeast !== undefined && (extra?.attackers ?? []).reduce((n, iid) => n + Math.max(0, (() => { const p = findPermanentOrNull(state, iid)?.perm; return p ? powerOf(state, p) : 0; })()), 0) < c.attackPowerAtLeast) return false;
   const typesOf = (iid: string): string[] => {
     const perm = findPermanentOrNull(state, iid)?.perm;
@@ -142,7 +143,7 @@ function claimOncePerTurn(perm: Permanent | undefined, n: number): boolean {
  * Queues the card's triggered abilities for `event`. They go on the stack when the game next settles.
  * `subtypes`: the creature types of what the event is about (a creature spell cast, a creature that died or got counters); `self`: it is this card.
  */
-export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { firstTap?: boolean; targetsOwnCreature?: boolean; targetsCreature?: boolean; spellColors?: string[]; spellSubtypes?: string[]; castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown; count?: number; token?: boolean }): void {
+export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { firstTap?: boolean; targetsOwnCreature?: boolean; targetsCreature?: boolean; spellColors?: string[]; spellSubtypes?: string[]; castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; bySpell?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown; count?: number; token?: boolean }): void {
   const def = getCard(state, card.defId);
   const triggers = parseCard(def).triggers;
   for (let n = 0; n < triggers.length; n++) {
@@ -302,6 +303,7 @@ function askCreatureType(state: GameState, perm: Permanent, controller: PlayerId
 
 /** Landfall: a land entered under `player`'s control, so their permanents with "whenever a land you control enters" trigger. */
 export function landEntered(state: GameState, player: PlayerId): void {
+  state.players[player].landsEnteredThisTurn = (state.players[player].landsEnteredThisTurn ?? 0) + 1;
   for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "landfall");
 }
 
@@ -317,7 +319,7 @@ export function queueWard(state: GameState, item: StackItem): void {
     if (found) queueTriggers(state, found.perm.card, found.owner.id, "becomesTarget", { byOpponent: item.controller !== found.owner.id });
     // "Whenever a creature you control becomes the target of a spell or ability an opponent controls, ...": every permanent of its controller.
     if (found && isCreature(state, found.perm)) {
-      for (const p of state.players[found.owner.id].battlefield) queueTriggers(state, p.card, found.owner.id, "allyTargeted", { byOpponent: item.controller !== found.owner.id, other: found.perm.card.iid });
+      for (const p of state.players[found.owner.id].battlefield) queueTriggers(state, p.card, found.owner.id, "allyTargeted", { byOpponent: item.controller !== found.owner.id, bySpell: item.kind === "spell", other: found.perm.card.iid });
     }
     const parsed = found ? parseCard(getCard(state, found.perm.card.defId)) : undefined;
     const ward = found ? (parsed?.ward ?? staticEffectsOn(state, found.perm).find((st) => st.ward)?.ward) : undefined;

@@ -19,6 +19,7 @@ export const SUPPORTED_KEYWORDS = [
   "prowess",
   "fear",
   "intimidate",
+  "infect",
 ] as const;
 
 export type Keyword = (typeof SUPPORTED_KEYWORDS)[number];
@@ -44,6 +45,7 @@ export const KEYWORD_RULES: Record<Keyword, string> = {
   prowess: "Whenever you cast a noncreature spell, this gets +1/+1 until end of turn.",
   fear: "Can't be blocked except by artifact creatures and/or black creatures.",
   intimidate: "Can't be blocked except by artifact creatures and/or creatures that share a color with it.",
+  infect: "Deals damage to creatures in the form of -1/-1 counters and to players in the form of poison counters. A player with ten or more poison counters loses the game.",
 };
 
 export const hasKeyword = (def: CardDef, keyword: Keyword): boolean =>
@@ -55,7 +57,7 @@ const LABELS = new Set([
   "treasure", "battalion", "pack tactics", "double", "food", "investigate", "equip", "landcycling", "typecycling", "basic landcycling", "airbend", "connive", "power-up", "plainscycling", "islandcycling", "swampcycling", "mountaincycling", "forestcycling", "kicker", "flashback", "protection", "landfall", "ward", "crew",
   "heal", "fight", "swampwalk", "islandwalk", "forestwalk", "mountainwalk", "plainswalk",
   "eerie", "prepared", "raid",
-  "explore", "solved", "infusion", "warp", "blight", "offspring",
+  "explore", "solved", "infusion", "warp", "blight", "offspring", "toxic", "exalted",
   // Marvel Super Heroes: "teamwork" is read by the card reader; the rest are names in front of an ability ("Radar Sense — ...")
   "teamwork", "transform", "enrage", "avian telepathy", "radar sense", "sonic attack", "unbreakable skin", "embiggen fist", "wasp's sting", "street justice", "legal justice",
   "trick arrows", "net", "explosive", "boomerang", "intangibility", "cosmic awareness", "photographic reflexes", "cybernetic senses", "mental organism",

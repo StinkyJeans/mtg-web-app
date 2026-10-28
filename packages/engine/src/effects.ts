@@ -111,7 +111,10 @@ export type Effect =
   | { type: "yardCastable" } // creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn
   | { type: "solve" } // a Case becomes solved
   | { type: "airbend"; what: Ref } // exile it; its owner may cast it for {2} (rather than its mana cost) for as long as it stays exiled
-  | { type: "becomeCreatureNow"; what: Ref } // until end of turn it is a creature (an artifact becomes an artifact creature)
+  | { type: "becomeCreatureNow"; what: Ref; subtypes?: string[] } // until end of turn it is an artifact creature (of these creature types)
+  | { type: "untargetable"; what: Ref } // "can't be the target of spells or abilities your opponents control this turn"
+  | { type: "ifNow"; cond: "yourMainPhase" | "landEntered"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead"
+  | { type: "poison"; who: Ref; amount: Amount } // "each opponent gets a poison counter"
   | { type: "powerFromHand" } // until end of turn: this creature's base power is the number of cards in your hand
   | { type: "mayCost"; cost: "artifactOrCard" | "artifactOrNonland" | "otherCreature"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may sacrifice an artifact or discard a card. If you do, ..."
   | { type: "ifYardCreatures"; n: number; then: Effect[]; otherwise?: Effect[] } // "...if there are two or more creature cards in your graveyard. Otherwise, mill two cards."
@@ -206,7 +209,7 @@ export interface TargetSpec {
    */
   kind: "creature" | "player" | "any" | "spell" | "permanent" | "graveyardSpell" | "land" | "artifact" | "artifactOrLand" | "enchantment" | "artifactOrEnchantment" | "graveyardCreature" | "graveyardPermanent" | "graveyardCard" | "planeswalker" | "creatureOrPlaneswalker" | "playerOrPlaneswalker";
   /** "with power 4 or greater" / "with power 2 or less". */
-  power?: { n: number; op: "min" | "max" };
+  power?: { n: number; op: "min" | "max" | "eq" };
   /** "nonartifact": not an artifact. */
   notArtifact?: boolean;
   /** "with flying" / "without flying". */
@@ -251,7 +254,7 @@ export interface TargetSpec {
   creatureWith?: Keyword;
   /** "Exile up to one target Equipment attached to that creature": it must be attached to the permanent chosen for this target. */
   attachedToTarget?: number;
-  toughness?: { n: number; op: "min" | "max" };
+  toughness?: { n: number; op: "min" | "max" | "eq" };
   /** "target noncreature artifact": an artifact that is not also a creature. */
   noncreature?: boolean;
   /** The mana value or power limit above is waived when the spell was kicked ("...mana value 3 or less. If this spell was cast using teamwork, instead exile target creature"). */
@@ -404,6 +407,8 @@ export interface TriggeredAbility {
   subtypes?: string[];
   /** "...becomes the target of a spell or ability an opponent controls". */
   byOpponent?: boolean;
+  /** "...becomes the target of a spell" (not an ability). */
+  bySpell?: boolean;
   /** "Whenever another Villain and/or artifact you control enters": an artifact counts as well as the types in `subtypes`. */
   orArtifact?: boolean;
   /** "Whenever you cast a spell that targets a creature you control" / "...one or more creatures". */
@@ -511,6 +516,8 @@ export interface ParsedCard {
   /** "Ward {2}": whoever targets this with a spell or ability pays this or it is countered. "Ward—Pay 3 life": `wardLife`, with an empty `ward`. */
   ward?: string;
   wardLife?: number;
+  /** "Toxic 2": a player this deals combat damage to also gets that many poison counters. */
+  toxic?: number;
   /** "Protection from red": colors, and whether it is also protected from artifacts. */
   protection?: { colors: string[]; artifacts: boolean };
   /** "Flashback {2}{R}": the cost to cast this from the graveyard. */
@@ -566,7 +573,7 @@ export interface ParsedCard {
   /** "Can't be blocked except by walls and/or creatures with flying": only these can block it. */
   blockedOnlyBy?: { subtypes: string[]; keywords: Keyword[]; colors: string[]; artifact: boolean };
   /** "This land enters tapped unless ...": the conditions under which it enters untapped. */
-  entersTappedUnless?: { basics?: number; otherLands?: number; fewerOtherLands?: number; planeswalker?: boolean; lifeAtMost?: number; opponentLands?: number; never?: boolean };
+  entersTappedUnless?: { basics?: number; otherLands?: number; fewerOtherLands?: number; planeswalker?: boolean; lifeAtMost?: number; opponentLands?: number; never?: boolean; /** "unless you control a Forest or an Island" */ landTypes?: string[] };
   /** "Can't be blocked by creatures with power 2 or less / 4 or greater." */
   cantBeBlockedByPower?: { n: number; op: "max" | "min" };
   /** "This creature can't attack unless defending player controls an Island." */

@@ -87,7 +87,9 @@ export const MARVEL_EFFECTS = {
     for (const s of subjectsOf(state, effect.what, ctx)) {
       if (s.k !== "perm") continue;
       s.perm.crewed = true; // a creature until end of turn (it stops at the cleanup, like a crewed Vehicle)
-      say(`${nameOf(state, s.perm)} is a creature until end of turn.`);
+      if (effect.subtypes) s.perm.tempSubtypes = effect.subtypes;
+      const types = effect.subtypes ? `${effect.subtypes.map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(" ")} artifact creature` : "creature";
+      say(`${nameOf(state, s.perm)} is ${effect.subtypes ? `a ${types}` : "a creature"} until end of turn.`);
     }
   },
   powerFromHand({ state, ctx, say }) {

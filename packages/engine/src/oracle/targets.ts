@@ -37,6 +37,12 @@ export function targetSpec(phrase: string): TargetSpec | null {
     const f = { n: Number(stat[2]), op: stat[3] === "less" ? ("max" as const) : ("min" as const) };
     return { ...inner, ...(stat[1] === "power" ? { power: f } : stat[1] === "toughness" ? { toughness: f } : { mv: f }), label: phrase };
   }
+  // "target 1/1 creature"
+  const exactPT = /^target (\d+)\/(\d+) creature(.*)$/.exec(phrase);
+  if (exactPT) {
+    const inner = targetSpecBase(`target creature${exactPT[3]}`);
+    return inner ? { ...inner, power: { n: Number(exactPT[1]), op: "eq" }, toughness: { n: Number(exactPT[2]), op: "eq" }, label: phrase } : null;
+  }
   const exactMV = / with mana value (\d+)$/.exec(phrase);
   if (exactMV) {
     const inner = targetSpecBase(phrase.slice(0, exactMV.index));

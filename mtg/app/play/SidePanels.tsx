@@ -98,6 +98,11 @@ export function PlayersPanel({
                 ❤️
               </span>
               <LifeTotal id={id} value={p.life} />
+              {(p.poison ?? 0) > 0 && (
+                <span data-poison={id} title="Poison counters: a player with ten or more loses the game" className={`rounded px-1.5 py-0.5 text-sm font-bold tabular-nums ${(p.poison ?? 0) >= 7 ? "bg-lime-200 text-lime-900" : "bg-lime-100 text-lime-800"}`}>
+                  ☠️ {p.poison}/10
+                </span>
+              )}
               <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5 text-xs text-zinc-700">
                 {colors.length === 0 && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-500">No mana</span>}
                 {colors.map((c) => (

@@ -39,6 +39,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (spec.source && isProtectedFrom(state, found.perm, spec.source)) return false;
       // Hexproof: only its controller can target it (unless the targeting player has Nowhere to Run).
       if (found.owner.id !== controller && kw(state, found.perm, "hexproof") && !ignoresHexproof(state, controller)) return false;
+      if (found.perm.untargetableBy?.includes(controller)) return false; // "can't be the target of spells or abilities your opponents control this turn"
       if (spec.except && spec.except === choice.iid) return false; // "another target creature"
       if (spec.crewOf && !findPermanentOrNull(state, spec.crewOf)?.perm.crewedBy?.includes(choice.iid)) return false;
       if (spec.subtype && !subtypesOf(state, found.perm).includes(spec.subtype)) return false;
@@ -49,7 +50,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
         // "enchant permanent", or "target nonland permanent an opponent controls", or "target creature or enchantment"
         if (spec.nonland && def.type === "land") return false;
         const creatureFits = () => (def.type === "creature" || found.perm.crewed === true) && (!spec.creatureWith || kw(state, found.perm, spec.creatureWith)); // "or creature with flying"
-        const fits = (t: string) => (t === "creature" ? creatureFits() : t === "artifact" ? isArtifactDef(def) : t === "enchantment" ? isEnchantmentDef(def) : t === "vehicle" ? defSubtypes(def).includes("vehicle") : def.type === t);
+        const fits = (t: string) => (t === "creature" ? creatureFits() : t === "artifact" ? isArtifactDef(def) || found.perm.crewed === true : t === "enchantment" ? isEnchantmentDef(def) : t === "vehicle" ? defSubtypes(def).includes("vehicle") : def.type === t);
         if (spec.types && !spec.types.some(fits)) return false;
         if (spec.controller === "you" && found.owner.id !== controller) return false;
         if (spec.controller === "opponent" && found.owner.id === controller) return false;
@@ -62,15 +63,15 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (walker) return (spec.kind === "any" || spec.kind === "creatureOrPlaneswalker") && !(spec.controller === "you" && found.owner.id !== controller) && !(spec.controller === "opponent" && found.owner.id === controller);
       if (spec.kind === "enchantment") return isEnchantmentDef(def);
       if (spec.kind === "artifactOrEnchantment") return (isArtifactDef(def) || isEnchantmentDef(def)) && !(spec.noncreature && def.type === "creature");
-      if (spec.kind === "artifact") return isArtifactDef(def) && !(spec.noncreature && def.type === "creature");
+      if (spec.kind === "artifact") return (isArtifactDef(def) || found.perm.crewed === true) && !(spec.noncreature && (def.type === "creature" || found.perm.crewed === true));
       if (spec.kind === "artifactOrLand") return def.type === "land" || isArtifactDef(def);
       if (spec.kind !== "creature" && spec.kind !== "any" && spec.kind !== "creatureOrPlaneswalker") return false;
       if (def.type !== "creature" && !found.perm.crewed) return false;
       if (spec.controller === "you" && found.owner.id !== controller) return false;
       if (spec.controller === "opponent" && found.owner.id === controller) return false;
-      if (spec.toughness && (spec.toughness.op === "min" ? toughnessOf(state, found.perm) < spec.toughness.n : toughnessOf(state, found.perm) > spec.toughness.n)) return false;
+      if (spec.toughness && !statFits(spec.toughness, toughnessOf(state, found.perm))) return false;
       if (spec.notArtifact && isArtifactDef(def)) return false;
-      if (spec.power && (spec.power.op === "min" ? powerOf(state, found.perm) < spec.power.n : powerOf(state, found.perm) > spec.power.n)) return false;
+      if (spec.power && !statFits(spec.power, powerOf(state, found.perm))) return false;
       if (spec.keyword && kw(state, found.perm, spec.keyword.name) !== spec.keyword.has) return false;
       if (spec.filter && spec.filter !== "tapped") {
         const attacking = state.combat?.attackers.some((a) => a.attacker === choice.iid) ?? false;
@@ -116,8 +117,12 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
 
 /** "With mana value 2 or less / 2 or greater / 2". */
 function mvFits(spec: TargetSpec, mv: number): boolean {
-  if (!spec.mv) return true;
-  return spec.mv.op === "min" ? mv >= spec.mv.n : spec.mv.op === "max" ? mv <= spec.mv.n : mv === spec.mv.n;
+  return spec.mv ? statFits(spec.mv, mv) : true;
+}
+
+/** "Power 2 or less", "toughness 4 or greater", a 1/1 creature (exactly 1). */
+function statFits(f: { n: number; op: "min" | "max" | "eq" }, value: number): boolean {
+  return f.op === "min" ? value >= f.n : f.op === "max" ? value <= f.n : value === f.n;
 }
 
 /** Everything that could be chosen for `spec`. */

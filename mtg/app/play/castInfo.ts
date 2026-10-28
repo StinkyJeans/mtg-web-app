@@ -1,4 +1,4 @@
-import { castCostOf, manaSourcesToConfirm, parseCard, parseManaCost, payMana } from "@mtg/engine";
+import { castCostOf, manaSourcesToConfirm, parseCard, parseManaCost, payForAbility, payMana } from "@mtg/engine";
 import type { Action, CardDef, Castable, GameState, PlayerId } from "@mtg/engine";
 
 /** A spell being cast step by step: teamwork, modes, then the kicker, then X, then an additional cost, then targets. */
@@ -21,6 +21,7 @@ export interface CastPlan {
 export function paymentOf(state: GameState, action: Action, who: PlayerId, spare: string[]): { ok: boolean; life: number; ask: string[] } {
   const me = state.players[who];
   let cost: ReturnType<typeof parseManaCost> = null;
+  let ability: { def: CardDef; iid?: string } | null = null; // a permanent's ability: paid like the engine pays it
   if (action.type === "castSpell" || action.type === "castCreature") {
     const fromYard = action.type === "castSpell" && action.from === "graveyard";
     const prepared = action.type === "castSpell" && action.from === "prepared" ? me.battlefield.find((p) => p.card.iid === action.iid)?.prepared : undefined;
@@ -29,12 +30,13 @@ export function paymentOf(state: GameState, action: Action, who: PlayerId, spare
     cost = def ? (fromYard ? parseManaCost(parseCard(def).flashback ?? "") : castCostOf(state, who, def, action.type === "castSpell" ? action.targets : undefined)) : null;
   } else if (action.type === "activateAbility") {
     const source = [...me.battlefield.map((p) => p.card), ...me.hand, ...me.graveyard].find((c) => c.iid === action.iid);
-    const ability = source ? parseCard(state.cards[source.defId]).activated[action.index] : undefined;
-    cost = ability?.mana ? parseManaCost(ability.mana) : null;
+    const used = source ? parseCard(state.cards[source.defId]).activated[action.index] : undefined;
+    cost = used?.mana ? parseManaCost(used.mana) : null;
+    if (source) ability = { def: state.cards[source.defId], ...(me.battlefield.some((p) => p.card.iid === source.iid) ? { iid: source.iid } : {}) };
   }
   if (!cost) return { ok: true, life: 0, ask: [] };
   const held = spare.length > 0 ? { ...state, players: { ...state.players, [who]: { ...me, spareMana: spare } } } : state;
-  const paid = payMana(held, who, cost);
+  const paid = ability ? payForAbility(held, who, cost, ability.def, ability.iid) : payMana(held, who, cost);
   return paid.ok ? { ok: true, life: paid.life, ask: manaSourcesToConfirm(state, who, paid.tap) } : { ok: false, life: 0, ask: [] };
 }
 

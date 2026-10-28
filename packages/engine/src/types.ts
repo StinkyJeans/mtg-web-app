@@ -168,6 +168,10 @@ export interface Permanent {
   lore?: number;
   /** Plan counters (Marvel's Plan enchantments). */
   planCounters?: number;
+  /** Until end of turn: creature types it has in addition to its own ("becomes a 1/1 Phyrexian Blinkmoth artifact creature"). */
+  tempSubtypes?: string[];
+  /** This turn: players whose spells and abilities can't target it ("can't be the target of spells or abilities your opponents control this turn"). */
+  untargetableBy?: PlayerId[];
 }
 
 export interface PlayerState {
@@ -205,6 +209,10 @@ export interface PlayerState {
   freeNext?: { colors: string[] };
   /** Tried to draw from an empty library: loses the game when state-based actions are next checked. */
   drewFromEmpty?: boolean;
+  /** Poison counters: ten or more and the player loses the game (rule 704.5c). */
+  poison?: number;
+  /** Lands that entered under this player's control this turn ("if you had a land enter the battlefield under your control this turn"). */
+  landsEnteredThisTurn?: number;
 }
 
 export interface GameState {

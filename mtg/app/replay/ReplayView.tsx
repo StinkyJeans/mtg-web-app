@@ -175,6 +175,7 @@ const Side = memo(function Side({ g, who, name, onZoom }: { g: GameState; who: P
         <span className={`rounded-full px-3 py-0.5 font-bold ${who === "p1" ? "bg-sky-500/25 text-sky-100" : "bg-rose-500/25 text-rose-100"}`}>{name}</span>
         {active && <span className="chip chip-ok">{g.phase}</span>}
         <span className="font-bold text-rose-200">♥ {p.life}</span>
+        {(p.poison ?? 0) > 0 && <span className="font-bold text-lime-200">☠ {p.poison}/10</span>}
         <span className="text-slate-300">Library {p.library.length}</span>
         <span className="text-slate-300">Graveyard {p.graveyard.length}</span>
         {p.exile.length > 0 && <span className="text-slate-300">Exile {p.exile.length}</span>}

@@ -31,6 +31,7 @@ export function entersTappedNow(state: GameState, controller: PlayerId, def: Car
     (unless.fewerOtherLands !== undefined && mine.length <= unless.fewerOtherLands) ||
     (unless.planeswalker === true && state.players[controller].battlefield.some((p) => getCard(state, p.card.defId).type === "planeswalker")) ||
     (unless.lifeAtMost !== undefined && Object.values(state.players).some((p) => p.life <= unless.lifeAtMost!)) ||
+    (unless.landTypes !== undefined && mine.some((p) => unless.landTypes!.some((t) => defSubtypes(getCard(state, p.card.defId)).includes(t)))) ||
     (unless.opponentLands !== undefined && foe.battlefield.filter((p) => getCard(state, p.card.defId).type === "land").length >= unless.opponentLands);
   return !untapped;
 }
@@ -93,7 +94,8 @@ export function subtypesOf(s: GameState, p: Permanent): string[] {
   // A prepare card is its creature face on the battlefield: the spell's type line after " // " isn't part of it.
   // "~ becomes a Werewolf" replaces its creature types (unless an Aura has since made it something else).
   const override = p.card.defId.includes("@becomes-") ? undefined : p.subtypesOverride;
-  const printed = override ?? defSubtypes(getCard(s, p.card.defId));
+  const own = override ?? defSubtypes(getCard(s, p.card.defId));
+  const printed = p.tempSubtypes ? [...own, ...p.tempSubtypes] : own;
   const added = Object.values(s.players).flatMap((owner) =>
     owner.battlefield.filter((aura) => aura.attachedTo === p.card.iid).flatMap((aura) => (parseCard(getCard(s, aura.card.defId)).statics ?? []).flatMap((st) => (st.scope === "enchanted" ? (st.addSubtypes ?? []) : []))),
   );

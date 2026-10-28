@@ -1,4 +1,5 @@
 import { getCard } from "../../cards.js";
+import { OPPONENT } from "../../types.js";
 import type { Permanent, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isCreature, nameOf, playerLabel, powerOf, subtypesOf } from "../permanents.js";
 import { makeTokenCopy, putCounters, tapPerm } from "../zones.js";
@@ -202,6 +203,15 @@ export const PERMANENT_EFFECTS = {
       ordered: [],
       toggleIid: ctx.sourceId,
     });
+  },
+  untargetable({ state, ctx, say }, effect) {
+    const opponent = OPPONENT[ctx.controller];
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      noteTempSource(s.perm, ctx);
+      s.perm.untargetableBy = [...new Set([...(s.perm.untargetableBy ?? []), opponent])];
+      say(`${nameOf(state, s.perm)} can't be the target of spells or abilities ${playerLabel(opponent)} controls this turn.`);
+    }
   },
   grant({ state, ctx, say }, effect) {
     for (const s of subjectsOf(state, effect.what, ctx)) {

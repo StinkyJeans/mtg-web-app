@@ -67,6 +67,7 @@ export function readEntersTappedUnless(line: string, out: ParsedCard): boolean {
     else if ((m2 = /^a player has (\d+) or less life$/.exec(cond))) out.entersTappedUnless = { lifeAtMost: Number(m2[1]) };
     else if ((m2 = /^your opponents control (two|three|four|five|six|seven|eight|nine|ten|\d+) or more lands$/.exec(cond))) out.entersTappedUnless = { opponentLands: n(m2[1]) };
     else if (cond === "you have two or more opponents") out.entersTappedUnless = { never: true }; // never true in a two-player game
+    else if ((m2 = /^you control an? (plains|island|swamp|mountain|forest)(?: or an? (plains|island|swamp|mountain|forest))?$/.exec(cond))) out.entersTappedUnless = { landTypes: [m2[1], m2[2]].filter(Boolean) };
     else out.unsupported.push(line);
     return true;
   }
