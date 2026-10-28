@@ -1,6 +1,7 @@
 import type { GameEvent, GameState, TargetChoice } from "@mtg/engine";
 import { targetName } from "./cardText";
 import { nameOf, playerName } from "./log";
+import { outcomeLine } from "./outcomeText";
 
 /** One step of a chain of spells and abilities: something put on the stack, or how it left it. */
 export interface ChainStep {
@@ -21,8 +22,11 @@ export function chainSteps(events: GameEvent[], before: GameState, after: GameSt
         return [{ tone: "cast", text: `${playerName(e.player)} used ${e.name}${aimed(e.targets)}` }];
       case "countered":
         return [{ tone: "countered", text: `${playerName(e.controller)}'s ${e.name} was countered${e.by ? ` by ${e.by}` : ""}` }];
-      case "resolved":
-        return [e.fizzled ? { tone: "fizzled", text: `${playerName(e.controller)}'s ${e.name} did nothing: ${e.fizzled}` } : { tone: "resolved", text: `${playerName(e.controller)}'s ${e.name} resolved` }];
+      case "resolved": {
+        if (e.fizzled) return [{ tone: "fizzled", text: `${playerName(e.controller)}'s ${e.name} did nothing: ${e.fizzled}` }];
+        const did = (e.did ?? []).filter((o) => !(o.k === "entered" && o.iid === e.iid)).map(outcomeLine);
+        return [{ tone: "resolved", text: `${playerName(e.controller)}'s ${e.name} resolved${did.length > 0 ? `: ${did.join("; ")}` : ""}` }];
+      }
       default:
         return [];
     }

@@ -1,5 +1,5 @@
 import { castCostOf, manaSourcesToConfirm, parseCard, parseManaCost, payForAbility, payMana, withDelve, withPhyrexianLife } from "@mtg/engine";
-import type { Action, CardDef, Castable, GameState, ManaCost, PlayerId } from "@mtg/engine";
+import type { Action, CardDef, Castable, GameState, ManaColor, ManaCost, PlayerId } from "@mtg/engine";
 
 /** A spell being cast step by step: teamwork, modes, then the kicker, then X, then delve, then an additional cost, then targets. */
 export interface CastPlan {
@@ -37,16 +37,19 @@ function costOf(state: GameState, action: Action, who: PlayerId): { cost: ManaCo
   return { cost: used?.mana ? parseManaCost(used.mana) : null, ability };
 }
 
-/** What paying for this action involves: the life it costs (Phyrexian mana with no mana to match, or paid with life by choice) and the creatures it would tap for mana. */
-export function paymentOf(state: GameState, action: Action, who: PlayerId, spare: string[]): { ok: boolean; life: number; ask: string[] } {
+/**
+ * What paying for this action involves: the life it costs (Phyrexian mana with no mana to match, or paid with life by choice), the
+ * creatures it would tap for mana, and which permanent would make which mana.
+ */
+export function paymentOf(state: GameState, action: Action, who: PlayerId, spare: string[]): { ok: boolean; life: number; ask: string[]; made: { iid: string; color: ManaColor }[] } {
   const { cost, ability } = costOf(state, action, who);
-  if (!cost) return { ok: true, life: 0, ask: [] };
+  if (!cost) return { ok: true, life: 0, ask: [], made: [] };
   const chosen = withPhyrexianLife(cost, action.type === "castSpell" || action.type === "activateAbility" ? (action.phyrexianLife ?? 0) : 0);
-  if (!chosen) return { ok: false, life: 0, ask: [] };
+  if (!chosen) return { ok: false, life: 0, ask: [], made: [] };
   const me = state.players[who];
   const held = spare.length > 0 ? { ...state, players: { ...state.players, [who]: { ...me, spareMana: spare } } } : state;
   const paid = ability ? payForAbility(held, who, chosen, ability.def, ability.iid) : payMana(held, who, chosen);
-  return paid.ok ? { ok: true, life: paid.life, ask: manaSourcesToConfirm(state, who, paid.tap) } : { ok: false, life: 0, ask: [] };
+  return paid.ok ? { ok: true, life: paid.life, ask: manaSourcesToConfirm(state, who, paid.tap), made: paid.made } : { ok: false, life: 0, ask: [], made: [] };
 }
 
 /**

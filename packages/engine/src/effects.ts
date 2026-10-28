@@ -689,6 +689,8 @@ export type StackItem =
       x?: number;
       /** A "when this dies" ability: the creature as it last was. */
       died?: LastKnown;
+      /** A triggered ability (not one a player activated). */
+      trigger?: true;
     };
 
 /** An open round of priority: `holder` may respond or pass. When both pass in a row, the top item resolves. */

@@ -4,7 +4,7 @@ import { changeLife, findPermanentOrNull, isLegalTarget, isPermanentCard, isToke
 import type { TargetChoice, TargetSpec } from "../effects.js";
 import { hasKeyword } from "../keywords.js";
 import { manaAbilitySacrifices, manaCostOf, parseManaCost } from "../mana.js";
-import type { ManaCost } from "../mana.js";
+import type { ManaColor, ManaCost } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import type { CardDef, GameState, PlayerId } from "../types.js";
 
@@ -70,7 +70,11 @@ const tapPermanents = (state: GameState, player: PlayerId, iids: string[]) => {
 };
 
 /** Pays a cost worked out by payMana: taps (or sacrifices) the sources and pays any life for Phyrexian mana. */
-export function applyPayment(state: GameState, player: PlayerId, paid: { tap: string[]; life: number }, events: GameEvent[]): void {
+export function applyPayment(state: GameState, player: PlayerId, paid: { tap: string[]; life: number; made: { iid: string; color: ManaColor }[] }, events: GameEvent[]): void {
+  if (paid.made.length > 0) {
+    const nameOf = (iid: string) => getCard(state, state.players[player].battlefield.find((p) => p.card.iid === iid)?.card.defId ?? "").name;
+    events.push({ type: "manaPaid", player, made: paid.made.map((m) => ({ ...m, name: nameOf(m.iid) })) });
+  }
   tapPermanents(state, player, paid.tap);
   if (paid.life > 0) changeLife(state, player, -paid.life, events);
 }

@@ -6,6 +6,41 @@ import { cardImageUrl } from "@/lib/cards";
 import { animationsEnabled } from "@/lib/motion";
 import { playerName } from "./log";
 import type { Announcement } from "./log";
+import { ManaText } from "./ManaSymbols";
+
+const RESULT_LOOK: Record<NonNullable<Announcement["done"]>, { mark: string; className: string }> = {
+  resolved: { mark: "✓", className: "text-emerald-800" },
+  fizzled: { mark: "⦸", className: "text-amber-700" },
+  countered: { mark: "✗", className: "text-orange-700" },
+};
+
+/** What was paid and said when it was cast, then what it did once it left the stack (each change on its own line). */
+export function PlayLines({ a, size = "text-[15px]" }: { a: Announcement; size?: string }) {
+  const look = RESULT_LOOK[a.done ?? "resolved"];
+  return (
+    <>
+      {a.lines.length > 0 && (
+        <ul className={`mt-1 list-disc pl-5 ${size} leading-snug text-zinc-700`}>
+          {a.lines.map((l, i) => (
+            <li key={i}>
+              <ManaText text={l} />
+            </li>
+          ))}
+        </ul>
+      )}
+      {a.done && (a.result ?? []).length > 0 && (
+        <ul className={`mt-1 flex flex-col gap-0.5 ${size} font-medium leading-snug ${look.className}`}>
+          {a.result!.map((l, i) => (
+            <li key={i}>
+              <span aria-hidden className="mr-1">{look.mark}</span>
+              {l}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
 
 /** "Welcome to the Battle Field, Now Duel!" over the board when a match begins, for the players. It doesn't block clicks. */
 export function WelcomeSplash() {
@@ -54,16 +89,10 @@ export function PlayedThisTurn({ items, state, onZoom }: { items: Announcement[]
               <div className="min-w-0 flex-1 text-[15px] leading-snug">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`rounded px-1.5 text-xs font-bold uppercase font-display ${a.player === "p1" ? "bg-sky-100 text-sky-800" : "bg-rose-100 text-rose-800"}`}>{playerName(a.player)}</span>
-                  <span className="font-semibold">{a.title.replace(`${playerName(a.player)} `, "")}</span>
-                  <span className="text-sm text-zinc-600">{a.kind === "spell" ? "spell" : "ability"}</span>
+                  <span className="font-semibold">{a.title.replace(`${playerName(a.player)}'s `, "").replace(`${playerName(a.player)} `, "")}</span>
+                  <span className="text-sm text-zinc-600">{a.kind === "trigger" ? "triggered ability" : a.kind}</span>
                 </div>
-                {a.lines.length > 0 && (
-                  <ul className="mt-1 list-disc pl-5 text-[15px] leading-snug text-zinc-800">
-                    {a.lines.map((l, i) => (
-                      <li key={i}>{l}</li>
-                    ))}
-                  </ul>
-                )}
+                <PlayLines a={a} />
               </div>
             </li>
           );

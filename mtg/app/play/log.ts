@@ -1,12 +1,9 @@
 import { OPPONENT } from "@mtg/engine";
-import type { GameEvent, GameState, PlayerId } from "@mtg/engine";
+import type { GameEvent, GameState, Outcome, PlayerId } from "@mtg/engine";
+import { outcomeLine, paymentLine } from "./outcomeText";
+import { playerName, setPlayerNames } from "./players";
 
-let names: Record<PlayerId, string> = { p1: "Player 1", p2: "Player 2" };
-/** Online, players are shown by their account names; with nothing given it is "Player 1" and "Player 2" again. */
-export const setPlayerNames = (given?: Partial<Record<PlayerId, string>>) => {
-  names = { p1: given?.p1 || "Player 1", p2: given?.p2 || "Player 2" };
-};
-export const playerName = (p: PlayerId) => names[p];
+export { playerName, setPlayerNames };
 
 /** A card's name wherever it is, the stack included. */
 export function nameOf(state: GameState, iid: string): string {
@@ -19,6 +16,9 @@ export function nameOf(state: GameState, iid: string): string {
   }
   return iid;
 }
+
+// What a resolution did that its own events already put in the log (damage, life, poison, cards drawn, creatures arriving).
+const LOGGED_ELSEWHERE = new Set<Outcome["k"]>(["damaged", "life", "poison", "drew", "entered"]);
 
 /** Turn engine events into log lines. `state` is the state AFTER the events. */
 export function describeEvents(events: GameEvent[], state: GameState): string[] {
@@ -74,7 +74,12 @@ export function describeEvents(events: GameEvent[], state: GameState): string[] 
         break;
       case "resolved":
         if (e.fizzled) lines.push(`${playerName(e.controller)}'s ${e.name} does nothing (it fizzles): ${e.fizzled}.`);
+        else if (e.trigger) lines.push(`${playerName(e.controller)}'s ${e.name.replace(/'s ability$/, "")} triggered.`);
         else if (!e.ability) lines.push(`${playerName(e.controller)}'s ${e.name} resolves.`);
+        lines.push(...(e.did ?? []).filter((o) => !LOGGED_ELSEWHERE.has(o.k) && !(o.k === "left" && o.to === "graveyard")).map((o) => `${outcomeLine(o)}.`));
+        break;
+      case "manaPaid":
+        lines.push(`${playerName(e.player)} ${paymentLine(e).replace(/^Paid/, "paid")}.`);
         break;
       case "turnStarted":
         lines.push(`— Turn ${e.turn}: ${playerName(e.player)} —`);
@@ -134,22 +139,23 @@ export interface Announcement {
   /** The card behind it (for a thumbnail) and the turn it happened in. */
   defId?: string;
   turn: number;
-  kind: "spell" | "ability";
+  kind: "spell" | "ability" | "trigger";
   /** The spell's card, or the permanent whose ability it was. */
   iid?: string;
   /** The player who cast the spell or used the ability: it is shown on their side of the board. */
   player: PlayerId;
   title: string;
+  /** What was paid and anything said while it was cast. */
   lines: string[];
+  /** How it left the stack, once it did, and what it did ("Glistener Elf gets +2/+2 (now 3/3)") or why it did nothing. */
+  done?: "resolved" | "fizzled" | "countered";
+  result?: string[];
+  /** Only a result: what was cast in an earlier action, to be added to that announcement (see mergeAnnouncements). */
+  later?: true;
 }
 
 let nextAnnouncement = 1;
 
-/**
- * What the player and their opponent should be told when spells or abilities are cast: one announcement per cast or
- * ability, saying what it was and everything that happened because of it ("Player 2 loses 3 life.").
- * `state` is the state AFTER the events.
- */
 function defIdOf(state: GameState, iid: string): string | undefined {
   for (const p of Object.values(state.players)) {
     const card = [...p.hand, ...p.graveyard, ...p.library, ...p.exile, ...p.battlefield.map((x) => x.card)].find((c) => c.iid === iid);
@@ -159,24 +165,102 @@ function defIdOf(state: GameState, iid: string): string | undefined {
   return item && item.kind === "spell" ? item.card.defId : undefined;
 }
 
+// Events that end what a spell or ability is doing, and events its result already says ("Player 2 loses 3 life (now 17)").
+const OUTSIDE = new Set<GameEvent["type"]>(["phaseChanged", "turnStarted", "attackersDeclared", "blockersDeclared", "combatDamage"]);
+const IN_RESULT = new Set<GameEvent["type"]>(["damage", "lifeLost", "lifeGained", "poisoned", "creatureDied", "cardDrawn", "permanentEntered"]);
+
+const unfinished = (list: Announcement[], iid: string) => [...list].reverse().find((a) => a.iid === iid && !a.done && a.kind !== "trigger");
+
+/** What a spell or ability did when it resolved: added to its announcement, or a new one (a triggered ability, or one cast earlier). */
+function resolution(out: Announcement[], e: Extract<GameEvent, { type: "resolved" }>, state: GameState): Announcement {
+  const did = (e.did ?? []).filter((o) => !(o.k === "entered" && o.iid === e.iid)); // a creature spell entering says nothing new
+  const result = e.fizzled ? [`Did nothing: ${e.fizzled}`] : did.map(outcomeLine);
+  const done = e.fizzled ? "fizzled" : "resolved";
+  const cast = e.trigger ? undefined : unfinished(out, e.iid);
+  if (cast) return Object.assign(cast, { done, result });
+  const source = e.name.replace(/'s ability$/, "");
+  const a: Announcement = {
+    id: nextAnnouncement++,
+    turn: state.turn,
+    kind: e.trigger ? "trigger" : e.ability ? "ability" : "spell",
+    iid: e.iid,
+    defId: defIdOf(state, e.iid),
+    player: e.controller,
+    title: e.trigger ? `${playerName(e.controller)}'s ${source} triggered` : `${playerName(e.controller)} ${e.ability ? "used" : "cast"} ${source}`,
+    lines: e.trigger && e.text ? [e.text.replace(/~/g, source).replace(/^./, (c) => c.toUpperCase())] : [],
+    done,
+    result,
+    ...(e.trigger ? {} : { later: true as const }),
+  };
+  out.push(a);
+  return a;
+}
+
+/** A countered spell or ability: said on what countered it, and on its own announcement. */
+function countering(out: Announcement[], e: Extract<GameEvent, { type: "countered" }>, by: Announcement | null, state: GameState): void {
+  if (by) (by.done ? (by.result ??= []) : by.lines).push(`Counters ${playerName(e.controller)}'s ${e.name}`);
+  const result = [`Countered${e.by ? ` by ${e.by}` : ""}`];
+  const cast = unfinished(out, e.iid);
+  if (cast) {
+    Object.assign(cast, { done: "countered", result });
+    return;
+  }
+  const ability = e.name.endsWith("'s ability");
+  const name = e.name.replace(/'s ability$/, "");
+  out.push({ id: nextAnnouncement++, turn: state.turn, kind: ability ? "ability" : "spell", iid: e.iid, defId: defIdOf(state, e.iid), player: e.controller, title: `${playerName(e.controller)} ${ability ? "used" : "cast"} ${name}`, lines: [], done: "countered", result, later: true });
+}
+
+/**
+ * What the players should be told about the spells and abilities in one action: one announcement per spell cast or ability used
+ * (what it was, what was paid), what each did when it resolved, and triggered abilities with why they triggered.
+ * `state` is the state AFTER the events.
+ */
 export function announcementsFrom(events: GameEvent[], state: GameState): Announcement[] {
-  const groups: { player: PlayerId; title: string; iid: string; defId?: string; kind: "spell" | "ability"; events: GameEvent[] }[] = [];
+  const out: Announcement[] = [];
+  let open: Announcement | null = null; // what later events belong to
+  let paid: string | null = null; // a payment comes just before the spell or ability it paid for
+  let shown: Announcement | null = null; // a resolution whose result already says what changed: its own messages would repeat it
+  const start = (a: Omit<Announcement, "id" | "turn" | "lines">, first: string[] = []) => {
+    open = { id: nextAnnouncement++, turn: state.turn, ...a, lines: [...first, ...(paid ? [paid] : [])] };
+    paid = null;
+    out.push(open);
+  };
   for (const e of events) {
-    if (e.type === "spellCast" || e.type === "creatureCast") {
-      groups.push({ player: e.player, title: `${playerName(e.player)} cast ${nameOf(state, e.iid)}`, iid: e.iid, defId: defIdOf(state, e.iid), kind: "spell", events: [] });
-    } else if (e.type === "abilityActivated") {
-      const text = e.text.replace(/~/g, e.name).replace(/^./, (c) => c.toUpperCase());
-      groups.push({ player: e.player, title: `${playerName(e.player)} used ${e.name}`, iid: e.iid, defId: defIdOf(state, e.iid), kind: "ability", events: [{ ...e, text }] });
-    } else if (groups.length > 0 && e.type !== "phaseChanged" && e.type !== "turnStarted") {
-      groups[groups.length - 1].events.push(e);
+    if (e.type === "manaPaid") paid = paymentLine(e);
+    else if (e.type === "spellCast" || e.type === "creatureCast") start({ kind: "spell", player: e.player, iid: e.iid, defId: defIdOf(state, e.iid), title: `${playerName(e.player)} cast ${nameOf(state, e.iid)}` });
+    else if (e.type === "abilityActivated") start({ kind: "ability", player: e.player, iid: e.iid, defId: defIdOf(state, e.iid), title: `${playerName(e.player)} used ${e.name}` }, [e.text.replace(/~/g, e.name).replace(/^./, (c) => c.toUpperCase())]);
+    else if (e.type === "resolved") {
+      open = resolution(out, e, state);
+      shown = (e.did ?? []).length > 0 ? open : null;
+    }
+    else if (e.type === "countered") countering(out, e, open, state);
+    else if (OUTSIDE.has(e.type)) open = null;
+    else if (open && !IN_RESULT.has(e.type) && !(e.type === "effect" && open === shown)) {
+      const at: Announcement = open;
+      (at.done ? (at.result ??= []) : at.lines).push(...describeEvents([e], state));
     }
   }
-  return groups.map((g) => {
-    const first = g.events[0];
-    const detail = first?.type === "abilityActivated" ? [first.text] : [];
-    // A damage event is followed by the matching "loses N life" event: say it once.
-    const rest = g.events.filter((e, i) => !(e.type === "lifeLost" && g.events.slice(0, i).some((p) => p.type === "damage" && p.target === e.player && p.amount === e.amount)));
-    const lines = [...detail, ...describeEvents(rest.filter((e) => e.type !== "abilityActivated"), state)];
-    return { id: nextAnnouncement++, player: g.player, title: g.title, lines, iid: g.iid, defId: g.defId, turn: state.turn, kind: g.kind };
-  });
+  if (paid && out.length > 0) out[out.length - 1].lines.push(paid); // paid during a resolution ("you may pay {1}", ward)
+  return out;
 }
+
+/**
+ * Adds one action's announcements to a list. A result for something announced earlier goes onto that announcement, which moves
+ * to the end (shown again, now with what it did); anything else is added.
+ */
+export function mergeAnnouncements(list: Announcement[], told: Announcement[]): Announcement[] {
+  let next = [...list];
+  for (const t of told) {
+    const i = t.later && t.iid ? next.findLastIndex((a) => a.iid === t.iid && !a.done && a.kind !== "trigger") : -1;
+    if (i < 0) {
+      next.push(t);
+      continue;
+    }
+    const merged = { ...next[i], done: t.done, result: t.result };
+    next = [...next.slice(0, i), ...next.slice(i + 1), merged];
+  }
+  return next;
+}
+
+/** Worth showing on the board once it has left the stack: it did something, did nothing, or was countered (a creature just arriving is seen). */
+export const worthTelling = (a: Announcement) => !!a.done && (a.done !== "resolved" || (a.result ?? []).length > 0 || a.kind === "trigger");

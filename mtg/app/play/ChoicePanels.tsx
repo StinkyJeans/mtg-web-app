@@ -34,7 +34,7 @@ export function ChoicePanel({
   multi,
   onDone,
 }: {
-  title: string;
+  title: React.ReactNode;
   options: { label: React.ReactNode; disabled?: boolean; onPick: () => void }[];
   onCancel: () => void;
   multi?: { selected: number[]; onToggle: (i: number) => void; onDone: () => void; /** Continue stays off until this is true (default: something is selected). */ canDone?: boolean };

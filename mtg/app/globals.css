@@ -209,6 +209,17 @@ body {
   animation: announce-in 0.3s ease-out;
 }
 
+/* "−2 paid for Become Immense" next to a player's mana: pops in, then fades away after a few seconds. */
+@keyframes mana-note {
+  0% { opacity: 0; transform: translateY(4px) scale(0.9); }
+  8% { opacity: 1; transform: none; }
+  80% { opacity: 1; }
+  100% { opacity: 0; }
+}
+.mana-note {
+  animation: mana-note 4.5s ease-out forwards;
+}
+
 /* Combat: a strong pulsing glow in the color of the advice (green safe / gold best / amber risky / sky can block / red attacking). */
 @keyframes combat-pulse { 0%, 100% { scale: 1; } 50% { scale: 1.045; } }
 .combat-free, .combat-best { box-shadow: 0 0 0 4px #facc15, 0 0 24px 8px rgba(250,204,21,.85); animation: combat-pulse 1.2s ease-in-out infinite; }

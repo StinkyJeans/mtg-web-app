@@ -11,5 +11,6 @@ export { abilityLockReason, getActivatable, getCastable, getCrewable, getCyclabl
 export type { Activatable, Castable, Crewable, Cyclable, LoyaltyOption } from "./stack/options.js";
 export { chooseTargets, fizzleReason, openWindow, passPriority, settle } from "./stack/resolve.js";
 export { pickCard } from "./stack/pick.js";
+export type { Outcome } from "./stack/outcome.js";
 
 export type { StackItem };

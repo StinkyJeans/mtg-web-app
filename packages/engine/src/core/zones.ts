@@ -252,7 +252,7 @@ export function counterStackItem(state: GameState, item: StackItem, events: Game
   state.stack.splice(state.stack.indexOf(item), 1);
   if (item.kind === "spell") spellLeavesStack(state, item);
   const name = item.kind === "spell" ? getCard(state, item.card.defId).name : `${item.sourceName}'s ability`;
-  events.push({ type: "countered", name, controller: item.controller, ...(by ? { by } : {}) });
+  events.push({ type: "countered", name, controller: item.controller, iid: item.kind === "spell" ? item.card.iid : item.source, ...(by ? { by } : {}) });
 }
 
 

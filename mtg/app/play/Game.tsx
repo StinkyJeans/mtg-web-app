@@ -37,12 +37,14 @@ import ShuffleStage from "./ShuffleStage";
 import { shufflePending } from "./shuffleStep";
 import { handDraws, hideDrawn, holdLibraryCounts, holdPiles, isPileBusy, playDeal, playDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
 import type { Draw } from "./pileFx";
-import { announcementsFrom, describeEvents, endReason, playerName } from "./log";
+import { announcementsFrom, describeEvents, endReason, mergeAnnouncements, playerName, worthTelling } from "./log";
 import type { Announcement } from "./log";
 import { PassReminder, PlayedThisTurn, TurnSplash, WelcomeSplash } from "./Announcements";
 import ResolveZone, { holdReveal, isRevealing } from "./ResolveZone";
 import { lifeSettling } from "./lifeCount";
 import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
+import { manaNotes } from "./manaInfo";
+import type { ManaNote } from "./manaInfo";
 import BackgroundPicker from "./BackgroundPicker";
 import AppearanceDialog from "./AppearanceDialog";
 import { useAppearance } from "@/lib/playmat";
@@ -190,6 +192,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [announcements, setAnnouncements] = useState<Announcement[]>([]); // "Player 1 cast ...", shown on the caster's side
   const [revealing, setRevealing] = useState<{ items: Announcement[]; cards: Record<string, CardDef> } | null>(null); // online: the opponent's play, shown before the board changes
   const [chain, setChain] = useState<Chain>({ steps: [], over: false }); // spells and abilities answering each other, and how each left the stack
+  const [manaNote, setManaNote] = useState<Partial<Record<PlayerId, ManaNote>>>({}); // "−2 paid for Become Immense", next to each player's mana
   const [lifeConfirm, setLifeConfirm] = useState<{ text: string; options: { label: React.ReactNode; go: () => void }[] } | null>(null); // "this costs life / taps a creature: do it?"
   const [xValue, setXValue] = useState(0);
   const [abilityX, setAbilityX] = useState<{ a: Activatable; payWith?: string } | null>(null); // an ability with {X} in its cost, waiting for the player's X
@@ -227,6 +230,12 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     if (game.priority || game.pendingChoice || game.pendingPick) return;
     void endTurnRef.current();
   }, [online, game, endingTurn]);   
+
+  useEffect(() => {
+    if (Object.keys(manaNote).length === 0) return;
+    const t = setTimeout(() => setManaNote({}), 4500);
+    return () => clearTimeout(t);
+  }, [manaNote]);
 
   // A chain's summary goes away by itself after a while (or when the next chain starts).
   useEffect(() => {
@@ -381,10 +390,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     };
     if (!opts.mana && pay.ask.length > 0) {
       const names = pay.ask.map(nameOfIid).join(" and ");
+      const symbols = (iids: (iid: string) => boolean) => pay.made.filter((m) => iids(m.iid)).map((m) => `{${m.color}}`).join("");
+      const rest = [...new Set(pay.made.filter((m) => !pay.ask.includes(m.iid)).map((m) => m.iid))].map((iid) => `${nameOfIid(iid)} ${symbols((x) => x === iid)}`);
+      const what = "iid" in action && action.iid ? `${cardNameAnywhere(state, action.iid)}: ` : "";
       setLifeConfirm({
-        text: `Tap ${names} for mana? It can't attack or block while it is tapped.`,
+        text: `${what ? `${what}tap` : "Tap"} ${names} for ${symbols((x) => pay.ask.includes(x))}? A creature tapped for mana can't attack or block until it untaps.${rest.length > 0 ? ` The rest is paid by ${rest.join(", ")}.` : ""}`,
         options: [
-          { label: `Yes, tap ${names}`, go: () => act(action, as, { ...opts, mana: true }) },
+          { label: <>Yes, tap {names} for <ManaText text={symbols((x) => pay.ask.includes(x))} /></>, go: () => act(action, as, { ...opts, mana: true }) },
           { label: `No, keep ${names} untapped`, go: () => act(action, as, { ...opts, spare: [...spare, ...pay.ask] }) },
         ],
       });
@@ -444,7 +456,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     playGameSounds(r.events, online ? viewer : null);
     const told = announcementsFrom(r.events, r.state);
     // Online: what the opponent cast or used is shown in the "to resolve" zone first, then it resolves.
-    const theirs = online ? told.filter((a) => a.player !== viewer) : [];
+    const theirs = online ? told.filter((a) => a.player !== viewer && !a.later && a.kind !== "trigger") : [];
     if (theirs.length > 0) {
       flushSync(() => setRevealing({ items: theirs, cards: r.state.cards }));
       await holdReveal();
@@ -471,12 +483,14 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       setLog((l) => [...describeEvents(r.events, r.state).reverse(), ...l].slice(0, 60));
       setEndNote(endReason(r.events, r.state));
       setChain((c) => nextChain(c, steps, before, r.state));
+      const notes = manaNotes(before, r.state, r.events);
+      if (Object.keys(notes).length > 0) setManaNote((n) => ({ ...n, ...notes }));
       // Online: the opponent passed the turn. Said loudly, in case this player looked away while waiting.
       if (online && r.events.some((e) => e.type === "turnStarted" && e.player === viewer)) setTurnSplash((n) => n + 1);
       setRevealing(null);
       if (told.length > 0) {
-        setAnnouncements((a) => [...a, ...told].slice(-4));
-        setHistory((h) => [...h, ...told].slice(-40));
+        setAnnouncements((a) => mergeAnnouncements(a, told).slice(-4));
+        setHistory((h) => mergeAnnouncements(h, told).slice(-40));
       }
       resetSelection();
     });
@@ -805,7 +819,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         <LogPanel lines={log} />
         {/* You: bottom left */}
         <div className="shrink-0">
-          <PlayersPanel state={state} order={[actor]} actor={actor} onResign={watching ? undefined : setResigning} heading={watching ? "Player" : "You"} />
+          <PlayersPanel state={state} order={[actor]} actor={actor} onResign={watching ? undefined : setResigning} heading={watching ? "Player" : "You"} manaNotes={manaNote} />
           <KeepRandomDecks className="mt-2" decks={{ [actor]: playedDecks[actor] }} saved={savedDecks} onSaved={keepDeck} label={() => "Save my random deck"} />
         </div>
       </aside>
@@ -826,7 +840,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           overlay={
             <ResolveZone
               state={state}
-              played={announcements.filter((a) => a.player === other)}
+              played={announcements.filter((a) => a.player === other || worthTelling(a))}
               revealing={revealing}
               onClose={(id) => setAnnouncements((l) => l.filter((x) => x.id !== id))}
               onZoom={setZoomed}
@@ -883,7 +897,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
         {lifeConfirm && (
           <ChoicePanel
-            title={lifeConfirm.text}
+            title={<ManaText text={lifeConfirm.text} />}
             options={[...lifeConfirm.options.map((o) => ({ label: o.label, onPick: o.go })), { label: "Cancel", onPick: () => setLifeConfirm(null) }]}
             onCancel={() => setLifeConfirm(null)}
           />
@@ -993,7 +1007,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       <aside className="flex flex-col gap-2 lg:min-h-0">
         {/* Your opponent: top right */}
         <div className="shrink-0">
-          <PlayersPanel state={state} order={[other]} actor={actor} onResign={online ? undefined : setResigning} heading={watching ? "Player" : "Opponent"} />
+          <PlayersPanel state={state} order={[other]} actor={actor} onResign={online ? undefined : setResigning} heading={watching ? "Player" : "Opponent"} manaNotes={manaNote} />
         </div>
         <div className="min-h-0 flex-1 lg:overflow-y-auto">
           <HoverDetail />

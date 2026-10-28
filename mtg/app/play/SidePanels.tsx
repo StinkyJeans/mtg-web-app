@@ -2,9 +2,10 @@
 
 import { useAnimationsOn } from "@/lib/motion";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { availableMana, MANA_COLORS } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
-import { ManaSymbol } from "./ManaSymbols";
+import { ManaText } from "./ManaSymbols";
+import { ManaMeter } from "./ManaMeter";
+import type { ManaNote } from "./manaInfo";
 import { playerName } from "./log";
 import { lifeBusyUntil, registerLife } from "./lifeCount";
 import { useUnseenCards } from "./pileFx";
@@ -85,10 +86,13 @@ export function PlayersPanel({
   actor,
   onResign,
   heading = "Players",
+  manaNotes = {},
 }: {
   state: GameState;
   order: PlayerId[];
   actor: PlayerId;
+  /** A recent change in a player's untapped mana, and why. */
+  manaNotes?: Partial<Record<PlayerId, ManaNote>>;
   /** The small title above the panel. */
   heading?: string;
   /** Shows a Resign button on each player. */
@@ -100,8 +104,6 @@ export function PlayersPanel({
       <h2 className={title}>{heading}</h2>
       {order.map((id) => {
         const p = state.players[id];
-        const pool = availableMana(state, id);
-        const colors = MANA_COLORS.filter((c) => pool[c] > 0);
         const style = PLAYER_STYLE[id];
         const acting = id === actor;
         return (
@@ -131,18 +133,11 @@ export function PlayersPanel({
                   ☠️ {p.poison}/10
                 </span>
               )}
-              <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5 text-xs text-zinc-700">
-                {colors.length === 0 && <span className="rounded bg-zinc-100 px-1.5 py-0.5 text-zinc-500">No mana</span>}
-                {colors.map((c) => (
-                  <span key={c} className="inline-flex items-center gap-0.5 rounded bg-zinc-100 px-1.5 py-0.5">
-                    <ManaSymbol symbol={c} />×{pool[c]}
-                  </span>
-                ))}
-              </span>
             </div>
             <div className="mt-1.5 h-1.5 w-full overflow-hidden rounded-full bg-zinc-200" aria-hidden="true">
               <div className={`h-full rounded-full transition-all duration-500 ${lifeColor(p.life)}`} style={{ width: `${Math.max(0, Math.min(100, (p.life / 20) * 100))}%` }} />
             </div>
+            <ManaMeter state={state} id={id} note={manaNotes[id]} />
             <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[11px] text-zinc-600">
               <span className="rounded bg-emerald-50 py-0.5" title="Cards in hand">
                 ✋ Hand <b>{p.hand.length}</b>
@@ -216,7 +211,7 @@ export function LogPanel({ lines }: { lines: string[] }) {
       <div className="min-h-0 flex-1 overflow-y-auto pr-1 text-[15px] leading-relaxed text-zinc-800">
         {lines.map((line, i) => (
           <div key={i} className={line.startsWith("—") ? "mt-2 border-t border-zinc-300/70 pt-1.5 font-bold text-zinc-900" : ""}>
-            {line}
+            <ManaText text={line} />
           </div>
         ))}
       </div>

@@ -25,6 +25,7 @@ import { OPPONENT } from "../types.js";
 import type { CardInstance, GameState, PlayerId } from "../types.js";
 import { checkTargets, openRound, rememberMode } from "./shared.js";
 import { hasResponse } from "./options.js";
+import { outcomeSince, snapshot } from "./outcome.js";
 
 // Resolving the top of the stack, and the rounds of priority around it.
 
@@ -85,7 +86,16 @@ function resolveTop(state: GameState, events: GameEvent[]): void {
   // Checked as it starts to resolve, once it has left the stack (it can't be its own target any more).
   const fizzled = fizzleReason(state, item);
   const name = item.kind === "spell" ? getCard(state, item.card.defId).name : `${item.sourceName}'s ability`;
-  events.push({ type: "resolved", name, controller: item.controller, ...(item.kind === "ability" ? { ability: true as const } : {}), ...(fizzled ? { fizzled } : {}) });
+  const before = snapshot(state);
+  const told: Extract<GameEvent, { type: "resolved" }> = {
+    type: "resolved",
+    name,
+    controller: item.controller,
+    iid: item.kind === "spell" ? item.card.iid : item.source,
+    ...(item.kind === "ability" ? { ability: true as const, ...(item.trigger ? { trigger: true as const, text: item.text } : {}) } : {}),
+    ...(fizzled ? { fizzled } : {}),
+  };
+  events.push(told); // (before what it does, so the log reads in order: `did` is filled in once it is done)
 
   if (item.kind === "spell") {
     const def = getCard(state, item.card.defId);
@@ -110,12 +120,15 @@ function resolveTop(state: GameState, events: GameEvent[]): void {
   checkStateBasedActions(state, events);
   // An attacker that left the battlefield is no longer attacking (a blocked creature stays "blocked" even if its blocker is gone).
   if (state.combat) state.combat.attackers = state.combat.attackers.filter((a) => findPermanentOrNull(state, a.attacker) !== null);
+  const did = outcomeSince(state, before);
+  if (did.length > 0) told.did = did;
 }
 
 /** Moves queued triggers onto the stack. One that needs a target waits for its controller to choose it. */
 function flushTriggers(state: GameState): void {
   while (state.triggerQueue.length > 0 && !state.pendingChoice && !state.pendingPick && !state.winner) {
     const { item, specs, modes, unchosen } = state.triggerQueue.shift()!;
+    item.trigger = true;
     if (modes) {
       // "When this enters, choose one —": only modes that have what they need to target can be chosen ("that hasn't been chosen": and haven't been before).
       const used = unchosen ? (findPermanentOrNull(state, item.source)?.perm.chosenModes ?? []) : [];

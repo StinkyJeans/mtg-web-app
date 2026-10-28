@@ -92,6 +92,22 @@ function floatText(b: Box, text: string, color: string, delay = 0, size = 26, dy
   );
 }
 
+/** A coin of mana that rises from the land or creature that made it and fades: what each source paid. */
+function manaCoin(b: Box, color: string, delay = 0, dx = 0) {
+  const { x, y } = center(b);
+  void piece(
+    { left: `${x + dx}px`, top: `${y}px`, width: "28px", height: "28px", borderRadius: "50%", background: COLOR[color] ?? COLOR.C, color: "#111", fontWeight: "800", fontSize: "15px", lineHeight: "28px", textAlign: "center", boxShadow: "0 0 0 2px rgba(0,0,0,.55), 0 0 12px rgba(255,255,255,.35)" },
+    color,
+    [
+      { transform: "translate(-50%, -20%) scale(0.5)", opacity: 0 },
+      { transform: "translate(-50%, -70%) scale(1.1)", opacity: 1, offset: 0.25 },
+      { transform: "translate(-50%, -230%) scale(1)", opacity: 0 },
+    ],
+    1200,
+    delay,
+  );
+}
+
 /** A ring that grows from the middle of a card and fades. */
 export function ring(b: Box, color: string, delay = 0, grow = 1) {
   const { x, y } = center(b);
@@ -334,6 +350,14 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
     } else if (e.type === "poisoned" && !hadCombat) {
       const b = boxOf(document.querySelector<HTMLElement>(`[data-poison="${e.player}"]`) ?? lifeEl(e.player));
       if (b) add(() => floatText(b, `☠ +${e.amount}`, "#4d7c0f", 80, 30));
+    } else if (e.type === "manaPaid") {
+      const seen = new Map<string, number>(); // a land that made two mana shows two coins side by side
+      e.made.forEach((m, i) => {
+        const b = where(m.iid);
+        const n = seen.get(m.iid) ?? 0;
+        seen.set(m.iid, n + 1);
+        if (b) add(() => manaCoin(b, m.color, i * 90, n * 18));
+      });
     } else if (e.type === "countered") {
       const b = boxOf(document.querySelector("[data-resolve-zone]")) ?? { x: window.innerWidth / 2 - 40, y: window.innerHeight / 2 - 20, w: 80, h: 40 };
       add(() => floatText(b, "Countered!", "#f97316", 0, 30));

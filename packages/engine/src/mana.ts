@@ -267,8 +267,8 @@ function manaColorsOf(state: GameState, perm: Permanent, forSpell?: CardDef, for
 }
 
 export type PayResult =
-  /** `life` is what Phyrexian mana costs in life (0 when it was paid with mana). */
-  | { ok: true; tap: string[]; life: number }
+  /** `life` is what Phyrexian mana costs in life (0 when it was paid with mana). `made`: each mana spent, and the permanent it came from. */
+  | { ok: true; tap: string[]; life: number; made: { iid: string; color: ManaColor }[] }
   | { ok: false; missing: ManaColor | "generic" | "life" };
 
 interface Source {
@@ -510,8 +510,13 @@ function paySources(state: GameState, player: PlayerId, cost: ManaCost, sources:
     return rank(a) - rank(b);
   });
   if (rest.length < cost.generic + extraGeneric + filterCost) return { ok: false, missing: "generic" };
-  for (const src of rest.slice(0, cost.generic + extraGeneric + filterCost)) if (!tap.includes(src.iid)) tap.push(src.iid);
-  return { ok: true, tap, life };
+  const generic = rest.slice(0, cost.generic + extraGeneric + filterCost);
+  for (const src of generic) if (!tap.includes(src.iid)) tap.push(src.iid);
+  const made = [
+    ...sources.flatMap((src, s) => (owner[s] === undefined ? [] : [{ iid: src.iid, color: src.colors.find((c) => needs[owner[s]!].includes(c)) ?? src.colors[0] }])),
+    ...generic.map((src) => ({ iid: src.iid, color: src.colors[0] ?? ("C" as const) })),
+  ];
+  return { ok: true, tap, life, made };
 }
 
 /**
@@ -527,6 +532,27 @@ export function manaSourcesToConfirm(state: GameState, player: PlayerId, tap: st
 }
 
 /** Mana the player could produce right now, per color. */
+export interface ManaSource {
+  iid: string;
+  name: string;
+  colors: ManaColor[];
+  amount: number;
+  tapped: boolean;
+  /** A creature that makes mana but just arrived: it can be tapped for mana from its controller's next turn. */
+  sick: boolean;
+}
+
+/** A player's permanents that make mana, tapped or not: what each makes and how much. */
+export function manaSources(state: GameState, player: PlayerId): ManaSource[] {
+  return state.players[player].battlefield.flatMap((perm): ManaSource[] => {
+    const def = getCard(state, perm.card.defId);
+    const colors = makesOneColorMana(state, perm) ? ALL_FIVE : manaColorsOf(state, perm);
+    if (colors.length > 0) return [{ iid: perm.card.iid, name: def.name, colors, amount: manaAmountOf(state, player, perm), tapped: perm.tapped, sick: false }];
+    const later = def.type === "creature" && perm.summoningSick ? (manaAbilityColors(def) ?? []) : [];
+    return later.length > 0 ? [{ iid: perm.card.iid, name: def.name, colors: later, amount: manaAbilityAmount(def), tapped: perm.tapped, sick: true }] : [];
+  });
+}
+
 export function availableMana(state: GameState, player: PlayerId): Record<ManaColor, number> {
   const pool: Record<ManaColor, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
   for (const perm of state.players[player].battlefield) {

@@ -11,6 +11,8 @@ import TokenFrame from "./TokenFrame";
 import CardView from "./CardView";
 import { ManaCostView } from "./ManaSymbols";
 import Tip from "./Tip";
+import { CardParts } from "./CardParts";
+import { cardParts, worthParts } from "./abilityParts";
 
 export interface Inspected {
   def: CardDef;
@@ -37,6 +39,7 @@ export default function CardDetail({ inspected }: { inspected: Inspected | null 
 
 function Body({ inspected: { def, status } }: { inspected: Inspected }) {
   const [open, setOpen] = useState(false);
+  const parts = cardParts(def);
 
   return (
     <>
@@ -71,6 +74,12 @@ function Body({ inspected: { def, status } }: { inspected: Inspected }) {
           </div>
         )}
         {def.text && <p className="whitespace-pre-line rounded bg-zinc-200/60 p-2.5 text-base leading-relaxed">{def.text}</p>}
+        {worthParts(parts) && (
+          <div className="rounded border border-violet-200 bg-violet-50 p-2.5">
+            <div className="mb-1.5 text-sm font-semibold uppercase font-display tracking-wide text-violet-700">How it works, part by part</div>
+            <CardParts def={def} parts={parts} />
+          </div>
+        )}
         {helpFor(def.text, 5).length > 0 && (
           <div className="rounded border border-sky-200 bg-sky-50 p-2.5 text-[15px] leading-relaxed text-zinc-800">
             <div className="mb-1.5 text-sm font-semibold uppercase font-display tracking-wide text-sky-700">What this means</div>

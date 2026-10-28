@@ -5,15 +5,27 @@ import { board, permanent } from "./fixtures";
 
 const castFirst = (g: ReturnType<typeof board>) => ({ type: "castCreature" as const, iid: g.players.p1.hand[0].iid });
 
-test("paying with lands asks nothing", () => {
-  const g = board({ mine: [permanent("forest", "p1"), permanent("mountain", "p1")], hand: ["bears"] });
-  assert.deepEqual(paymentOf(g, castFirst(g), "p1", []), { ok: true, life: 0, ask: [] });
+test("paying with lands asks nothing, and says which land makes which mana", () => {
+  const forest = permanent("forest", "p1");
+  const mountain = permanent("mountain", "p1");
+  const g = board({ mine: [forest, mountain], hand: ["bears"] });
+  assert.deepEqual(paymentOf(g, castFirst(g), "p1", []), {
+    ok: true,
+    life: 0,
+    ask: [],
+    made: [
+      { iid: forest.card.iid, color: "G" },
+      { iid: mountain.card.iid, color: "R" },
+    ],
+  });
 });
 
 test("tapping a creature for mana is asked first, since it could attack or block instead", () => {
   const elf = permanent("elf", "p1");
   const g = board({ mine: [elf, permanent("mountain", "p1")], hand: ["bears"] });
-  assert.deepEqual(paymentOf(g, castFirst(g), "p1", []), { ok: true, life: 0, ask: [elf.card.iid] });
+  const pay = paymentOf(g, castFirst(g), "p1", []);
+  assert.deepEqual(pay.ask, [elf.card.iid]);
+  assert.deepEqual(pay.made.find((m) => m.iid === elf.card.iid), { iid: elf.card.iid, color: "G" }, "the question can say what it pays");
 });
 
 test("keeping that creature untapped leaves the spell unpaid when nothing else makes the mana", () => {
@@ -24,7 +36,7 @@ test("keeping that creature untapped leaves the spell unpaid when nothing else m
 
 test("Phyrexian mana with no matching mana costs 2 life", () => {
   const g = board({ mine: [permanent("mountain", "p1")], hand: ["mutagen"] });
-  assert.deepEqual(paymentOf(g, castFirst(g), "p1", []), { ok: true, life: 2, ask: [] });
+  assert.deepEqual(paymentOf(g, castFirst(g), "p1", []), { ok: true, life: 2, ask: [], made: [] });
 });
 
 test("Phyrexian mana with the mana to pay it: the player chooses mana or 2 life", () => {
@@ -32,7 +44,7 @@ test("Phyrexian mana with the mana to pay it: the player chooses mana or 2 life"
   const cast = { type: "castSpell" as const, iid: g.players.p1.hand[0].iid, targets: [] };
   const choices = phyrexianChoices(g, cast, "p1", []);
   assert.deepEqual(choices.map((c) => [c.life, c.mana]), [[0, "{G}"], [2, ""]]);
-  assert.deepEqual(paymentOf(g, choices[1].action, "p1", []), { ok: true, life: 2, ask: [] });
+  assert.deepEqual(paymentOf(g, choices[1].action, "p1", []), { ok: true, life: 2, ask: [], made: [] });
   assert.deepEqual(phyrexianChoices(g, choices[1].action, "p1", []), [], "already chosen");
 
   const noGreen = board({ mine: [permanent("mountain", "p1")], hand: ["mutagen"] });
@@ -41,7 +53,7 @@ test("Phyrexian mana with the mana to pay it: the player chooses mana or 2 life"
 
 test("actions that cost nothing are always paid", () => {
   const g = board();
-  assert.deepEqual(paymentOf(g, { type: "passPhase" }, "p1", []), { ok: true, life: 0, ask: [] });
+  assert.deepEqual(paymentOf(g, { type: "passPhase" }, "p1", []), { ok: true, life: 0, ask: [], made: [] });
 });
 
 test("a prepared creature offers its spell, under the creature's front name", () => {

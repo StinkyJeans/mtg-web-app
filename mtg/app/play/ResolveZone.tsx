@@ -6,6 +6,7 @@ import { animationsEnabled } from "@/lib/motion";
 import { itemName, readable, targetName } from "./cardText";
 import { playerName } from "./log";
 import type { Announcement } from "./log";
+import { PlayLines } from "./Announcements";
 
 const REVEAL_MS = 1500;
 const REVEAL_FAST_MS = 700; // animations off: still seen, but the game moves on sooner
@@ -25,14 +26,16 @@ export async function holdReveal(): Promise<void> {
   }
 }
 
-type Status = "casting" | "stack" | "resolved";
+type Status = "casting" | "stack" | "resolved" | "triggered" | "fizzled" | "countered";
 
 interface Entry {
   key: string;
   status: Status;
-  kind: "spell" | "ability";
+  kind: Announcement["kind"];
   def?: CardDef;
   title: string;
+  /** What it was and what it did, as announced; a stack item has only `lines`. */
+  play?: Announcement;
   lines: string[];
   onClose?: () => void;
 }
@@ -41,9 +44,14 @@ const LOOK: Record<Status, { chip: string; ring: string }> = {
   casting: { chip: "animate-pulse bg-amber-400 text-black", ring: "ring-amber-300" },
   stack: { chip: "bg-violet-600 text-white", ring: "ring-violet-400" },
   resolved: { chip: "bg-emerald-500 text-black", ring: "ring-emerald-300/70" },
+  triggered: { chip: "bg-sky-500 text-black", ring: "ring-sky-300/70" },
+  fizzled: { chip: "bg-amber-500 text-black", ring: "ring-amber-300/70" },
+  countered: { chip: "bg-orange-600 text-white", ring: "ring-orange-300/70" },
 };
 
-const label = (e: Entry) => (e.status === "casting" ? (e.kind === "spell" ? "Casting…" : "Activating…") : e.status === "stack" ? "On the stack" : "Resolved");
+const LABEL: Record<Exclude<Status, "casting">, string> = { stack: "On the stack", resolved: "Resolved", triggered: "Triggered", fizzled: "Did nothing", countered: "Countered" };
+const label = (e: Entry) => (e.status === "casting" ? (e.kind === "spell" ? "Casting…" : "Activating…") : LABEL[e.status]);
+const statusOf = (a: Announcement): Status => (a.kind === "trigger" ? "triggered" : a.done === "fizzled" || a.done === "countered" ? a.done : "resolved");
 
 /** The card a stack item came from: the spell itself, or the permanent whose ability it is. */
 function stackCard(state: GameState, item: StackItem): CardDef | undefined {
@@ -93,7 +101,7 @@ export default function ResolveZone({
     ...played
       .filter((a) => !onStack(state, a.iid))
       .reverse()
-      .map((a): Entry => ({ key: `played-${a.id}`, status: "resolved", kind: a.kind, def: a.defId ? state.cards[a.defId] : undefined, title: a.title, lines: a.lines, onClose: () => onClose(a.id) })),
+      .map((a): Entry => ({ key: `played-${a.id}`, status: statusOf(a), kind: a.kind, def: a.defId ? state.cards[a.defId] : undefined, title: a.title, play: a, lines: a.lines, onClose: () => onClose(a.id) })),
   ].slice(0, MAX_SHOWN);
   if (entries.length === 0) return null;
 
@@ -123,12 +131,16 @@ export default function ResolveZone({
             </div>
             <div className="mt-1 font-semibold leading-snug">{e.title}</div>
             {e.status === "casting" && e.kind === "spell" && e.def?.text && <p className="mt-1 line-clamp-3 whitespace-pre-line text-xs leading-snug text-zinc-600">{e.def.text}</p>}
-            {e.lines.length > 0 && (
-              <ul className="mt-1 list-disc pl-4 text-sm leading-snug text-zinc-700">
-                {e.lines.map((l, i) => (
-                  <li key={i}>{l}</li>
-                ))}
-              </ul>
+            {e.play ? (
+              <PlayLines a={e.play} size="text-sm" />
+            ) : (
+              e.lines.length > 0 && (
+                <ul className="mt-1 list-disc pl-4 text-sm leading-snug text-zinc-700">
+                  {e.lines.map((l, i) => (
+                    <li key={i}>{l}</li>
+                  ))}
+                </ul>
+              )
             )}
           </div>
         </div>

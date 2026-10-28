@@ -27,9 +27,11 @@ import {
   toughnessOf,
 } from "./core.js";
 import type { TargetChoice } from "./effects.js";
+import type { ManaColor } from "./mana.js";
 import { parseCard } from "./oracle.js";
 import { shuffle, STARTING_HAND } from "./state.js";
 import { activateAbility, activateLoyalty, castSpell, chooseTargets, crewVehicle, cycleCard, getCastable, openWindow, passPriority, pickCard, settle } from "./stack.js";
+import type { Outcome } from "./stack.js";
 import { OPPONENT } from "./types.js";
 import type { GameState, Permanent, PlayerId } from "./types.js";
 import { continueAfterBlockers, getDamageAssignments, resolveCombat } from "./actions/combat.js";
@@ -85,9 +87,14 @@ export type GameEvent =
   | { type: "permanentEntered"; player: PlayerId; iid: string }
   | { type: "damage"; source: string; target: string | PlayerId; amount: number }
   | { type: "effect"; text: string }
-  | { type: "countered"; name: string; controller: PlayerId; /** What countered it: a spell, or a ward that wasn't paid. */ by?: string }
-  /** The top of the stack resolved. `fizzled`: it did nothing, because every target it had stopped being legal (why, in words). */
-  | { type: "resolved"; name: string; controller: PlayerId; ability?: true; fizzled?: string }
+  | { type: "countered"; name: string; controller: PlayerId; /** The spell's card, or the permanent the ability came from. */ iid: string; /** What countered it: a spell, or a ward that wasn't paid. */ by?: string }
+  /**
+   * The top of the stack resolved. `iid`: the spell's card, or the permanent the ability came from. `fizzled`: it did nothing, because every
+   * target it had stopped being legal (why, in words). `trigger`: a triggered ability, with its text. `did`: what it changed.
+   */
+  | { type: "resolved"; name: string; controller: PlayerId; iid: string; ability?: true; trigger?: true; text?: string; fizzled?: string; did?: Outcome[] }
+  /** Mana was paid: each mana made, and the permanent that made it (named, as a Treasure is gone once it is used). */
+  | { type: "manaPaid"; player: PlayerId; made: { iid: string; name: string; color: ManaColor }[] }
   | { type: "creatureDied"; player: PlayerId; iid: string }
   | { type: "cardsDiscarded"; player: PlayerId; iids: string[] }
   | { type: "conceded"; player: PlayerId }

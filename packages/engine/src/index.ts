@@ -8,7 +8,7 @@ export * from "./mana.js";
 export * from "./effects.js";
 export * from "./oracle.js";
 export { abilityLockReason, getCastable, getActivatable, getCyclable, getCrewable, getLoyaltyAbilities, castCostOf, fizzleReason, liftedSpecs } from "./stack.js";
-export type { Castable, Activatable, Cyclable, Crewable, LoyaltyOption } from "./stack.js";
+export type { Castable, Activatable, Cyclable, Crewable, LoyaltyOption, Outcome } from "./stack.js";
 export { legalTargets } from "./core.js";
 export { powerOf, toughnessOf } from "./core.js";
 export { staticEffectsOn } from "./core.js";

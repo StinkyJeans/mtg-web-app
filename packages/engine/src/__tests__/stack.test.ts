@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyAction, CARDS, createGame, fizzleReason, getLegalActions, playerToAct } from "../index.js";
+import { applyAction, CARDS, createGame, fizzleReason, getLegalActions, manaSources, playerToAct } from "../index.js";
 import type { Action, CardDef, CardInstance, GameEvent, GameState, PlayerId } from "../index.js";
 
 const DEFS: Record<string, CardDef> = {
@@ -11,6 +11,9 @@ const DEFS: Record<string, CardDef> = {
   elder: { id: "elder", name: "Elder", type: "creature", cost: 1, manaCost: "{R}", power: 1, toughness: 1, text: "When Elder enters, you gain 2 life." },
   pinger: { id: "pinger", name: "Pinger", type: "creature", cost: 1, manaCost: "{R}", power: 1, toughness: 1, text: "{T}: Pinger deals 1 damage to any target." },
   shield: { id: "shield", name: "Shield", type: "instant", cost: 1, manaCost: "{R}", text: "Target creature you control gains hexproof until end of turn." },
+  defense: { id: "defense", name: "Defense", type: "instant", cost: 1, manaCost: "{R}", text: "Target creature you control gets +2/+2 and gains hexproof until end of turn." },
+  hierarch: { id: "hierarch", name: "Hierarch", type: "creature", cost: 1, manaCost: "{G}", power: 0, toughness: 1, text: "{T}: Add {G}, {W}, or {U}." },
+  growth: { id: "growth", name: "Growth", type: "instant", cost: 2, manaCost: "{1}{G}", text: "Target creature gets +1/+1 until end of turn." },
 };
 
 const perm = (iid: string, defId: string, owner: PlayerId) => ({ card: { iid, defId, owner } as CardInstance, tapped: false, summoningSick: false, damage: 0 });
@@ -117,8 +120,8 @@ test("a countered spell says what countered it, and the counterspell resolves", 
   g = act(g, "p1", { type: "castSpell", iid: "h0", targets: [{ kind: "player", id: "p2" }] });
   const { events } = played(g, [["p2", { type: "castSpell", iid: "o0", targets: [{ kind: "stack", id: g.stack[0].id }] }]]);
   assert.deepEqual(events.filter((e) => e.type === "countered" || e.type === "resolved"), [
-    { type: "resolved", name: "Cancel", controller: "p2" },
-    { type: "countered", name: "Bolt", controller: "p1", by: "Cancel" },
+    { type: "resolved", name: "Cancel", controller: "p2", iid: "o0" },
+    { type: "countered", name: "Bolt", controller: "p1", iid: "h0", by: "Cancel" },
   ]);
 });
 
@@ -131,6 +134,71 @@ test("a spell whose target gained hexproof in response does nothing, and says wh
   assert.equal(g.stack.length, 1);
   assert.equal(fizzleReason(g, g.stack[0]), "Elder has hexproof", "the stack shows it won't do anything");
   const { g: after, events } = played(g, []);
-  assert.deepEqual(events.find((e) => e.type === "resolved"), { type: "resolved", name: "Bolt", controller: "p1", fizzled: "Elder has hexproof" });
+  assert.deepEqual(events.find((e) => e.type === "resolved"), { type: "resolved", name: "Bolt", controller: "p1", iid: "h0", fizzled: "Elder has hexproof" });
   assert.ok(after.players.p2.battlefield.some((p) => p.card.iid === "c0"), "the Elder lives");
+});
+
+const resolvedOf = (events: GameEvent[], name: string) => events.find((e): e is Extract<GameEvent, { type: "resolved" }> => e.type === "resolved" && e.name === name);
+
+test("a resolved spell says everything it did: the size change and the keyword", () => {
+  const g = setup(["defense"]);
+  g.players.p1.battlefield.push(perm("c0", "elder", "p1"));
+  const { events } = played(g, [["p1", { type: "castSpell", iid: "h0", targets: [{ kind: "permanent", iid: "c0" }] }]]);
+  assert.deepEqual(resolvedOf(events, "Defense")?.did, [
+    { k: "pump", iid: "c0", name: "Elder", dp: 2, dt: 2, power: 3, toughness: 3 },
+    { k: "keywords", iid: "c0", name: "Elder", gained: ["hexproof"], lost: [] },
+  ]);
+});
+
+test("a spell that kills says where the creature went", () => {
+  const g = setup(["bolt"]);
+  g.players.p2.battlefield.push(perm("c0", "elder", "p2"));
+  const { events } = played(g, [["p1", { type: "castSpell", iid: "h0", targets: [{ kind: "permanent", iid: "c0" }] }]]);
+  assert.deepEqual(resolvedOf(events, "Bolt")?.did, [{ k: "left", iid: "c0", name: "Elder", to: "graveyard" }]);
+});
+
+test("a triggered ability is marked as one, with its text, and says what it did", () => {
+  const g = setup(["elder"]);
+  const { events } = played(g, [["p1", { type: "castSpell", iid: "h0", targets: [] }]]);
+  const trigger = resolvedOf(events, "Elder's ability");
+  assert.equal(trigger?.trigger, true);
+  assert.match(trigger?.text ?? "", /enters/);
+  assert.deepEqual(trigger?.did, [{ k: "life", player: "p1", from: 20, to: 22 }]);
+  assert.equal(resolvedOf(events, "Elder")?.trigger, undefined, "the creature spell itself is not a trigger");
+});
+
+test("paying mana says which permanent made which mana", () => {
+  const g = setup(["growth"]);
+  g.players.p1.battlefield = [perm("l0", "mountain", "p1"), perm("hi", "hierarch", "p1"), perm("c0", "elder", "p1")];
+  const { events } = played(g, [["p1", { type: "castSpell", iid: "h0", targets: [{ kind: "permanent", iid: "c0" }] }]]);
+  const paid = events.find((e) => e.type === "manaPaid");
+  assert.deepEqual(paid, {
+    type: "manaPaid",
+    player: "p1",
+    made: [
+      { iid: "hi", name: "Hierarch", color: "G" },
+      { iid: "l0", name: "Mountain", color: "R" },
+    ],
+  });
+});
+
+test("damage to a creature that survives is part of what a spell did", () => {
+  const g = setup(["bolt"]);
+  g.players.p2.battlefield.push({ ...perm("c0", "elder", "p2"), card: card("c0", "giant", "p2") });
+  g.cards.giant = { id: "giant", name: "Giant", type: "creature", cost: 1, manaCost: "{R}", power: 4, toughness: 4, text: "" };
+  const { events } = played(g, [["p1", { type: "castSpell", iid: "h0", targets: [{ kind: "permanent", iid: "c0" }] }]]);
+  assert.deepEqual(resolvedOf(events, "Bolt")?.did, [{ k: "damaged", iid: "c0", name: "Giant", n: 3 }]);
+});
+
+test("mana sources list what each permanent makes, tapped or not, and a mana creature that just arrived", () => {
+  const g = setup([]);
+  g.players.p1.battlefield = [{ ...perm("l0", "mountain", "p1"), tapped: true }, perm("hi", "hierarch", "p1"), { ...perm("h2", "hierarch", "p1"), summoningSick: true }, perm("c0", "elder", "p1")];
+  assert.deepEqual(
+    manaSources(g, "p1").map((m) => [m.iid, m.colors.join(""), m.amount, m.tapped, m.sick]),
+    [
+      ["l0", "R", 1, true, false],
+      ["hi", "GWU", 1, false, false],
+      ["h2", "GWU", 1, false, true],
+    ],
+  );
 });
