@@ -1,6 +1,6 @@
 import { getCard } from "../../cards.js";
 import type { CardInstance, PlayerId } from "../../types.js";
-import { findPermanentOrNull, isCreature, kw, nameOf, playerLabel } from "../permanents.js";
+import { findPermanentOrNull, isArtifactDef, isCreature, kw, nameOf, playerLabel } from "../permanents.js";
 import { isToken, makeToken, putCounters, putIntoGraveyard, regenerateInstead, removeFromBattlefield, spellLeavesStack } from "../zones.js";
 import { creatureEntered, queueTriggers } from "../triggers.js";
 import { subjectsOf } from "../targets.js";
@@ -14,6 +14,16 @@ export const ZONE_EFFECTS = {
       if (preventRegen) s.perm.noRegen = true;
       if (regenerateInstead(state, s.perm)) say(`${nameOf(state, s.perm)} regenerates.`);
       else putIntoGraveyard(state, s.perm, s.owner, events);
+    }
+  },
+  destroyArtifacts({ state, events, say, value }, effect) {
+    const most = value(effect.mvAtMost);
+    for (const player of Object.values(state.players)) {
+      for (const perm of player.battlefield.filter((p) => isArtifactDef(getCard(state, p.card.defId)) && getCard(state, p.card.defId).cost <= most)) {
+        if (kw(state, perm, "indestructible")) continue;
+        if (regenerateInstead(state, perm)) say(`${nameOf(state, perm)} regenerates.`);
+        else putIntoGraveyard(state, perm, player.id, events);
+      }
     }
   },
   exile({ state, ctx, say }, effect) {

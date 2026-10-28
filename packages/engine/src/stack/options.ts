@@ -37,6 +37,8 @@ export interface Castable {
   teamwork?: { n: number; options: string[] };
   /** Delve: graveyard cards that may be exiled to pay {1} each (best ones to give up first), at least `min` of them for the rest to be payable, at most `max`. */
   delve?: { min: number; max: number; options: string[] };
+  /** Replicate: its cost, and the most times it can be paid right now (each payment is a copy, with targets of its own). */
+  replicate?: { cost: string; max: number };
 }
 
 /** Cards in hand the player could cast right now: right timing, enough mana, and a legal target for each need. */
@@ -56,12 +58,14 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
   const yard = parsed.delve ? delveChoice(state, player, iid, Infinity) : [];
   const afford = (c: ManaCost) => payMana(state, player, withDelve(c, yard.length), def).ok;
   const canNormal = afford(withX(cost, 0));
-  // "Costs {3} less to cast if it targets a tapped permanent": when only that price can be paid, only tapped targets are offered.
-  const discount = parsed.costReduction?.ifTargetsTapped ? parsed.costReduction.n : 0;
-  const tappedOnly = !canNormal && discount > 0 && afford(withX({ ...cost, generic: Math.max(0, cost.generic - discount) }, 0));
-  if (!canNormal && !canWarp && !tappedOnly) return null;
+  // "Costs {3} less to cast if it targets a tapped permanent" / "...a blue spell": when only that price can be paid, only such targets are offered.
+  const reduction = parsed.costReduction;
+  const discount = reduction?.ifTargetsTapped || reduction?.ifTargetsColor ? reduction.n : 0;
+  const discountOnly = !canNormal && discount > 0 && afford(withX({ ...cost, generic: Math.max(0, cost.generic - discount) }, 0));
+  if (!canNormal && !canWarp && !discountOnly) return null;
   const warpPart = canWarp ? { warp: parsed.warp, ...(canNormal ? {} : { warpOnly: true }) } : {};
-  const specs = (parsed.spell?.targets ?? []).map((spec) => (tappedOnly && !canWarp ? { ...spec, filter: "tapped" as const } : spec));
+  const narrowed = (spec: TargetSpec): TargetSpec => (reduction?.ifTargetsColor ? { ...spec, spellColor: reduction.ifTargetsColor } : { ...spec, filter: "tapped" });
+  const specs = (parsed.spell?.targets ?? []).map((spec) => (discountOnly && !canWarp ? narrowed(spec) : spec));
   const modal = parsed.spell?.modal;
   const modeInfo = modal ? modal.modes.map((m) => ({ text: m.text, specs: m.targets, available: m.targets.every((spec) => legalTargets(state, spec, player).length > 0) })) : undefined;
   // Teamwork: creatures that could be tapped for it, and whether they are enough (then the spell may have fewer limits on its targets).
@@ -89,6 +93,12 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
     Object.assign(modalPart, { discard: options });
   }
   const zonePart = zone ? { zone, ...delveOf(state, player, def, withX(cost, 0), yard) } : delveOf(state, player, def, withX(cost, 0), yard);
+  const replicateCost = parsed.replicate ? parseManaCost(parsed.replicate) : null;
+  if (replicateCost) {
+    let max = 0;
+    while (max < 10 && afford(withX(Array.from({ length: max + 1 }, () => replicateCost).reduce(addCosts, cost), 0))) max++;
+    Object.assign(modalPart, { replicate: { cost: parsed.replicate!, max } });
+  }
   if (!cost.x) return { iid, specs, ...kickable, ...blightPart, ...teamPart, ...warpPart, ...modalPart, ...zonePart };
   let maxX = 0;
   while (maxX < 30 && afford(withX(cost, maxX + 1))) maxX++;

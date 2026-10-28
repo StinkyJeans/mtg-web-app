@@ -69,6 +69,8 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   if (phrase === "target creature or planeswalker") return { kind: "creatureOrPlaneswalker", label: phrase };
   if (phrase === "target planeswalker") return { kind: "planeswalker", label: phrase };
   if (phrase === "target spell") return { kind: "spell", label: phrase };
+  if (phrase === "target colorless spell") return { kind: "spell", colorless: true, label: phrase };
+  if (phrase === "target triggered ability or colorless spell") return { kind: "spell", colorless: true, orTriggered: true, label: phrase };
   if (phrase === "target creature that crewed it this turn") return { kind: "creature", crewedIt: true, label: phrase };
   if (phrase === "target player") return { kind: "player", label: phrase };
   if (phrase === "target opponent") return { kind: "player", opponentOnly: true, label: phrase };

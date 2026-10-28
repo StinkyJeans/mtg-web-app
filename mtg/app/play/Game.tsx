@@ -588,9 +588,11 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       return;
     }
     if (c.delve && p.delve === undefined) return; // the delve panel is shown
+    if (c.replicate && c.replicate.max > 0 && p.replicate === undefined) return; // the replicate panel is shown
     if ((c.sacrifice || c.discard) && p.sacrifice === undefined) return; // the sacrifice (or discard) panel is shown
     const baseSpecs = c.modal ? (p.modes ?? []).flatMap((m) => c.modal!.modes[m].specs) : c.specs;
-    const specs = (p.teamwork?.length ?? 0) > 0 ? liftedSpecs(baseSpecs) : baseSpecs; // teamwork can waive a limit on the target
+    const ownSpecs = (p.teamwork?.length ?? 0) > 0 ? liftedSpecs(baseSpecs) : baseSpecs; // teamwork can waive a limit on the target
+    const specs = Array.from({ length: 1 + (p.replicate ?? 0) }, () => ownSpecs).flat(); // each replicate copy has targets of its own
     const build = (targets: TargetChoice[]): Action => ({
       type: "castSpell",
       iid: p.iid,
@@ -603,8 +605,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       ...(p.sacrifice ? { sacrifice: p.sacrifice } : {}),
       ...(p.warp ? { warp: true } : {}),
       ...(p.delve ? { delve: p.delve } : {}),
+      ...(p.replicate ? { replicate: p.replicate } : {}),
     });
-    const title = p.name + (p.x !== undefined && c.maxX !== undefined ? ` (X = ${p.x})` : "") + (p.kicked ? (c.blight ? " (blighted)" : c.kickerName === "offspring" ? " (with offspring)" : " (kicked)") : "") + (p.teamwork?.length ? " (teamwork)" : "") + (p.warp ? " (warp)" : "");
+    const title = p.name + (p.x !== undefined && c.maxX !== undefined ? ` (X = ${p.x})` : "") + (p.kicked ? (c.blight ? " (blighted)" : c.kickerName === "offspring" ? " (with offspring)" : " (kicked)") : "") + (p.teamwork?.length ? " (teamwork)" : "") + (p.warp ? " (warp)" : "") + (p.replicate ? ` (${p.replicate + 1} copies with replicate)` : "");
     setPlan(null);
     if (specs.length === 0) {
       act(build([]));

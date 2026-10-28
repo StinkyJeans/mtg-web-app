@@ -30,6 +30,7 @@ export type Effect =
   | { type: "gainLife"; amount: Amount; who: Ref }
   | { type: "loseLife"; amount: Amount; who: Ref }
   | { type: "destroy"; what: Ref }
+  | { type: "destroyArtifacts"; mvAtMost: Amount } // "destroy each artifact with mana value X or less"
   | { type: "exile"; what: Ref }
   | { type: "bounce"; what: Ref }
   | { type: "tap"; what: Ref }
@@ -267,6 +268,11 @@ export interface TargetSpec {
   liftedWhenKicked?: boolean;
   /** For spells: "target creature spell" / "target noncreature spell". */
   spellKind?: "creature" | "noncreature" | "artifactOrCreature";
+  /** For spells: "target colorless spell" / only spells of this color (W, U, B, R or G). */
+  colorless?: boolean;
+  spellColor?: string;
+  /** "Target triggered ability or colorless spell": a triggered ability on the stack counts too. */
+  orTriggered?: boolean;
   /** The printed phrase, shown to players, e.g. "target creature an opponent controls". */
   label: string;
   /** What the spell or ability that targets is (its colors, artifact or not): protection can stop it from targeting. */
@@ -533,6 +539,8 @@ export interface ParsedCard {
   /** "Flashback {2}{R}": the cost to cast this from the graveyard. "Flashback—Sacrifice a Mountain": no mana ("{0}"), and a permanent of that type is sacrificed. */
   flashback?: string;
   flashbackSacrifice?: string;
+  /** "Replicate {1}": paid any number of times as the spell is cast, each time for a copy of it (with its own targets). */
+  replicate?: string;
   /** "Plot {1}{R}": pay this to exile the card from your hand; it may be cast without paying its mana cost, as a sorcery, on a later turn. */
   plot?: string;
   /** A shock land: "As ~ enters, you may pay 2 life. If you don't, it enters tapped." The life. */
@@ -610,7 +618,8 @@ export interface ParsedCard {
   lifeGainDouble?: boolean;
   /** "~ costs {1} less to cast if you control a Wizard" / "for each spell your opponents have cast this turn" / "if you control a creature with flying". */
   /** `ifTargetsTapped`: "if it targets a tapped permanent" (so the cost depends on the targets chosen). */
-  costReduction?: { n: number; ifYardCreatures?: number; ifTargetsAttacking?: boolean; ifControl?: string; ifFlyer?: boolean; perOpponentSpell?: boolean; per?: CountSpec; ifTargetsTapped?: boolean };
+  /** `ifTargetsColor`: "if it targets a blue spell" (the color's letter). */
+  costReduction?: { n: number; ifYardCreatures?: number; ifTargetsAttacking?: boolean; ifControl?: string; ifFlyer?: boolean; perOpponentSpell?: boolean; per?: CountSpec; ifTargetsTapped?: boolean; ifTargetsColor?: string };
   /** Permanents that make your spells cost less: "Goblin spells you cast cost {1} less", "during turns other than yours...". */
   costMods?: { n: number; subtype?: string; minMV?: number; otherTurn?: boolean; /** "...cost {X} less to cast, where X is ~'s power" */ nFromPower?: boolean; instantSorceryOnly?: boolean }[];
   /** "Spells you cast with mana value 5 or greater can't be countered." */

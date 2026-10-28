@@ -25,7 +25,7 @@ import {
   subtypesOf,
   tapPerm,
 } from "../core.js";
-import type { CardFilter, TargetChoice, TargetSpec } from "../effects.js";
+import type { CardFilter, Effect, TargetChoice, TargetSpec } from "../effects.js";
 import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payForAbility, payMana, withDelve, withPhyrexianLife, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
@@ -58,6 +58,7 @@ export function castCostOf(state: GameState, player: PlayerId, def: CardDef, tar
     if (own.ifYardCreatures !== undefined && me.graveyard.filter((c) => getCard(state, c.defId).type === "creature").length >= own.ifYardCreatures) less += own.n;
     if (own.ifTargetsAttacking && targets?.some((t) => t.kind === "permanent" && state.combat?.attackers.some((a) => a.attacker === t.iid))) less += own.n;
     if (own.ifTargetsTapped && targets?.some((t) => t.kind === "permanent" && findPermanentOrNull(state, t.iid)?.perm.tapped)) less += own.n;
+    if (own.ifTargetsColor && targets?.some((t) => t.kind === "stack" && targetedSpellColors(state, t.id).includes(own.ifTargetsColor!))) less += own.n;
   }
   for (const perm of me.battlefield) {
     for (const mod of parseCard(getCard(state, perm.card.defId)).costMods ?? []) {
@@ -69,6 +70,22 @@ export function castCostOf(state: GameState, player: PlayerId, def: CardDef, tar
     }
   }
   return less > 0 ? { ...base, generic: Math.max(0, base.generic - less) } : base;
+}
+
+const targetedSpellColors = (state: GameState, id: string): string[] => {
+  const item = state.stack.find((i) => i.id === id);
+  return item?.kind === "spell" ? (getCard(state, item.card.defId).colors ?? []) : [];
+};
+
+/** Replicate: a copy of the spell for each payment, on the stack above it, each with its own targets. Copies aren't cast, so nothing triggers on them. */
+function pushReplicas(state: GameState, player: PlayerId, card: CardInstance, effects: Effect[], specs: TargetSpec[], copyTargets: TargetChoice[], events: GameEvent[]): void {
+  const copies = specs.length > 0 ? copyTargets.length / specs.length : 0;
+  for (let i = 0; i < copies; i++) {
+    const targets = copyTargets.slice(i * specs.length, (i + 1) * specs.length);
+    state.stack.push({ kind: "spell", id: newId(state), controller: player, card: { ...card, iid: `copy${state.nextId++}` }, effects, targets, specs, x: 0, copy: true });
+    queueWard(state, state.stack[state.stack.length - 1]);
+  }
+  if (copies > 0) events.push({ type: "effect", text: `${getCard(state, card.defId).name} is copied ${copies === 1 ? "once" : `${copies} times`} (replicate).` });
 }
 
 /** Targets with the limit that teamwork waives taken off ("exile target creature with mana value 3 or less. If cast using teamwork, instead exile target creature"). */
@@ -86,7 +103,7 @@ export function delveChoice(state: GameState, player: PlayerId, spellIid: string
 /** Untapped creatures that could be tapped to pay teamwork (summoning-sick ones too: it is not a {T} cost). */
 export const teamworkers = (state: GameState, player: PlayerId) => state.players[player].battlefield.filter((p) => !p.tapped && isCreature(state, p));
 
-export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false, teamwork?: string[], phyrexianLife = 0, delve?: string[]): string | null {
+export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false, teamwork?: string[], phyrexianLife = 0, delve?: string[], replicate = 0): string | null {
   const me = state.players[player];
   // A prepared creature: a copy of its spell is cast (`iid` is the creature).
   const prepared = from === "prepared" ? me.battlefield.find((p) => p.card.iid === iid && p.prepared) : undefined;
@@ -152,7 +169,10 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   } else if (modes && modes.length > 0) {
     return `${def.name} has no modes.`;
   }
-  const targetError = checkTargets(state, specs, targets, player, def.name);
+  // Replicate: each copy has targets of its own, chosen after the spell's.
+  if (!Number.isInteger(replicate) || replicate < 0 || (replicate > 0 && !parsed.replicate)) return `${def.name} has no replicate.`;
+  const copySpecs = Array.from({ length: replicate }, () => specs).flat();
+  const targetError = checkTargets(state, [...specs, ...copySpecs], targets, player, def.name);
   if (targetError) return targetError;
 
   if (!Number.isInteger(x) || x < 0) return "X must be a whole number, 0 or more.";
@@ -187,7 +207,8 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
     if (hit && hit.owner.id !== player) tax += parseCard(getCard(state, hit.perm.card.defId)).targetTax ?? 0;
   }
   const taxed = tax > 0 ? { ...cost, generic: cost.generic + tax } : cost;
-  const extra = [kicked ? kickerCost : null, payInstead].filter((c): c is NonNullable<typeof c> => c !== null);
+  const replicateCosts = replicate > 0 ? Array.from({ length: replicate }, () => parseManaCost(parsed.replicate!)) : [];
+  const extra = [kicked ? kickerCost : null, payInstead, ...replicateCosts].filter((c): c is NonNullable<typeof c> => c !== null);
   const full = withPhyrexianLife(withX(extra.reduce(addCosts, taxed), x), phyrexianLife);
   if (!full) return `${def.name} doesn't have that many Phyrexian mana symbols to pay with life.`;
   const delved = parsed.delve ? (delve ? [...new Set(delve)] : delveChoice(state, player, iid, full.generic)) : [];
@@ -235,13 +256,15 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   if (prepared) prepared.prepared = undefined; // casting the copy unprepares it
   const card = prepared ? { ...taken, iid: `copy${state.nextId++}` } : taken;
   for (const p of teamed) queueTriggers(state, p.card, player, "teamworkTap");
-  state.stack.push({ kind: "spell", id: newId(state), controller: player, card, effects, targets, specs, x: cost.x ? x : (sacrificedPower ?? x), ...(wasKicked ? { kicked: true } : {}), ...(haste ? { haste } : {}), ...(from === "graveyard" && !fromYard ? { flashback: true } : {}), ...(prepared ? { copy: true } : {}), ...(warp ? { warped: true } : {}) });
+  const own = targets.slice(0, specs.length);
+  state.stack.push({ kind: "spell", id: newId(state), controller: player, card, effects, targets: own, specs, x: cost.x ? x : (sacrificedPower ?? x), ...(wasKicked ? { kicked: true } : {}), ...(haste ? { haste } : {}), ...(from === "graveyard" && !fromYard ? { flashback: true } : {}), ...(prepared ? { copy: true } : {}), ...(warp ? { warped: true } : {}) });
   events.push(
     def.type === "creature"
       ? { type: "creatureCast", player, iid: card.iid, tapped: paid.tap }
-      : { type: "spellCast", player, iid: card.iid, tapped: paid.tap, targets },
+      : { type: "spellCast", player, iid: card.iid, tapped: paid.tap, targets: own },
   );
   queueWard(state, state.stack[state.stack.length - 1]);
+  pushReplicas(state, player, card, effects, specs, targets.slice(specs.length), events);
   // Prowess and friends: "whenever you cast a noncreature spell" ("...a noncreature or Dragon spell" counts Dragon creature spells too).
   const spellTypes = ((def.typeLine ?? "").split(" // ")[0].split("—")[1] ?? "").toLowerCase().split(/\s+/);
   for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "noncreatureSpell", def.type === "creature" ? { subtypes: spellTypes } : undefined);

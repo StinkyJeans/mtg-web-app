@@ -52,7 +52,7 @@ export type Action =
   | { type: "shuffleDeck" } // before keeping or mulliganing: shuffle the OTHER player's library
   | { type: "playLand"; iid: string }
   | { type: "castCreature"; iid: string }
-  | { type: "castSpell"; iid: string; targets?: TargetChoice[]; x?: number; kicked?: boolean; from?: "graveyard" | "exile" | "prepared"; modes?: number[]; sacrifice?: string; warp?: boolean; /** Teamwork: the creatures tapped as an additional cost. */ teamwork?: string[]; /** Phyrexian symbols paid with 2 life each even where mana could pay them. */ phyrexianLife?: number; /** Delve: the graveyard cards exiled to pay for generic mana (left out: the engine chooses). */ delve?: string[] }
+  | { type: "castSpell"; iid: string; targets?: TargetChoice[]; x?: number; kicked?: boolean; from?: "graveyard" | "exile" | "prepared"; modes?: number[]; sacrifice?: string; warp?: boolean; /** Teamwork: the creatures tapped as an additional cost. */ teamwork?: string[]; /** Phyrexian symbols paid with 2 life each even where mana could pay them. */ phyrexianLife?: number; /** Delve: the graveyard cards exiled to pay for generic mana (left out: the engine chooses). */ delve?: string[]; /** Replicate: how many times it is paid (the targets of each copy follow the spell's). */ replicate?: number }
   | { type: "activateAbility"; iid: string; index: number; targets?: TargetChoice[]; payWith?: string; /** The X of a cost like "{X}{R}": what the player chose to pay. */ x?: number; /** Phyrexian symbols paid with 2 life each even where mana could pay them. */ phyrexianLife?: number }
   | { type: "crew"; iid: string } // crew a Vehicle: then choose the creatures to tap
   | { type: "cycle"; iid: string } // cycle a card from hand (pay its cycling cost, discard it, draw a card)
@@ -229,7 +229,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
 
     case "castCreature":
     case "castSpell": {
-      const error = castSpell(next, player, action.iid, action.type === "castSpell" ? (action.targets ?? []) : [], events, action.type === "castSpell" ? action.x : 0, action.type === "castSpell" ? action.kicked === true : false, action.type === "castSpell" ? (action.from ?? "hand") : me.hand.some((c) => c.iid === action.iid) ? "hand" : "exile", action.type === "castSpell" ? action.modes : undefined, action.type === "castSpell" ? action.sacrifice : undefined, action.type === "castSpell" && action.warp === true, action.type === "castSpell" ? action.teamwork : undefined, action.type === "castSpell" ? action.phyrexianLife : 0, action.type === "castSpell" ? action.delve : undefined);
+      const error = castSpell(next, player, action.iid, action.type === "castSpell" ? (action.targets ?? []) : [], events, action.type === "castSpell" ? action.x : 0, action.type === "castSpell" ? action.kicked === true : false, action.type === "castSpell" ? (action.from ?? "hand") : me.hand.some((c) => c.iid === action.iid) ? "hand" : "exile", action.type === "castSpell" ? action.modes : undefined, action.type === "castSpell" ? action.sacrifice : undefined, action.type === "castSpell" && action.warp === true, action.type === "castSpell" ? action.teamwork : undefined, action.type === "castSpell" ? action.phyrexianLife : 0, action.type === "castSpell" ? action.delve : undefined, action.type === "castSpell" ? (action.replicate ?? 0) : 0);
       if (error) return fail(error);
       break;
     }

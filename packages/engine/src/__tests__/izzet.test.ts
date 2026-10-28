@@ -15,8 +15,8 @@ const DEFS: Record<string, CardDef> = {
   island: { id: "island", name: "Island", type: "land", cost: 0, typeLine: "Basic Land — Island" },
   plains: { id: "plains", name: "Plains", type: "land", cost: 0, typeLine: "Basic Land — Plains" },
   bear: card("bear", "Bear", "creature", "{1}{G}", "Creature — Bear", "", [], { power: 2, toughness: 2 }),
-  bolt: card("bolt", "Lightning Bolt", "instant", "{R}", "Instant", "Lightning Bolt deals 3 damage to any target."),
-  preordain: card("preordain", "Preordain", "sorcery", "{U}", "Sorcery", "Scry 2, then draw a card.", ["scry"]),
+  bolt: card("bolt", "Lightning Bolt", "instant", "{R}", "Instant", "Lightning Bolt deals 3 damage to any target.", [], { colors: ["R"] }),
+  preordain: card("preordain", "Preordain", "sorcery", "{U}", "Sorcery", "Scry 2, then draw a card.", ["scry"], { colors: ["U"] }),
   swiftspear: card("swiftspear", "Monastery Swiftspear", "creature", "{R}", "Creature — Human Monk", "Haste\nProwess (Whenever you cast a noncreature spell, this creature gets +1/+1 until end of turn.)", ["haste", "prowess"], { power: 1, toughness: 2 }),
   mesa: card("mesa", "Arid Mesa", "land", "", "Land", "{T}, Pay 1 life, Sacrifice Arid Mesa: Search your library for a Mountain or Plains card, put it onto the battlefield, then shuffle."),
   vents: card("vents", "Steam Vents", "land", "", "Land — Island Mountain", "({T}: Add {U} or {R}.)\nAs Steam Vents enters, you may pay 2 life. If you don't, it enters tapped."),
@@ -30,6 +30,11 @@ const DEFS: Record<string, CardDef> = {
   cutter: card("cutter", "Cori-Steel Cutter", "artifact", "{1}{R}", "Artifact — Equipment", "Equipped creature gets +1/+1 and has trample and haste.\nFlurry — Whenever you cast your second spell each turn, create a 1/1 white Monk creature token with prowess. You may attach Cori-Steel Cutter to it.\nEquip {1}{R}", ["flurry", "equip"]),
   bauble: card("bauble", "Mishra's Bauble", "artifact", "{0}", "Artifact", "{T}, Sacrifice Mishra's Bauble: Look at the top card of target player's library. Draw a card at the beginning of the next turn's upkeep."),
   crypt: card("crypt", "Tormod's Crypt", "artifact", "{0}", "Artifact", "{T}, Sacrifice Tormod's Crypt: Exile target player's graveyard."),
+  heat: card("heat", "Unholy Heat", "instant", "{R}", "Instant", "Unholy Heat deals 2 damage to target creature or planeswalker.\nDelirium — Unholy Heat deals 6 damage instead if there are four or more card types among cards in your graveyard.", ["delirium"]),
+  meltdown: card("meltdown", "Meltdown", "sorcery", "{X}{R}", "Sorcery", "Destroy each artifact with mana value X or less.", [], { cost: 1 }),
+  dispute: card("dispute", "Mystical Dispute", "instant", "{2}{U}", "Instant", "This spell costs {2} less to cast if it targets a blue spell.\nCounter target spell unless its controller pays {3}."),
+  consign: card("consign", "Consign to Memory", "instant", "{U}", "Instant", "Replicate {1} (When you cast this spell, copy it for each time you paid its replicate cost. You may choose new targets for the copies.)\nCounter target triggered ability or colorless spell.", ["replicate"]),
+  wall: card("wall", "Wall", "creature", "{2}", "Creature — Wall", "", [], { power: 0, toughness: 6 }),
 };
 
 const perm = (iid: string, defId: string, owner: PlayerId = "p1") => ({ card: { iid, defId, owner } as CardInstance, tapped: false, summoningSick: false, damage: 0 });
@@ -249,4 +254,66 @@ test("Tormod's Crypt exiles a player's graveyard", () => {
   g.players.p2.graveyard = cards("p2", "gy", ["bolt", "bear"]);
   g = settle(act(g, "p1", { type: "activateAbility", iid: "m0", index: 0, targets: [{ kind: "player", id: "p2" }] }));
   assert.deepEqual([g.players.p2.graveyard.length, g.players.p2.exile.length], [0, 2]);
+});
+
+test("the sideboard cards are understood: Unholy Heat, Meltdown, Mystical Dispute, Consign to Memory", () => {
+  for (const id of ["heat", "meltdown", "dispute", "consign"]) assert.equal(isSupportedCard(DEFS[id]), true, id);
+});
+
+test("Unholy Heat deals 2 damage, or 6 with delirium", () => {
+  let g = setup(["heat"], [], ["wall"]);
+  g = cast(g, "h0", [on("t0")]);
+  assert.equal(find(g, "t0")?.damage, 2);
+  let h = delirious(setup(["heat"], [], ["wall"]));
+  h = cast(h, "h0", [on("t0")]);
+  assert.equal(find(h, "t0"), undefined, "6 damage kills the 0/6");
+});
+
+test("Meltdown destroys each artifact with mana value X or less, on both sides", () => {
+  let g = setup(["meltdown"], ["bauble", "cutter"], ["crypt"]);
+  g = cast(g, "h0", [], { x: 1 });
+  assert.deepEqual([!!find(g, "m0"), !!find(g, "m1"), !!find(g, "t0")], [false, true, false], "Bauble and Crypt (0) go, Cori-Steel Cutter (2) stays");
+});
+
+/** p1 casts `spell` (with these targets); p2, with only the lands given, holds priority with `answer` in hand. */
+function respond(spell: string, targets: unknown[], answer: string, theirLands: string[]) {
+  const g = setup([spell], ["swiftspear", "slickshot"], theirLands, ["mountain", "island"]);
+  g.players.p2.hand = cards("p2", "o", [answer]);
+  return act(g, "p1", { type: "castSpell", iid: "h0", targets: targets as never });
+}
+
+test("Mystical Dispute costs {U} against a blue spell, {2}{U} against any other", () => {
+  let g = respond("preordain", [], "dispute", ["island"]);
+  const spell = g.stack.find((i) => i.kind === "spell")!;
+  assert.deepEqual(getCastable(g, "p2").map((c) => c.specs[0].spellColor), ["U"], "with one land only a blue spell can be its target");
+  g = settle(act(g, "p2", { type: "castSpell", iid: "o0", targets: [{ kind: "stack", id: spell.id }] }));
+  assert.equal(g.players.p1.graveyard.some((c) => c.defId === "preordain"), true, "countered: p1 can't pay {3}");
+  const h = respond("bolt", [{ kind: "player", id: "p2" }], "dispute", ["island"]);
+  assert.deepEqual(getCastable(h, "p2"), [], "Lightning Bolt is red: the full {2}{U} can't be paid");
+});
+
+test("Consign to Memory counters a triggered ability, or a colorless spell", () => {
+  let g = respond("bolt", [{ kind: "player", id: "p2" }], "consign", ["island"]);
+  const triggers = g.stack.filter((i) => i.kind === "ability");
+  assert.equal(triggers.length, 2, "prowess and Slickshot Show-Off");
+  const prowess = triggers.find((i) => i.kind === "ability" && i.sourceName === "Monastery Swiftspear")!;
+  assert.equal(getCastable(g, "p2").length, 1);
+  g = settle(act(g, "p2", { type: "castSpell", iid: "o0", targets: [{ kind: "stack", id: prowess.id }] }));
+  assert.deepEqual([powerOf(g, find(g, "m0")!), powerOf(g, find(g, "m1")!), g.players.p2.life], [1, 3, 17], "no prowess; Slickshot's +2/+0 and the Bolt resolve");
+  let h = respond("bauble", [], "consign", ["island"]);
+  const bauble = h.stack.find((i) => i.kind === "spell")!;
+  h = settle(act(h, "p2", { type: "castSpell", iid: "o0", targets: [{ kind: "stack", id: bauble.id }] }));
+  assert.equal(h.players.p1.graveyard.some((c) => c.defId === "bauble"), true, "the colorless Bauble is countered");
+});
+
+test("Consign to Memory's replicate: pay {1} more for a copy with a target of its own", () => {
+  let g = respond("bolt", [{ kind: "player", id: "p2" }], "consign", ["island", "island"]);
+  assert.deepEqual(getCastable(g, "p2")[0].replicate, { cost: "{1}", max: 1 });
+  const [a, b] = g.stack.filter((i) => i.kind === "ability");
+  const r = applyAction(g, "p2", { type: "castSpell", iid: "o0", targets: [{ kind: "stack", id: a.id }, { kind: "stack", id: b.id }], replicate: 1 });
+  assert.ok(r.ok, r.ok ? "" : r.error);
+  assert.equal(r.events.filter((e) => e.type === "resolved" && e.name === "Consign to Memory").length, 2, "the spell and its copy");
+  g = settle(r.state);
+  assert.deepEqual([powerOf(g, find(g, "m0")!), powerOf(g, find(g, "m1")!), g.players.p2.life], [1, 1, 17], "both triggers countered");
+  assert.equal(g.players.p2.graveyard.filter((c) => c.defId === "consign").length, 1, "the copy goes nowhere");
 });

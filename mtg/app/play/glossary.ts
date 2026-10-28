@@ -36,6 +36,7 @@ const RULES: Rule[] = [
   { match: /\bferocious\b/i, help: "Ferocious: the extra effect happens only if you control a creature with power 4 or greater when it resolves." },
   { match: /\bdelirium\b/i, help: "Delirium: the bonus applies while there are four or more card types (artifact, creature, instant, land, sorcery...) among cards in your graveyard." },
   { match: /\bplot\b|\bplotted\b/i, help: "Plot: pay the plot cost in your main phase to exile this card from your hand face up. On a later turn you may cast it as a sorcery without paying its mana cost." },
+  { match: /\breplicate\b/i, help: "Replicate: when you cast it, you may pay the replicate cost any number of times. Each payment makes a copy of the spell, with a target of its own. Copies aren't cast, so they don't trigger prowess." },
   { match: /\bflurry\b/i, help: "Flurry: triggers when you cast your second spell each turn." },
   { match: /you may pay \d+ life\. if you don't, it enters tapped/i, help: "Shock land: as it enters you choose to pay 2 life to have it untapped, or let it enter tapped." },
   { match: /search your library for an? [a-z ]*(plains|island|swamp|mountain|forest) card/i, help: "Fetch land: pay 1 life and sacrifice it to put a land of those types from your library onto the battlefield (a shock land counts: it has the types). Then the library is shuffled." },

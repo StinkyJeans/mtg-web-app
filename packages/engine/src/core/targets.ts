@@ -102,12 +102,15 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
     case "none":
       return spec.optional === true;
     case "stack": {
-      const item = state.stack.find((i) => i.id === choice.id && i.kind === "spell" && i.id !== ignoreStackId);
-      if (!item || item.kind !== "spell") return false;
+      const item = state.stack.find((i) => i.id === choice.id && i.id !== ignoreStackId);
+      if (!item) return false;
+      if (item.kind === "ability") return spec.orTriggered === true && item.trigger === true;
       if (spec.orSpell) return true; // "target spell or permanent": any spell on the stack
       if (spec.kind !== "spell") return false;
       const def = getCard(state, item.card.defId);
       if (!mvFits(spec, def.cost + (manaCostOf(def)?.x ?? 0) * item.x)) return false; // on the stack, X is the number chosen
+      if (spec.colorless && (def.colors ?? []).length > 0) return false;
+      if (spec.spellColor && !(def.colors ?? []).includes(spec.spellColor)) return false;
       if (!spec.spellKind) return true;
       const creature = def.type === "creature";
       return spec.spellKind === "creature" ? creature : spec.spellKind === "noncreature" ? !creature : creature || isArtifactDef(def);

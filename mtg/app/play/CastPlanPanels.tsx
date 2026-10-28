@@ -73,7 +73,7 @@ function DelvePanel({ state, actor, plan, onAdvance, onCancel }: Pick<Props, "st
   );
 }
 
-/** The question a spell being cast still needs answered, in order: modes, warp, the kicker (or offspring, or blight), X, delve, then a creature to sacrifice or a card to discard. */
+/** The question a spell being cast still needs answered, in order: modes, warp, the kicker (or offspring, or blight), X, delve, replicate, then a creature to sacrifice or a card to discard. */
 export default function CastPlanPanels({ state, actor, plan, modePick, onModePick, xValue, onX, onAdvance, onCancel }: Props) {
   const c = plan.castable;
   const teamworkDone = c.teamwork === undefined || plan.teamwork !== undefined;
@@ -162,6 +162,19 @@ export default function CastPlanPanels({ state, actor, plan, modePick, onModePic
     return <XPanel name={plan.name} max={c.maxX ?? 0} x={xValue} onChange={(x) => onX(Math.min(c.maxX ?? 0, Math.max(0, x)))} onCast={() => onAdvance({ ...plan, x: xValue })} onCancel={onCancel} />;
   }
   if (c.delve && plan.delve === undefined) return <DelvePanel state={state} actor={actor} plan={plan} onAdvance={onAdvance} onCancel={onCancel} />;
+  if (c.replicate && c.replicate.max > 0 && plan.replicate === undefined) {
+    const each = c.replicate.cost;
+    return (
+      <ChoicePanel
+        title={`${plan.name}: replicate? Pay ${each} more for each copy; each copy gets a target of its own`}
+        options={Array.from({ length: c.replicate.max + 1 }, (_, n) => ({
+          label: n === 0 ? "No copies" : <>{n === 1 ? "1 copy" : `${n} copies`}: <ManaText text={each.repeat(n)} /> more</>,
+          onPick: () => onAdvance({ ...plan, replicate: n }),
+        }))}
+        onCancel={onCancel}
+      />
+    );
+  }
   if (plan.sacrifice !== undefined) return null;
   // "Flashback—Sacrifice a Mountain": the permanent is the flashback cost, not an additional cost.
   if (c.sacrifice && c.zone === "graveyard") {

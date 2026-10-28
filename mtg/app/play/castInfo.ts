@@ -1,7 +1,7 @@
-import { castCostOf, manaSourcesToConfirm, parseCard, parseManaCost, payForAbility, payMana, withDelve, withPhyrexianLife } from "@mtg/engine";
+import { addCosts, castCostOf, manaSourcesToConfirm, parseCard, parseManaCost, payForAbility, payMana, withDelve, withPhyrexianLife } from "@mtg/engine";
 import type { Action, CardDef, Castable, GameState, ManaColor, ManaCost, PlayerId } from "@mtg/engine";
 
-/** A spell being cast step by step: teamwork, modes, then the kicker, then X, then delve, then an additional cost, then targets. */
+/** A spell being cast step by step: teamwork, modes, then the kicker, then X, then delve, then replicate, then an additional cost, then targets. */
 export interface CastPlan {
   iid: string;
   name: string;
@@ -17,6 +17,8 @@ export interface CastPlan {
   warp?: boolean;
   /** Delve: the graveyard cards exiled to pay for it ([] = none). */
   delve?: string[];
+  /** Replicate: how many copies are paid for (0 = none). */
+  replicate?: number;
 }
 
 /** The mana cost of a spell or ability being used, and for a permanent's ability the card (paid like the engine pays it). */
@@ -27,7 +29,10 @@ function costOf(state: GameState, action: Action, who: PlayerId): { cost: ManaCo
     const prepared = action.type === "castSpell" && action.from === "prepared" ? me.battlefield.find((p) => p.card.iid === action.iid)?.prepared : undefined;
     const card = (fromYard ? me.graveyard : me.hand).find((c) => c.iid === action.iid);
     const def = prepared ? state.cards[prepared] : card ? state.cards[card.defId] : undefined;
-    const cost = def ? (fromYard ? parseManaCost(parseCard(def).flashback ?? "") : castCostOf(state, who, def, action.type === "castSpell" ? action.targets : undefined)) : null;
+    const printed = def ? (fromYard ? parseManaCost(parseCard(def).flashback ?? "") : castCostOf(state, who, def, action.type === "castSpell" ? action.targets : undefined)) : null;
+    // Replicate: its cost once more for each copy.
+    const each = def && action.type === "castSpell" && action.replicate ? parseManaCost(parseCard(def).replicate ?? "") : null;
+    const cost = printed && each ? Array.from({ length: action.type === "castSpell" ? (action.replicate ?? 0) : 0 }, () => each).reduce(addCosts, printed) : printed;
     return { cost: cost && action.type === "castSpell" && action.delve ? withDelve(cost, action.delve.length) : cost, ability: null };
   }
   if (action.type !== "activateAbility") return { cost: null, ability: null };

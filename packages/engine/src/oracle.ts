@@ -2,7 +2,7 @@ import type { ParsedCard, TargetSpec } from "./effects.js";
 import { keywordsSupported } from "./keywords.js";
 import { landManaColors, manaAbilityUsesChosenColor, manaCostOf, parseManaCost } from "./mana.js";
 import type { CardDef } from "./types.js";
-import { normalizeText, parseCount, toNumber } from "./oracle/words.js";
+import { COLOR_OF, normalizeText, parseCount, toNumber } from "./oracle/words.js";
 import { newCtx } from "./oracle/targets.js";
 import { parseClause, parseEffectText, parseModes } from "./oracle/effectText.js";
 import { parseCreatureLine } from "./oracle/lines.js";
@@ -168,6 +168,16 @@ export function parseCard(def: CardDef): ParsedCard {
       const ifTapped = /^~ costs \{(\d+)\} less to cast if it targets a tapped (?:permanent|creature)\.?$/.exec(line);
       if (ifTapped) {
         result.costReduction = { n: Number(ifTapped[1]), ifTargetsTapped: true };
+        return false;
+      }
+      const ifColor = /^~ costs \{(\d+)\} less to cast if it targets an? (white|blue|black|red|green) spell\.?$/.exec(line);
+      if (ifColor) {
+        result.costReduction = { n: Number(ifColor[1]), ifTargetsColor: COLOR_OF[ifColor[2]] };
+        return false;
+      }
+      const replicate = /^replicate ((?:\{[^}]+\})+)\.?$/.exec(line);
+      if (replicate) {
+        result.replicate = replicate[1];
         return false;
       }
       const ifFlyer = /^~ costs \{(\d+)\} less to cast if you control a creature with flying\.?$/.exec(line);

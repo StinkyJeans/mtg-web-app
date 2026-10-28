@@ -279,6 +279,14 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       effects.push({ type: "ifNow", cond: "ferocious", then });
       continue;
     }
+    // Delirium: "~ deals 6 damage instead if there are four or more card types among cards in your graveyard."
+    const deliriumMore = /^(?:delirium — )?~ deals (\d+) damage instead if there are four or more card types among cards in your graveyard$/.exec(sentence);
+    if (deliriumMore) {
+      const previous = effects.slice(lastGroup);
+      if (previous.length !== 1 || previous[0].type !== "damage") return null;
+      effects.splice(lastGroup, 1, { type: "ifNow", cond: "delirium", then: [{ ...previous[0], amount: Number(deliriumMore[1]) }], otherwise: previous });
+      continue;
+    }
     // Delirium: "If there are four or more card types among cards in your graveyard, that creature gains double strike until end of turn."
     const delirium = /^(?:delirium — )?if there are four or more card types among cards in your graveyard, (.+)$/.exec(sentence);
     if (delirium) {
