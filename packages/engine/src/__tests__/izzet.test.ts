@@ -35,6 +35,7 @@ const DEFS: Record<string, CardDef> = {
   dispute: card("dispute", "Mystical Dispute", "instant", "{2}{U}", "Instant", "This spell costs {2} less to cast if it targets a blue spell.\nCounter target spell unless its controller pays {3}."),
   consign: card("consign", "Consign to Memory", "instant", "{U}", "Instant", "Replicate {1} (When you cast this spell, copy it for each time you paid its replicate cost. You may choose new targets for the copies.)\nCounter target triggered ability or colorless spell.", ["replicate"]),
   wall: card("wall", "Wall", "creature", "{2}", "Creature — Wall", "", [], { power: 0, toughness: 6 }),
+  recall: card("recall", "Recall the Spell", "instant", "{U}", "Instant", "Return target spell or permanent to its owner's hand.", [], { colors: ["U"] }),
 };
 
 const perm = (iid: string, defId: string, owner: PlayerId = "p1") => ({ card: { iid, defId, owner } as CardInstance, tapped: false, summoningSick: false, damage: 0 });
@@ -215,6 +216,17 @@ test("Lava Dart's flashback sacrifices a Mountain instead of paying mana", () =>
   assert.equal(g.players.p2.life, 19);
   assert.equal(find(g, "l0"), undefined, "the Mountain is gone");
   assert.ok(g.players.p1.exile.some((c) => c.iid === "y0"), "a flashback spell is exiled");
+});
+
+test("a flashback spell returned to its owner's hand is exiled instead, so it can't be cast again", () => {
+  let g = setup([], [], ["island"], ["mountain", "mountain"]);
+  g.players.p1.graveyard = cards("p1", "y", ["dart"]);
+  g.players.p2.hand = cards("p2", "o", ["recall"]);
+  g = act(g, "p1", { type: "castSpell", iid: "y0", targets: [{ kind: "player", id: "p2" }], from: "graveyard", sacrifice: "l0" });
+  const dart = g.stack.find((i) => i.kind === "spell")!;
+  g = settle(act(g, "p2", { type: "castSpell", iid: "o0", targets: [{ kind: "stack", id: dart.id }] }));
+  assert.deepEqual([g.players.p1.exile.some((c) => c.iid === "y0"), g.players.p1.hand.some((c) => c.iid === "y0"), g.players.p2.life], [true, false, 20]);
+  assert.deepEqual(getCastable(g, "p1"), []);
 });
 
 test("flurry: the second spell each turn makes a 1/1 Monk with prowess, and Cori-Steel Cutter may go on it", () => {

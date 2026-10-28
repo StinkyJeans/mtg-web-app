@@ -246,7 +246,8 @@ export function makeTokenCopy(state: GameState, def: CardDef, controller: Player
 
 /** Removes a spell or ability from the stack without it resolving. A countered spell goes to its owner's graveyard (exile, for flashback). */
 /**
- * A spell that resolved or left the stack goes to its owner's graveyard (exile after flashback, or the hand). A copy simply ceases to exist.
+ * A spell that resolved or left the stack goes to its owner's graveyard (or the hand). A copy simply ceases to exist.
+ * A flashback spell is exiled wherever it would go, even back to the hand (rule 702.34a).
  * An Adventure that resolved (`to` "adventure") is exiled, and its owner may cast the creature from there.
  */
 export function spellLeavesStack(state: GameState, item: Extract<StackItem, { kind: "spell" }>, to: "graveyard" | "hand" | "adventure" = "graveyard"): void {
@@ -258,7 +259,7 @@ export function spellLeavesStack(state: GameState, item: Extract<StackItem, { ki
     owner.mayPlay = [...(owner.mayPlay ?? []), { iid: card.iid, source: "adventure", always: true }];
     return;
   }
-  owner[to === "hand" ? "hand" : item.flashback ? "exile" : "graveyard"].push(card);
+  owner[item.flashback ? "exile" : to === "hand" ? "hand" : "graveyard"].push(card);
 }
 
 export function counterStackItem(state: GameState, item: StackItem, events: GameEvent[], by?: string): void {
