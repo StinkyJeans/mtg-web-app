@@ -14,9 +14,9 @@ export interface Account {
   avatar?: string;
 }
 
-// A token that was just checked is trusted for a minute: joining the lobby and then a room asks twice, and a busy
-// server would otherwise ask Supabase (which limits how often it can be asked) for every single join.
-const TOKEN_TRUST_MS = 60_000;
+// A token that was just checked is trusted for a while (never past its own expiry): opening the page asks once, and every room
+// opened or joined after that would otherwise wait for two round trips to Supabase (which also limits how often it can be asked).
+const TOKEN_TRUST_MS = 10 * 60_000;
 const MAX_TRUSTED = 5000;
 const trusted = new Map<string, { account: Account; until: number }>();
 const asking = new Map<string, Promise<Account | null>>(); // the same token asked twice at once is asked once
@@ -43,20 +43,26 @@ export async function accountFromToken(token: unknown): Promise<Account | null> 
 
 async function askSupabase(token: string): Promise<Account | null> {
   if (!URL || !PUBLISHABLE) throw new Error("The server has no Supabase settings (NEXT_PUBLIC_SUPABASE_URL / _PUBLISHABLE_KEY).");
-  const res = await fetch(`${URL}/auth/v1/user`, { headers: { apikey: PUBLISHABLE, authorization: `Bearer ${token}` } });
+  // The token says who it is for (and when it runs out); Supabase says whether to believe it. The nickname is asked for at the same
+  // time as that answer, for the account the token names, and used only if Supabase agrees: one round trip where there were two.
+  const claims = claimsOf(token);
+  const asking = fetch(`${URL}/auth/v1/user`, { headers: { apikey: PUBLISHABLE, authorization: `Bearer ${token}` } });
+  const nickname = claims.sub && /^[0-9a-f-]{36}$/i.test(claims.sub)
+    ? fetch(`${URL}/rest/v1/profiles?id=eq.${claims.sub}&select=nickname`, { headers: { apikey: SECRET } }).then((r) => (r.ok ? r.json() : [])).catch(() => [])
+    : Promise.resolve([]);
+  const res = await asking;
   if (!res.ok) return null;
   const user = (await res.json()) as { id?: string; user_metadata?: { username?: string; avatar?: string | number | null }; email?: string };
   if (!user.id) return null;
   let username = user.user_metadata?.username ?? user.email?.split("@")[0] ?? "player";
   // a player's nickname (if they chose one) is the name shown in rooms and matches; the login name still identifies the account
-  try {
-    const named = await fetch(`${URL}/rest/v1/profiles?id=eq.${user.id}&select=nickname`, { headers: { apikey: SECRET } });
-    if (named.ok) {
-      const nick = ((await named.json()) as { nickname?: string | null }[])[0]?.nickname;
-      if (nick) username = nick;
-    }
-  } catch {
-    // no nickname available: the login name is used
+  if (user.id === claims.sub) {
+    const nick = ((await nickname) as { nickname?: string | null }[])[0]?.nickname;
+    if (nick) username = nick;
+  } else {
+    const named = await fetch(`${URL}/rest/v1/profiles?id=eq.${user.id}&select=nickname`, { headers: { apikey: SECRET } }).catch(() => null);
+    const nick = named?.ok ? ((await named.json()) as { nickname?: string | null }[])[0]?.nickname : null;
+    if (nick) username = nick;
   }
   // the picture: a version number in the profile points at the file in storage (older accounts kept the picture itself, too big to pass around)
   const stored = user.user_metadata?.avatar;
@@ -64,8 +70,17 @@ async function askSupabase(token: string): Promise<Account | null> {
   const account: Account = { id: user.id, username, ...(avatar ? { avatar } : {}) };
   if (trusted.size >= MAX_TRUSTED) for (const [k, v] of trusted) if (v.until < Date.now()) trusted.delete(k);
   if (trusted.size >= MAX_TRUSTED) trusted.clear();
-  trusted.set(token, { account, until: Date.now() + TOKEN_TRUST_MS });
+  trusted.set(token, { account, until: Math.min(Date.now() + TOKEN_TRUST_MS, claims.exp ? claims.exp * 1000 : Infinity) });
   return account;
+}
+
+/** What a token says about itself (not checked here: Supabase checks it). */
+function claimsOf(token: string): { sub?: string; exp?: number } {
+  try {
+    return JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as { sub?: string; exp?: number };
+  } catch {
+    return {};
+  }
 }
 
 interface CardRow {

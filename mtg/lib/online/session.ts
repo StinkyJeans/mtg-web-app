@@ -22,6 +22,8 @@ export interface OnlineState {
   matchId: string | null;
   chat: ChatLine[];
   error: string | null;
+  /** A room is being opened: the button was pressed and the server has not answered yet. */
+  creating: boolean;
   /** The connection to the match was lost (or the server restarted) and the browser is getting back in. */
   reconnecting: boolean;
   /** The connection that tells friends this player is online (and tells this player how the friends are). */
@@ -41,7 +43,7 @@ export interface Notice {
   text: string;
 }
 
-const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null, reconnecting: false, social: "off", friends: {}, notices: [], invites: [], cameOnline: {} };
+const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null, creating: false, reconnecting: false, social: "off", friends: {}, notices: [], invites: [], cameOnline: {} };
 let state: OnlineState = empty;
 const listeners = new Set<() => void>();
 const set = (patch: Partial<OnlineState>) => {
@@ -190,11 +192,14 @@ function attach(room: Room, spectating = false) {
 
 /** An empty password leaves the room open to anyone. */
 export async function createRoom(name: string, password = ""): Promise<void> {
-  set({ error: null });
+  if (state.creating) return;
+  set({ error: null, creating: true });
   try {
     attach(await getClient().create("match", { token: await accessToken(), name, password }));
   } catch (e) {
     set({ error: explain(e) });
+  } finally {
+    set({ creating: false });
   }
 }
 

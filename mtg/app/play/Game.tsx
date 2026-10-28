@@ -41,7 +41,7 @@ import { announcementsFrom, describeEvents, endReason, playerName } from "./log"
 import type { Announcement } from "./log";
 import { PassReminder, PlayedThisTurn, TurnSplash, WelcomeSplash } from "./Announcements";
 import ResolveZone, { holdReveal, isRevealing } from "./ResolveZone";
-import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
+import { ChatPanel, lifeSettling, LogPanel, PlayersPanel } from "./SidePanels";
 import BackgroundPicker from "./BackgroundPicker";
 import AppearanceDialog from "./AppearanceDialog";
 import { useAppearance } from "@/lib/playmat";
@@ -118,6 +118,14 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const net = useOnline();
   /** The game on screen: hot-seat, the one this screen has been updating, or (right after joining) the server's first view. */
   const game = localGame ?? (online ? (net.game?.view ?? null) : null);
+  // The result screen comes up once the life totals have counted all the way down (even below zero), and a moment after, so the last hit is seen.
+  const won = !!game?.winner;
+  const [endShown, setEndShown] = useState(false); // the result screen waits for the last life points to count down
+  useEffect(() => {
+    const wait = won ? lifeSettling() : 0; // (a game that ends without a hit, like a resignation, shows it at once)
+    const t = setTimeout(() => setEndShown(won), wait > 0 ? wait + 900 : 0);
+    return () => clearTimeout(t);
+  }, [won]);
   const router = useRouter();
   // Which player this browser is. Remembered, because leaving the room at the end clears `net.game`:
   // falling back to the player to act would flip the screen (and the end popup) to the opponent's side.
@@ -714,7 +722,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     const r = el.getBoundingClientRect();
     const h = PREVIEW_W * 1.4;
     const top = r.top - 8 - h >= 8 ? r.top - 8 - h : Math.min(r.bottom + 8, window.innerHeight - h - 8);
-    setPreview({ def, left: Math.min(Math.max(8, r.left + r.width / 2 - PREVIEW_W / 2), window.innerWidth - PREVIEW_W - 8), top: Math.max(8, top) });
+    setPreview({ def, el, left: Math.min(Math.max(8, r.left + r.width / 2 - PREVIEW_W / 2), window.innerWidth - PREVIEW_W - 8), top: Math.max(8, top) });
   }
   const abilities = abilityList(state, actor);
   const abilityCount = countAbilities(abilities);
@@ -1043,7 +1051,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         <PassReminder state={state} after={state.phase === "main2" && onlyLandsLeft ? REMIND_DONE_MS : REMIND_IDLE_MS} opponent={playerName(other)} onEndTurn={endTurn} />
       )}
 
-      {state.winner && <VictoryDialog
+      {state.winner && endShown && <VictoryDialog
           winner={state.winner}
           reason={endNote ?? (online ? net.snapshot?.endReason ?? null : null)}
           onPlayAgain={startGame}

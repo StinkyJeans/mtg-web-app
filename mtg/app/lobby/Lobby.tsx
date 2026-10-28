@@ -104,7 +104,7 @@ export default function Lobby() {
               <input
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                disabled={online.lobby !== "on" || room !== null}
+                disabled={online.lobby !== "on" || room !== null || online.creating}
                 maxLength={40}
                 autoComplete="off"
                 placeholder="Password (optional)"
@@ -114,13 +114,14 @@ export default function Lobby() {
             </label>
             <button
               type="submit"
-              disabled={online.lobby !== "on" || room !== null}
+              disabled={online.lobby !== "on" || room !== null || online.creating}
+              aria-busy={online.creating}
               className="btn-gold !w-full !rounded-2xl !py-3.5 !text-base"
             >
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" aria-hidden="true">
-                <path d="M12 5v14M5 12h14" />
+              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" aria-hidden="true" className={online.creating ? "animate-spin" : ""}>
+                {online.creating ? <path d="M12 3a9 9 0 1 0 9 9" /> : <path d="M12 5v14M5 12h14" />}
               </svg>
-              Create {password ? "locked room" : "room"}
+              {online.creating ? "Opening your room…" : <>Create {password ? "locked room" : "room"}</>}
             </button>
           </form>
         )}

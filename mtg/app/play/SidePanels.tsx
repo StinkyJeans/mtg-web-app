@@ -18,7 +18,14 @@ export interface ChatMessage {
 const panel = "flex min-h-0 flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-100/60 p-3";
 const title = "text-sm font-semibold uppercase tracking-wide text-zinc-500";
 
-/** A life total that counts up or down to its new value. The combat animation finds it by `data-life`. */
+let settleAt = 0;
+/** How long (ms) until the life totals have finished counting: the result screen waits for it, so the last points are seen going down. */
+export const lifeSettling = () => Math.max(0, settleAt - performance.now());
+
+/**
+ * A life total that counts up or down to its new value, one point at a time and slowly: the bigger the change, the longer it takes (a
+ * heavy hit is felt going down). Past zero it keeps going into the negatives. The combat animation finds it by `data-life`.
+ */
 function LifeTotal({ id, value }: { id: PlayerId; value: number }) {
   const [shown, setShown] = useState(value);
   const previous = useRef(value);
@@ -28,10 +35,12 @@ function LifeTotal({ id, value }: { id: PlayerId; value: number }) {
     const from = previous.current;
     previous.current = value;
     const start = performance.now();
+    const ms = Math.min(2600, Math.max(700, 450 + Math.abs(value - from) * 170));
+    settleAt = Math.max(settleAt, start + ms);
     let frame = 0;
     const step = (now: number) => {
-      const k = Math.min((now - start) / 600, 1);
-      setShown(Math.round(from + (value - from) * k));
+      const k = Math.min((now - start) / ms, 1);
+      setShown(Math.round(from + (value - from) * (1 - (1 - k) * (1 - k)))); // (it starts quickly and the last points come slowly)
       if (k < 1) frame = requestAnimationFrame(step);
     };
     frame = requestAnimationFrame(step);

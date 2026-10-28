@@ -12,6 +12,8 @@ export const PREVIEW_W = 320;
 
 export interface Preview {
   def: CardDef;
+  /** The card the mouse is over: if it leaves the page (a creature moved to the attack zone) no mouse-leave ever arrives. */
+  el: HTMLElement;
   left: number;
   top: number;
 }

@@ -88,6 +88,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
       <button
         type="button"
         data-card-iid={iid}
+        data-tint={def.colors?.[0]}
         onClick={onClick}
         onMouseEnter={onHover}
         onContextMenu={onZoom && ((e) => (e.preventDefault(), onZoom()))}
@@ -128,6 +129,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
     <button
       type="button"
       data-card-iid={iid}
+      data-tint={def.colors?.[0]}
       onClick={onClick}
       onMouseEnter={onHover}
       onContextMenu={onZoom && ((e) => (e.preventDefault(), onZoom()))}

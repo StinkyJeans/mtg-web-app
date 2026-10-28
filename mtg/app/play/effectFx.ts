@@ -18,6 +18,8 @@ let alive = 0;
 let layerEl: HTMLElement | null = null;
 
 const COLOR: Record<string, string> = { W: "#fde68a", U: "#60a5fa", B: "#a78bfa", R: "#f87171", G: "#4ade80", C: "#cbd5e1" };
+/** The colour a card's attack takes (a little brighter than the spell colours, so it reads on a dark board). */
+export const TINT: Record<string, string> = { W: "#fde68a", U: "#7dd3fc", B: "#c4b5fd", R: "#fb923c", G: "#86efac", C: "#e2e8f0" };
 const GOOD = "#22c55e";
 const BAD = "#ef4444";
 const KEYWORD = "#c4b5fd";
@@ -38,7 +40,7 @@ function layer(): HTMLElement {
 const cardEl = (iid: string) => document.querySelector<HTMLElement>(`[data-card-iid="${iid}"]`);
 const lifeEl = (id: string) => document.querySelector<HTMLElement>(`[data-life="${id}"]`);
 
-interface Box {
+export interface Box {
   x: number;
   y: number;
   w: number;
@@ -91,7 +93,7 @@ function floatText(b: Box, text: string, color: string, delay = 0, size = 26, dy
 }
 
 /** A ring that grows from the middle of a card and fades. */
-function ring(b: Box, color: string, delay = 0, grow = 1) {
+export function ring(b: Box, color: string, delay = 0, grow = 1) {
   const { x, y } = center(b);
   const size = Math.max(40, Math.min(b.w, b.h) * 0.7);
   void piece(
@@ -99,6 +101,64 @@ function ring(b: Box, color: string, delay = 0, grow = 1) {
     null,
     [{ transform: "scale(0.4)", opacity: 0.95 }, { transform: `scale(${1.9 * grow})`, opacity: 0 }],
     520,
+    delay,
+  );
+}
+
+/** A quick bright stroke across a box, like a blade going through it. */
+export function slash(b: Box, color: string, delay = 0) {
+  const { x, y } = center(b);
+  const len = Math.max(60, Math.hypot(b.w, b.h) * 1.15);
+  void piece(
+    { left: `${x - len / 2}px`, top: `${y - 2.5}px`, width: `${len}px`, height: "5px", borderRadius: "3px", background: `linear-gradient(90deg, transparent, #fff 32%, ${color} 68%, transparent)` },
+    null,
+    [{ transform: "rotate(-38deg) scaleX(0.15)", opacity: 0 }, { transform: "rotate(-38deg) scaleX(1)", opacity: 1, offset: 0.35 }, { transform: "rotate(-38deg) scaleX(1.06)", opacity: 0 }],
+    280,
+    delay,
+  );
+}
+
+/** Specks that fly out from a point and fade (a handful of small dots: a spark, not a particle system). */
+export function sparkBurst(c: { x: number; y: number }, color: string, n = 6, delay = 0, far = 46) {
+  const turn = Math.random() * Math.PI;
+  for (let i = 0; i < n; i++) {
+    const a = turn + (i / n) * Math.PI * 2;
+    const d = far * (0.7 + 0.5 * ((i * 7) % 5) / 5);
+    void piece(
+      { left: `${c.x - 3}px`, top: `${c.y - 3}px`, width: "6px", height: "6px", borderRadius: "50%", background: i % 2 ? "#fff" : color },
+      null,
+      [{ transform: "translate(0, 0) scale(1)", opacity: 0 }, { transform: `translate(${Math.cos(a) * d * 0.45}px, ${Math.sin(a) * d * 0.45}px) scale(1)`, opacity: 1, offset: 0.2 }, { transform: `translate(${Math.cos(a) * d}px, ${Math.sin(a) * d}px) scale(0.3)`, opacity: 0 }],
+      420 + (i % 3) * 60,
+      delay,
+    );
+  }
+}
+
+/** Glints that drift up from a card or a life total and fade: something good happening to it. */
+export function riseSparkles(b: Box, color: string, n = 5, delay = 0) {
+  for (let i = 0; i < n; i++) {
+    const x = b.x + b.w * (0.15 + (0.7 * i) / Math.max(1, n - 1));
+    const y = b.y + b.h * (0.55 + 0.25 * ((i * 3) % 2));
+    const rise = 38 + ((i * 5) % 4) * 14;
+    void piece(
+      { left: `${x - 3}px`, top: `${y - 3}px`, width: "7px", height: "7px", borderRadius: "50%", background: `radial-gradient(circle, #fff, ${color} 60%, transparent 75%)` },
+      null,
+      [{ transform: "translateY(0) scale(0.4)", opacity: 0 }, { transform: `translateY(${-rise * 0.4}px) scale(1.1)`, opacity: 1, offset: 0.3 }, { transform: `translateY(${-rise}px) scale(0.5)`, opacity: 0 }],
+      780 + (i % 3) * 120,
+      delay + i * 70,
+    );
+  }
+}
+
+/** A target mark that closes in on what is about to be hit. */
+export function reticle(b: Box, color: string, delay = 0, ms = 330) {
+  const { x, y } = center(b);
+  const size = Math.max(44, Math.min(b.w, b.h) * 0.9);
+  void piece(
+    { left: `${x - size / 2}px`, top: `${y - size / 2}px`, width: `${size}px`, height: `${size}px`, borderRadius: "50%", border: `2px solid ${color}` },
+    null,
+    [{ transform: "scale(2)", opacity: 0 }, { transform: "scale(1)", opacity: 0.95, offset: 0.55 }, { transform: "scale(0.9)", opacity: 0 }],
+    ms,
     delay,
   );
 }
@@ -225,11 +285,14 @@ export async function playCasts(events: GameEvent[], after: GameState): Promise<
     const color = tintOf(sourceCard ? after.cards[sourceCard.defId] : undefined);
     const from = (e.type === "abilityActivated" ? where(e.iid) : null) ?? where(e.player);
     if (!from) continue;
-    if (e.type === "abilityActivated") jobs.push(() => ring(from, color, 0));
+    jobs.push(() => ring(from, color, 0, e.type === "abilityActivated" ? 1 : 1.4)); // the spell or ability gathers its power where it comes from
+    let landed = 0;
     for (const t of e.targets ?? []) {
       const id = aim(t);
       const to = id ? where(id) : null;
-      if (to && jobs.length < MAX_PIECES) jobs.push(() => beam(from, to, color, 0));
+      if (!to || jobs.length >= MAX_PIECES) continue;
+      jobs.push(() => beam(from, to, color, 0));
+      if (landed++ < 3) jobs.push(() => (ring(to, color, BEAM_MS * 0.8, 1.3), sparkBurst(center(to), color, 6, BEAM_MS * 0.8))); // and breaks on what it hits
     }
   }
   if (jobs.length === 0) return;
@@ -255,11 +318,16 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
         add(() => floatText(b, `-${e.amount}`, BAD, 120));
         const el = isPlayer(e.target) ? null : cardEl(e.target); // (a card that died is gone: its number shows, but nothing flashes over whatever took its place)
         if (el || isPlayer(e.target)) add(() => flash(b, "rgba(239,68,68,.9)", 100));
+        add(() => slash(b, BAD, 60));
         if (el) jobs.push(() => shake(el));
       }
     } else if (e.type === "lifeGained") {
       const b = boxOf(lifeEl(e.player));
-      if (b) add(() => floatText(b, `+${e.amount}`, GOOD, 80, 30));
+      if (b) {
+        add(() => floatText(b, `+${e.amount}`, GOOD, 80, 30));
+        add(() => ring(b, GOOD, 40, 1.5));
+        add(() => riseSparkles(b, GOOD, 5, 60));
+      }
     } else if (e.type === "lifeLost" && !hadCombat && !events.some((x) => x.type === "damage")) {
       const b = boxOf(lifeEl(e.player));
       if (b) add(() => floatText(b, `-${e.amount}`, BAD, 80, 30));
@@ -301,7 +369,9 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
         add(() => ring(box, good ? GOOD : BAD, 150));
       } else if (dc !== 0) {
         add(() => floatText(box, `${sign(dc)}/${sign(dc)}`, dc > 0 ? GOOD : BAD, 200, 22, -16));
+        if (dc > 0) add(() => riseSparkles(box, GOOD, 4, 120));
       }
+      if ((dp !== 0 || dt !== 0) && !hadCombat && dp + dt >= 0) add(() => riseSparkles(box, GOOD, 4, 180));
       const oldKeys = keywordsOf(old);
       let k = 0;
       for (const kwd of keywordsOf(perm)) {

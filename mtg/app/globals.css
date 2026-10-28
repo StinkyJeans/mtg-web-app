@@ -962,14 +962,18 @@ body.mtg-cursor :is(input:not([type="checkbox"]):not([type="range"]), textarea) 
   align-items: center;
   justify-content: center;
   padding: 1rem;
-  background: radial-gradient(circle at 50% 38%, rgba(60, 46, 20, 0.9), rgba(3, 6, 16, 0.94) 62%); /* no backdrop blur: it re-blurs the whole board every frame */
+  background: radial-gradient(circle at 50% 38%, rgba(60, 46, 20, 0.55), rgba(3, 6, 16, 0.72) 62%);
+  /* The board behind is blurred. That is cheap here because nothing under it moves any more (its glows are paused below and there is no
+     confetti), so the blur is worked out once and kept. */
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
 }
 /* the board under the result screen is hidden: stop its pulsing glows from repainting */
-body:has(.victory-backdrop) :is(.castable-glow, .combat-block, .combat-threat, .combat-free, .combat-best, .combat-safe, .combat-good, .combat-risky, .combat-trade, .combat-chump) { animation-play-state: paused; }
+body:has(.victory-backdrop) :is(.castable-glow, .combat-block, .combat-threat, .combat-free, .combat-best, .combat-safe, .combat-good, .combat-risky, .combat-trade, .combat-chump, .mat-lowlife-moving, .life-halo-moving, .life-pump-moving) { animation-play-state: paused; }
 /* a choice in front of the board (a creature type, scry, the graveyard...): the dialog is a plain dark layer (a backdrop blur would re-blur the whole
    board every frame), and what pulses underneath stops until it closes */
 body:has(.game-modal) :is(.castable-glow, .combat-block, .combat-threat, .combat-free, .combat-best, .combat-safe, .combat-good, .combat-risky, .combat-trade, .combat-chump, .mat-lowlife-moving, .life-halo-moving, .life-pump-moving) { animation-play-state: paused; }
-body:has(.game-modal) .castable-glow::after { animation-play-state: paused; }
+body:has(.game-modal, .victory-backdrop) .castable-glow::after { animation-play-state: paused; }
 .victory-card {
   --accent: #f4b43d;
   --glow: rgba(244, 180, 61, 0.3);
@@ -1001,7 +1005,7 @@ body:has(.game-modal) .castable-glow::after { animation-play-state: paused; }
   -webkit-mask-image: radial-gradient(circle, #000 0 14%, transparent 60%);
   mask-image: radial-gradient(circle, #000 0 14%, transparent 60%);
 }
-.victory-rays-turn { animation: victory-spin 48s linear infinite; }
+.victory-rays-turn { animation: none; } /* (it used to turn slowly: a spinning layer is one more thing to redraw over the blur) */
 @keyframes victory-spin { to { transform: translate(-50%, -50%) rotate(360deg); } }
 .victory-medal {
   position: relative;

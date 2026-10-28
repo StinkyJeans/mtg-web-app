@@ -1,20 +1,11 @@
 "use client";
 
-import { useEffect, useRef } from "react";
 import type { ReactNode } from "react";
 import type { PlayerId } from "@mtg/engine";
 import { OPPONENT } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
 import ConfirmDialog from "../ConfirmDialog";
-import { startConfetti } from "./confetti";
 import { playerName } from "./log";
-
-/** Full-screen confetti that plays once when it appears. Doesn't block clicks. */
-export function Confetti() {
-  const canvas = useRef<HTMLCanvasElement>(null);
-  useEffect(() => (canvas.current ? startConfetti(canvas.current) : undefined), []);
-  return <canvas ref={canvas} aria-hidden="true" className="pointer-events-none fixed inset-0 z-50 h-screen w-screen" />;
-}
 
 /** Asks before a player resigns. Resigning ends the game at once and the other player wins. */
 export function ResignDialog({ player, onConfirm, onCancel }: { player: PlayerId; onConfirm: () => void; onCancel: () => void }) {
@@ -78,7 +69,7 @@ function Scales() {
   );
 }
 
-/** Shown when the game ends: Victory (with confetti), Defeat, or a Draw. */
+/** Shown when the game ends: Victory, Defeat, or a Draw. */
 export function VictoryDialog({
   winner,
   reason,
@@ -130,7 +121,6 @@ export function VictoryDialog({
           </div>
         </div>
       </div>
-      {result === "win" && <Confetti />}
     </>
   );
 }
