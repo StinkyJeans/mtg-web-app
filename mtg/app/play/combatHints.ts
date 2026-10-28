@@ -30,9 +30,13 @@ function kills(state: GameState, a: Permanent, b: Permanent): boolean {
 
 const strikesFirst = (state: GameState, perm: Permanent) => has(state, perm, "first strike") || has(state, perm, "double strike");
 
-/** Can `blocker` block `attacker`? Asked of the real rules. "Needs two or more blockers" (menace) counts as yes: a second one can join. */
+/**
+ * Can `blocker` block `attacker`? Asked of the real rules as if blockers were being declared now: while players may still respond
+ * to the attack the engine refuses any declaration, which says nothing about the blocker. "Needs two or more blockers" (menace)
+ * counts as yes: a second one can join.
+ */
 export function canBlock(state: GameState, me: PlayerId, blocker: string, attacker: string): { ok: boolean; reason?: string } {
-  const r = applyAction(state, me, { type: "declareBlockers", blocks: [{ blocker, attacker }] });
+  const r = applyAction(state.priority ? { ...state, priority: null } : state, me, { type: "declareBlockers", blocks: [{ blocker, attacker }] });
   if (r.ok || /two or more|more than one/i.test(r.error)) return { ok: true };
   return { ok: false, reason: r.error.replace(/^.*?: /, "") };
 }

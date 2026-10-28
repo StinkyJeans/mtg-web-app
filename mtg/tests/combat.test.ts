@@ -15,6 +15,14 @@ test("a flyer can only be blocked by flying or reach", () => {
   assert.deepEqual(canBlock(g, "p2", spider.card.iid, drake.card.iid), { ok: true });
 });
 
+test("while players may still respond to the attack, a creature that will be able to block still says so", () => {
+  const drake = permanent("drake", "p1");
+  const spider = permanent("spider", "p2");
+  const g = blocking([drake], [spider]);
+  g.priority = { holder: "p2", passes: 0, then: "afterAttackers" };
+  assert.deepEqual(canBlock(g, "p2", spider.card.iid, drake.card.iid), { ok: true });
+});
+
 test("block outcomes say who dies", () => {
   const g = board();
   const [bears, giant, elf, other] = [permanent("bears", "p2"), permanent("giant", "p2"), permanent("elf", "p2"), permanent("bears", "p1")];
