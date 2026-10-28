@@ -48,13 +48,15 @@ export {
   makeToken,
   onLifeGained,
   putCounters,
+  makeTokenCopy,
   putIntoGraveyard,
+  sacrificePermanent,
   regenerateInstead,
   removeFromBattlefield,
   spellLeavesStack,
   tapPerm,
 } from "./core/zones.js";
-export { askAsEnters, cardsDiscarded, creatureEntered, creatureDamaged, landEntered, queueChapters, queueDamageDraws, queueTriggers, queueWard } from "./core/triggers.js";
+export { askAsEnters, cardsDiscarded, creatureEntered, creatureDamaged, landEntered, queueChapters, queueDamageDraws, queueTriggers, queueWard, spellCast } from "./core/triggers.js";
 export { isLegalTarget, legalTargets } from "./core/targets.js";
 export { runEffects } from "./core/runEffects.js";
 export { dealDamage } from "./core/handlers/shared.js";

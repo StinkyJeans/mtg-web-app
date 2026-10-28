@@ -1,7 +1,7 @@
 import { getCard } from "../../cards.js";
 import type { CardInstance, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isArtifactDef, isCreature, kw, nameOf, playerLabel } from "../permanents.js";
-import { isToken, makeToken, putCounters, putIntoGraveyard, regenerateInstead, removeFromBattlefield, spellLeavesStack } from "../zones.js";
+import { isToken, makeToken, putCounters, putIntoGraveyard, regenerateInstead, removeFromBattlefield, sacrificePermanent, spellLeavesStack } from "../zones.js";
 import { creatureEntered, queueTriggers } from "../triggers.js";
 import { subjectsOf } from "../targets.js";
 import { plural, type EffectHandlers } from "./shared.js";
@@ -100,7 +100,7 @@ export const ZONE_EFFECTS = {
     for (const s of subjectsOf(state, effect.what, ctx)) {
       if (s.k !== "perm") continue;
       say(`${nameOf(state, s.perm)} is sacrificed.`);
-      putIntoGraveyard(state, s.perm, s.owner, events);
+      sacrificePermanent(state, s.perm, s.owner, events);
     }
   },
   exileUntilLeaves({ state, ctx, say }, effect) {

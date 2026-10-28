@@ -1,8 +1,10 @@
 import { SUPPORTED_KEYWORDS } from "../keywords.js";
 import type { CardDef } from "../types.js";
 
-// Marvel's transforming cards ("Tony Stark // The Invincible Iron Man"): one card with two faces. The database keeps both
-// faces in one row (the front's power and toughness, the text of both), so the back's numbers are listed here.
+// Transforming cards ("Tony Stark // The Invincible Iron Man", "Fable of the Mirror-Breaker // Reflection of Kiki-Jiki"): one card
+// with two faces. The database keeps both faces in one row (the front's power and toughness, the text of both), so the back's
+// numbers are listed here. A back face's mana value is its front's. A modal land ("Blightstep Pathway // Searstep Pathway") is
+// played with either face up.
 
 export const BACK_SUFFIX = "//back";
 
@@ -12,6 +14,8 @@ const BACK: Record<string, { cost: string; power: number; toughness: number; col
   "Bruce Banner": { cost: "{2}{R}{R}{G}{G}", power: 8, toughness: 8, colors: ["G", "R"] },
   "Jennifer Walters": { cost: "{3}{G}{W}{W}", power: 6, toughness: 6, colors: ["G", "W"] },
   "King T'Challa": { cost: "{4}{W}{U}", power: 3, toughness: 3, colors: ["U", "W"] },
+  "Fable of the Mirror-Breaker": { cost: "{2}{R}", power: 2, toughness: 2, colors: ["R"] },
+  "The Legend of Roku": { cost: "{2}{R}{R}", power: 4, toughness: 4, colors: [] },
 };
 
 const manaValueOf = (cost: string) => (cost.match(/\{[^}]+\}/g) ?? []).reduce((n, sym) => n + (/^\{\d+\}$/.test(sym) ? Number(sym.slice(1, -1)) : sym === "{X}" ? 0 : 1), 0);
@@ -28,6 +32,25 @@ function keywordsOf(text: string): string[] {
 
 const cache = new WeakMap<CardDef, { front: CardDef; back: CardDef } | null>();
 
+function modalLand(def: CardDef, names: string[], types: string[], texts: string[]): { front: CardDef; back: CardDef } {
+  const face = (i: number, id: string): CardDef => ({
+    ...def,
+    id,
+    name: names[i],
+    type: "land",
+    cost: 0,
+    typeLine: types[i],
+    manaCost: "",
+    text: texts[i],
+    colors: [],
+    keywords: [],
+  });
+  return { front: face(0, def.id), back: face(1, `${def.id}${BACK_SUFFIX}`) };
+}
+
+/** A modal double-faced land: the player chooses which face is up as it is played. */
+export const isModalLand = (def: CardDef): boolean => doubleFaces(def)?.back.type === "land";
+
 /** The two faces of a transforming card, or null for any other card. */
 export function doubleFaces(def: CardDef): { front: CardDef; back: CardDef } | null {
   const hit = cache.get(def);
@@ -37,8 +60,14 @@ export function doubleFaces(def: CardDef): { front: CardDef; back: CardDef } | n
   const costs = (def.manaCost ?? "").split(" // ");
   const texts = (def.text ?? "").split("\n//\n");
   const stats = BACK[names[0]];
+  const twoFaces = names.length === 2 && types.length === 2 && texts.length === 2;
+  if (twoFaces && !stats && types.every((t) => /^Land\b/.test(t))) {
+    const faces = modalLand(def, names, types, texts);
+    cache.set(def, faces);
+    return faces;
+  }
   const faces =
-    stats && names.length === 2 && types.length === 2 && texts.length === 2
+    stats && twoFaces
       ? {
           front: { ...def, name: names[0], typeLine: types[0], manaCost: costs[0], text: texts[0], keywords: keywordsOf(texts[0]) },
           back: {

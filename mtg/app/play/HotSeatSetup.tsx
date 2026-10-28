@@ -20,6 +20,8 @@ const RANDOM_ID = "random"; // a deck built at random when the game starts
 /** Both players' decks and every card in them, ready for the coin flip. */
 export interface DeckPair {
   decks: Record<PlayerId, string[]>;
+  /** Their sideboards, outside the game (for "learn"). */
+  sides?: Partial<Record<PlayerId, string[]>>;
   names: Record<PlayerId, string>;
   cards: Record<string, CardDef>;
 }
@@ -54,17 +56,18 @@ export function useHotSeatDecks(enabled: boolean) {
 
   /** Builds or looks up both decks and loads their cards. Throws with a message for the player when that fails. */
   async function load(): Promise<DeckPair> {
-    const pick = async (p: PlayerId) => {
+    const pick = async (p: PlayerId): Promise<{ ids: string[]; name: string; side?: string[] }> => {
       if (choice[p] === RANDOM_ID) return buildRandomDeck(agreedSize);
       const o = options.find((x) => x.id === choice[p]);
-      return { ids: o?.ids ?? [], name: o?.name ?? "Deck" };
+      return { ids: o?.ids ?? [], name: o?.name ?? "Deck", side: o?.side ?? [] };
     };
     const [d1, d2] = [await pick("p1"), await pick("p2")];
     const decks = { p1: d1.ids, p2: d2.ids };
-    const cards = await fetchCardsByIds([...decks.p1, ...decks.p2]);
+    const sides = { p1: d1.side ?? [], p2: d2.side ?? [] };
+    const cards = await fetchCardsByIds([...decks.p1, ...decks.p2, ...sides.p1, ...sides.p2]);
     const missing = [...decks.p1, ...decks.p2].find((id) => !cards[id]);
     if (missing) throw new Error(`Card "${missing}" is missing from the database. Did you run the card import?`);
-    return { decks, names: { p1: d1.name, p2: d2.name }, cards };
+    return { decks, sides, names: { p1: d1.name, p2: d2.name }, cards };
   }
 
   return { options, hidden, choice, agreedSize, choose, load };

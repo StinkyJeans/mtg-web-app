@@ -5,8 +5,8 @@ import { addCosts, parseManaCost, payMana, withDelve, withX } from "../mana.js";
 import type { ManaCost } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
-import { abilityHaste, abilityManaCost, abilityNeed, canCastNow, holdsPriority, sorceryTiming } from "./shared.js";
-import { castCostOf, costChoices, crewers, delveChoice, harmonizers, liftedSpecs, tapPair, teamworkers } from "./cast.js";
+import { abilityHaste, abilityManaCost, abilityNeed, canCastNow, holdsPriority, levelLock, sorceryTiming } from "./shared.js";
+import { castCostOf, costChoices, crewers, delveChoice, extraSacrificeFits, waterbendTaps, harmonizers, liftedSpecs, tapPair, teamworkers } from "./cast.js";
 
 // What a player could do right now (for the screen and for auto-passing).
 
@@ -27,7 +27,9 @@ export interface Castable {
   modal?: { min: number; max: number; bothIfKicked?: boolean; modes: { text: string; specs: TargetSpec[]; available: boolean }[] };
   /** The spell has a kicker the player could pay on top of the cost right now: its printed cost, e.g. "{2}". Offspring is one (`kickerName`). */
   kicker?: string;
-  kickerName?: "offspring";
+  kickerName?: "offspring" | "waterbend";
+  /** Waterbend: the artifacts and creatures that would be tapped to help pay it (each one {1}); the rest is mana. */
+  waterbendTaps?: string[];
   /** "You may blight 1" as an additional cost: how many -1/-1 counters, and the creatures they could go on (answered as `kicked` and `sacrifice`). */
   blight?: { n: number; options: string[] };
   /** It can be cast from hand for this warp cost right now. `warpOnly`: only that way (the mana cost can't be paid). */
@@ -79,13 +81,14 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
   if (modeInfo ? !modeInfo.some((m) => m.available) : reachable.some((spec) => legalTargets(state, spec, player).length === 0)) return null;
   const teamPart = canTeam ? { teamwork: { n: parsed.teamwork!, options: teamOptions.map((p) => p.card.iid) } } : {};
   const kickerCost = parsed.kicker ? parseManaCost(parsed.kicker) : null;
-  const kickable = kickerCost !== null && afford(addCosts(cost, kickerCost)) ? { kicker: parsed.kicker, ...(parsed.kickerName ? { kickerName: parsed.kickerName } : {}) } : {};
+  const bent = kickerCost !== null && parsed.kickerName === "waterbend" ? waterbendTaps(state, player, withX(cost, 0), kickerCost, def) : null;
+  const canKick = kickerCost !== null && (parsed.kickerName === "waterbend" ? bent !== null : afford(addCosts(cost, kickerCost)));
+  const kickable = canKick ? { kicker: parsed.kicker, ...(parsed.kickerName ? { kickerName: parsed.kickerName } : {}), ...(bent ? { waterbendTaps: bent.map((p) => p.card.iid) } : {}) } : {};
   const blightOptions = parsed.blight ? state.players[player].battlefield.filter((p) => isCreature(state, p)).map((p) => p.card.iid) : [];
   const blightPart = blightOptions.length > 0 ? { blight: { n: parsed.blight!, options: blightOptions } } : {};
   const modalPart = modal && modeInfo ? { modal: { min: modal.min, max: modal.max, ...(modal.bothIfKicked ? { bothIfKicked: true } : {}), modes: modeInfo } } : {};
   if (parsed.extraSacrifice || parsed.extraSacrificeOrPay !== undefined) {
-    const typed = parsed.extraSacrificeType;
-    const options = state.players[player].battlefield.filter((p) => isCreature(state, p) && (!typed || subtypesOf(state, p).includes(typed))).map((p) => p.card.iid);
+    const options = state.players[player].battlefield.filter((p) => extraSacrificeFits(state, parsed, p)).map((p) => p.card.iid);
     const instead = parsed.extraSacrificeOrPay !== undefined ? parseManaCost(parsed.extraSacrificeOrPay) : null;
     const canPay = instead !== null && afford(addCosts(withX(cost, 0), instead));
     if (options.length === 0 && !canPay) return null;
@@ -257,7 +260,7 @@ export function getActivatable(state: GameState, player: PlayerId): Activatable[
       parseCard(getCard(state, card.defId)).activated.forEach((ability, index) => {
         if (ability.zone !== zone) return;
         if (ability.mana) {
-          const cost = parseManaCost(ability.mana);
+          const cost = abilityManaCost(state, { card }, ability);
           if (!cost || !payMana(state, player, cost).ok) return;
         }
         if (ability.payLife && state.players[player].life < ability.payLife) return;
@@ -285,6 +288,7 @@ export function getActivatable(state: GameState, player: PlayerId): Activatable[
       if (ability.yourTurnOnly && state.active !== player) return;
       if (abilityNeed(state, player, ability)) return;
       if (ability.solvedOnly && !perm.solved) return;
+      if (levelLock(perm, ability)) return;
       if (ability.minLife !== undefined && state.players[player].life < ability.minLife) return;
       if (ability.exileFromYard && state.players[player].graveyard.length < ability.exileFromYard) return;
       if (ability.tapTwoSharing && !tapPair(state, player)) return;
@@ -325,6 +329,8 @@ export function abilityLockReason(state: GameState, player: PlayerId, perm: Perm
   const needed = abilityNeed(state, player, ability);
   if (needed) return needed;
   if (ability.solvedOnly && !perm.solved) return "the Case isn't solved yet";
+  const level = levelLock(perm, ability);
+  if (level) return level;
   const life = state.players[player].life;
   if (ability.minLife !== undefined && life < ability.minLife) return `you need at least ${ability.minLife} life (you have ${life})`;
   const yard = state.players[player].graveyard.length;

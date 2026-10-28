@@ -12,7 +12,7 @@ import {
   lethalFor,
   onBoard,
   powerOf,
-  putIntoGraveyard,
+  sacrificePermanent,
   qualityOfDef,
   queueDamageDraws,
   queueTriggers,
@@ -204,7 +204,7 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
     for (const p of poison) addPoison(state, p.player, p.amount, events);
     for (const doomed of sacrifice) {
       const owner = Object.values(state.players).find((p) => p.battlefield.includes(doomed));
-      if (owner) putIntoGraveyard(state, doomed, owner.id, events);
+      if (owner) sacrificePermanent(state, doomed, owner.id, events);
     }
     for (const [source, amount] of gains) {
       const controller = Object.values(state.players).find((p) => p.battlefield.includes(source))?.id ?? source.card.owner;

@@ -6,6 +6,7 @@ import { landManaColors, manaSources } from "./mana.js";
 import { hasKeyword } from "./keywords.js";
 import type { Keyword } from "./keywords.js";
 import { parseCard } from "./oracle.js";
+import { BACK_SUFFIX } from "./oracle/doubleFaced.js";
 import type { Effect, TargetChoice, TargetSpec } from "./effects.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "./types.js";
 
@@ -75,7 +76,8 @@ function permValue(s: GameState, p: Permanent): number {
   if (isCreature(s, p)) return creatureValue(s, p);
   if (d.type === "land") return 1.2;
   if (d.type === "planeswalker") return 3 + (p.loyalty ?? 0) * 0.8;
-  return 1 + (d.cost ?? 0) * 0.6;
+  // a Class is worth what was paid for its levels too
+  return 1 + (d.cost ?? 0) * 0.6 + ((p.classLevel ?? 1) - 1) * 1.5;
 }
 
 const lifeScore = (life: number) => (life <= 0 ? -500 : life - Math.max(0, 8 - life) * 0.9);
@@ -426,6 +428,7 @@ function choosePick(s: GameState, me: PlayerId): Action {
     return { type: "pick", iid: keep ?? exiled };
   }
   if (p.kind === "playExile") return { type: "pick", iid: playNow(s, me, p.options) };
+  if (p.kind === "color" && p.poolColor) return { type: "pick", iid: neededColor(s, me, p.options) };
   // scry / surveil: the pick is the card to send away (the bottom of the library, the graveyard)
   if (p.kind === "scry" || p.kind === "surveil") {
     const lands = landCount(s, me) + s.players[me].hand.filter((c) => s.cards[c.defId]?.type === "land").length;
@@ -566,14 +569,30 @@ function landScore(s: GameState, me: PlayerId, land: CardDef | undefined): numbe
   return landManaColors(land).reduce((n, c) => n + (need[c] ?? 0) * 2 - (have[c] ?? 0) * 0.5, 0) + tapped;
 }
 
+/** "Add one mana of any color": the color the hand asks for most that the lands don't already make. */
+function neededColor(s: GameState, me: PlayerId, options: string[]): string {
+  const pl = s.players[me];
+  const need = (color: string) => {
+    const asked = pl.hand.reduce((n, c) => n + ((s.cards[c.defId]?.manaCost ?? "").match(new RegExp(`\\{${color}\\}`, "g"))?.length ?? 0), 0);
+    const made = pl.battlefield.filter((p) => !p.tapped && defOf(s, p) && (landManaColors(defOf(s, p)!) as string[]).includes(color)).length;
+    return asked - made * 0.5;
+  };
+  return [...options].sort((a, b) => need(b) - need(a))[0];
+}
+
 /** The best land to play (from the hand, or one exiled that may be played): the one that gives a color the hand needs and the table does not yet make. */
 function chooseLand(s: GameState, me: PlayerId): Action | null {
   const pl = s.players[me];
   if (pl.landsPlayedThisTurn >= 1) return null;
   const lands = [...pl.hand, ...exilePlayable(s, me)].filter((c) => s.cards[c.defId]?.type === "land");
   if (lands.length === 0) return null;
-  const pick = [...lands].sort((a, b) => landScore(s, me, s.cards[b.defId]) - landScore(s, me, s.cards[a.defId]))[0];
-  return { type: "playLand", iid: pick.iid };
+  // A modal land (a Pathway) is played with whichever face helps more.
+  const faces = lands.flatMap((c) => {
+    const back = s.cards[`${c.defId}${BACK_SUFFIX}`];
+    return [{ iid: c.iid, def: s.cards[c.defId], back: false }, ...(back?.type === "land" ? [{ iid: c.iid, def: back, back: true }] : [])];
+  });
+  const pick = [...faces].sort((a, b) => landScore(s, me, b.def) - landScore(s, me, a.def))[0];
+  return { type: "playLand", iid: pick.iid, ...(pick.back ? { back: true } : {}) };
 }
 
 /** A permanent's ability that is worth using whenever it can be: a fetch land (while life allows), or "draw a card at the next upkeep" for free. */

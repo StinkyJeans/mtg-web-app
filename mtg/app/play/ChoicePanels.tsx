@@ -1,5 +1,8 @@
 "use client";
 
+import type { GameState, PlayerId } from "@mtg/engine";
+import { ManaText } from "./ManaSymbols";
+
 /** Choose X for a spell like "deals X damage": + / - buttons, up to what the player can pay. */
 export function XPanel({ name, max, x, onChange, onCast, onCancel }: { name: string; max: number; x: number; onChange: (x: number) => void; onCast: () => void; onCancel: () => void }) {
   const step = "h-8 w-8 rounded border border-zinc-400 bg-white text-lg font-bold hover:bg-zinc-100 disabled:opacity-30";
@@ -68,5 +71,19 @@ export function ChoicePanel({
         </button>
       </div>
     </section>
+  );
+}
+
+/** A modal double-faced land (a Pathway): which face to play it with. */
+export function LandFacePanel({ state, actor, iid, onPlay, onCancel }: { state: GameState; actor: PlayerId; iid: string; onPlay: (back: boolean) => void; onCancel: () => void }) {
+  const card = state.players[actor].hand.find((c) => c.iid === iid);
+  if (!card) return null;
+  const faces = [state.cards[card.defId], state.cards[`${card.defId}//back`]];
+  return (
+    <ChoicePanel
+      title="Which face do you play it with?"
+      options={faces.map((face, i) => ({ label: <>{face.name}: <ManaText text={(face.text ?? "").replace(/\.$/, "")} /></>, onPick: () => onPlay(i === 1) }))}
+      onCancel={onCancel}
+    />
   );
 }

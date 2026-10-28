@@ -2,6 +2,7 @@
 
 import type { ModeSpec, PendingChoice, PendingPick, PriorityRound, StackItem, TargetSpec } from "./effects.js";
 import type { Keyword } from "./keywords.js";
+import type { ManaColor } from "./mana.js";
 
 export type PlayerId = "p1" | "p2";
 
@@ -181,6 +182,19 @@ export interface Permanent {
   tempSubtypes?: string[];
   /** This turn: players whose spells and abilities can't target it ("can't be the target of spells or abilities your opponents control this turn"). */
   untargetableBy?: PlayerId[];
+  /** A Class: the level it has reached (1 as it enters). */
+  classLevel?: number;
+  /** "Sacrifice it at the beginning of the next end step." */
+  sacAtEnd?: boolean;
+}
+
+/** Mana that was added and not spent yet: it lasts until the end of the phase it was made in (or of combat, for firebending). */
+export interface FloatingMana {
+  color: ManaColor;
+  turn: number;
+  phase: Phase;
+  /** "This mana lasts until end of combat." */
+  combat?: boolean;
 }
 
 export interface PlayerState {
@@ -227,6 +241,16 @@ export interface PlayerState {
   stormEmblem?: boolean;
   /** "Draw a card at the beginning of the next turn's upkeep": one per card that said so (Mishra's Bauble). */
   upkeepDraws?: { source: string; name: string }[];
+  /** Permanents that left the battlefield under this player's control this turn (revolt). */
+  leftThisTurn?: number;
+  /** Cards outside the game: the sideboard a Lesson can be learned from. */
+  sideboard?: CardInstance[];
+  /** Mana that was added and not spent yet. */
+  pool?: FloatingMana[];
+  /** "Whenever a creature dies this turn, you gain 1 life": once for each spell that said so. */
+  deathLife?: number;
+  /** Paradigm: the exiled cards a copy of which may be cast at the beginning of each of the player's first main phases. */
+  paradigms?: string[];
 }
 
 export interface GameState {

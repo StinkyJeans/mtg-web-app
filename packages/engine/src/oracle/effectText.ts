@@ -61,7 +61,9 @@ export function parseClause(s: string, ctx: Ctx): Effect[] | null {
     const left = parseSimple(s.slice(0, at), ctx);
     const rest = s.slice(at + 5);
     // "~ deals 3 damage to target player and 1 damage to each creature they control": the second half borrows the subject.
-    const right = left && (parseSimple(rest, ctx) ?? parseSimple(`you ${rest}`, ctx) ?? parseSimple(`~ deals ${rest}`, ctx) ?? parseSimple(`put ${rest}`, ctx) ?? parseSimple(`that creature ${rest}`, ctx));
+    // "Target player draws two cards and loses 2 life": the second verb is that player's too.
+    const subject = /^(target player|target opponent|each opponent|each player) /.exec(s)?.[1];
+    const right = left && (parseSimple(rest, ctx) ?? (subject ? parseSimple(`${subject} ${rest}`, ctx) : null) ?? parseSimple(`you ${rest}`, ctx) ?? parseSimple(`~ deals ${rest}`, ctx) ?? parseSimple(`put ${rest}`, ctx) ?? parseSimple(`that creature ${rest}`, ctx));
     if (left && right) return [...left, ...right];
     ctx.targets.length = before;
     ctx.phrases = phrases;
@@ -104,6 +106,11 @@ function parseChoiceText(text: string, ctx: Ctx): Effect[] | null {
   if (t === "target opponent reveals their hand. you choose a card from it. that player discards that card") {
     const who = refFor("target opponent", ctx);
     return who ? [{ type: "discard", who, amount: 1, chooser: "you" }] : null;
+  }
+  // Thoughtseize
+  if (t === "target player reveals their hand. you choose a nonland card from it. that player discards that card. you lose 2 life") {
+    const who = refFor("target player", ctx);
+    return who ? [{ type: "discard", who, amount: 1, chooser: "you", nonland: true }, { type: "loseLife", amount: 2, who: { t: "you" } }] : null;
   }
   let m = new RegExp(`^look at the top (${NUMBER_WORDS}) cards of your library, then put them back in any order$`).exec(t);
   if (m) return [{ type: "lookPick", mode: "arrange", n: toNumber(m[1]) ?? 0 }];
@@ -151,6 +158,50 @@ function parseChoiceText(text: string, ctx: Ctx): Effect[] | null {
   return null;
 }
 
+const SAC_CHOICE_COST: Record<string, Extract<Effect, { type: "mayCost" }>["cost"]> = {
+  "sacrifice an artifact or discard a card": "artifactOrCard",
+  "sacrifice an artifact or discard a nonland card": "artifactOrNonland",
+  "sacrifice another creature": "otherCreature",
+  "sacrifice another creature or artifact": "otherCreatureOrArtifact",
+  "sacrifice three other nonland permanents": "threeOtherNonland",
+};
+
+/**
+ * A sentence that changes the effects of the sentence before it: true if it did (they are changed in place), false if it is
+ * not one of these, null if it is one but doesn't fit what came before.
+ */
+function linkedSentence(sentence: string, effects: Effect[], lastGroup: number, ctx: Ctx): boolean | null {
+  const last = effects.at(-1);
+  // Fatal Push: "Revolt — Destroy that creature if it has mana value 4 or less instead if a permanent left the battlefield under your control this turn."
+  const revolt = /^revolt — destroy that creature if it has mana value (\d+) or less instead if a permanent left the battlefield under your control this turn$/.exec(sentence);
+  if (revolt) {
+    if (last?.type !== "destroyIfMV") return null;
+    effects[effects.length - 1] = { ...last, revoltMax: Number(revolt[1]) };
+    return true;
+  }
+  // Witch's Oven: "If the sacrificed creature's toughness was 4 or greater, create two Food tokens instead."
+  const tough = /^if the sacrificed creature's toughness was (\d+) or greater, (.+) instead$/.exec(sentence);
+  if (tough) {
+    const previous = effects.slice(lastGroup);
+    const then = parseClause(tough[2], ctx);
+    if (!then || previous.length === 0) return null;
+    effects.splice(lastGroup, previous.length, { type: "ifSacrificedToughness", atLeast: Number(tough[1]), then, otherwise: previous });
+    return true;
+  }
+  if (sentence === "sacrifice it at the beginning of the next end step") {
+    if (last?.type !== "copyTokenOf") return null;
+    effects[effects.length - 1] = { ...last, sacAtEnd: true };
+    return true;
+  }
+  // Sokenzan: "Create two 1/1 colorless Spirit creature tokens. They gain haste until end of turn."
+  if (sentence === "they gain haste until end of turn") {
+    if (last?.type !== "createToken" || last.token.type !== "creature") return null;
+    effects[effects.length - 1] = { ...last, token: { ...last.token, hasteThisTurn: true } };
+    return true;
+  }
+  return false;
+}
+
 /** The bullet lines of a "Choose one —" block, each read as its own mode. Null if any mode is not understood. */
 export function parseModes(bullets: string[], allowSelf: boolean): ModeSpec[] | null {
   const modes: ModeSpec[] = [];
@@ -171,6 +222,9 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
     .replace(/(you may put an? [a-z]+ creature card with mana value \d+ or less from your hand onto the battlefield)\. if you don't, draw a card/g, "$1, else draw a card")
     .replace(/target player loses all poison counters\. ~ deals that much damage to that player/g, "@@poisonburn@@")
     .replace(/you may discard a card\. if you do, draw a card/g, "@@rummage@@")
+    .replace(/you may discard a card\. if you do, draw two cards/g, "@@rummagedraw 2@@")
+    .replace(/you may discard up to two cards\. if you do, draw that many cards/g, "@@discarddraw 2@@")
+    .replace(/exile the top three cards of your library\. until the end of your next turn, you may play those cards/g, "@@exiletopnext 3@@")
     .replace(/you may put a card from your hand on the bottom of your library\. if you do, draw a card/g, "@@rummagebottom@@")
     .replace(/exile the top card of your library\. during any turn you attacked with ~, you may play that card/g, "@@exiletopplay@@")
     .replace(/you may have it connive\. do this only once each turn/g, "it connives") // the once-a-turn limit is read by the trigger
@@ -213,7 +267,7 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       continue;
     }
     // "You may sacrifice an artifact or discard a card. If you do, draw a card." / "...discard a nonland card. When you do, ~ deals 2 damage to any target."
-    const sacChoice = /^you may (sacrifice an artifact or discard a card|sacrifice an artifact or discard a nonland card|sacrifice another creature)$/.exec(sentence);
+    const sacChoice = /^you may (sacrifice an artifact or discard a card|sacrifice an artifact or discard a nonland card|sacrifice another creature|sacrifice another creature or artifact|sacrifice three other nonland permanents)$/.exec(sentence);
     const doNext = /^(if|when) you do, (.+)$/.exec(sentences[si + 1] ?? "");
     if (sacChoice && doNext) {
       const targeted = doNext[1] === "when";
@@ -221,7 +275,7 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       const then = parseClause(doNext[2].replace(/^it deals /, "~ deals "), inner);
       if (!then || then.length === 0) return null;
       lastGroup = effects.length;
-      const cost = sacChoice[1] === "sacrifice another creature" ? "otherCreature" : sacChoice[1].endsWith("nonland card") ? "artifactOrNonland" : "artifactOrCard";
+      const cost = SAC_CHOICE_COST[sacChoice[1]];
       effects.push({ type: "mayCost", cost, then, ...(targeted && inner.targets.length > 0 ? { thenSpecs: inner.targets.map((t) => ({ ...t })) } : {}) });
       si++;
       continue;
@@ -250,6 +304,9 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       si++;
       continue;
     }
+    const linked = linkedSentence(sentence, effects, lastGroup, ctx);
+    if (linked === null) return null;
+    if (linked) continue;
     // "If this spell's additional cost was paid" (an optional blight): paying it counts as kicking.
     const kicked = /^if (?:~|this spell|it) was kicked, (.+)$/.exec(sentence) ?? /^if ~'s additional cost was paid, (.+)$/.exec(sentence) ?? /^if ~ was cast using teamwork, (.+)$/.exec(sentence);
     if (kicked) {

@@ -118,6 +118,8 @@ export function Lane({
       ...(p.solved ? ["Solved"] : []),
       ...(p.finality ? ["Finality counter"] : []),
       ...(p.warped ? ["Warped: exiled at end step"] : []),
+      ...(p.sacAtEnd ? ["Sacrificed at end step"] : []),
+      ...(/\bClass\b/.test(def.typeLine ?? "") ? [`Level ${p.classLevel ?? 1}`] : []),
       ...(p.heldFromHand ?? []).map((c) => `Holding: ${state.cards[c.defId]?.name ?? "a card"}`),
       ...(p.chosenColor ? [`Color: ${p.chosenColor}`] : []),
       ...(p.chosenType ? [`Type: ${p.chosenType.charAt(0).toUpperCase()}${p.chosenType.slice(1)}`] : []),

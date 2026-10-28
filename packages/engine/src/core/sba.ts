@@ -4,7 +4,7 @@ import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { GameState, Permanent } from "../types.js";
 import { findPermanentOrNull, isCreature, isPlaneswalker, isProtectedFrom, kw, nameOf, qualityOfDef, toughnessOf } from "./permanents.js";
-import { putIntoGraveyard, regenerateInstead } from "./zones.js";
+import { putIntoGraveyard, regenerateInstead, sacrificePermanent } from "./zones.js";
 
 // State-based actions (rule 704).
 
@@ -108,7 +108,7 @@ function stateBasedActionsOnce(state: GameState, events: GameEvent[]): void {
       const waiting = state.stack.some((i) => i.kind === "ability" && i.source === perm.card.iid) || state.triggerQueue.some((q) => q.item.source === perm.card.iid) || state.pendingChoice?.item.source === perm.card.iid;
       if (!waiting) {
         events.push({ type: "effect", text: `Why: ${nameOf(state, perm)} is sacrificed because its last chapter has been used.` });
-        putIntoGraveyard(state, perm, p.id, events);
+        sacrificePermanent(state, perm, p.id, events);
       }
     }
   }

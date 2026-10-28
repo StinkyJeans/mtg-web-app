@@ -9,6 +9,8 @@ export interface Replay {
   starting: PlayerId;
   names: Record<PlayerId, string>;
   decks: Record<PlayerId, string[]>;
+  /** The sideboards (for "learn"); missing in replays saved before they were kept. */
+  sides?: Partial<Record<PlayerId, string[]>>;
   cards: Record<string, CardDef>;
   log: { p: PlayerId; a: Action; s?: string[] }[];
   winner?: PlayerId | "draw";
@@ -39,7 +41,7 @@ export interface Step {
  * exactly what the players saw. `broken` is set if the recorded actions stop making sense (the rules changed since).
  */
 export function buildSteps(replay: Replay): { steps: Step[]; broken: string | null } {
-  let state = createGame(replay.decks, replay.seed, replay.cards, { startingPlayer: replay.starting, mulligan: true, shuffleStep: true });
+  let state = createGame(replay.decks, replay.seed, replay.cards, { startingPlayer: replay.starting, mulligan: true, shuffleStep: true, ...(replay.sides ? { sideboards: replay.sides } : {}) });
   const steps: Step[] = [{ state, events: [], who: null, action: null }];
   for (const [i, entry] of replay.log.entries()) {
     // mana the player chose to keep untapped was set aside while the server applied the action

@@ -18,19 +18,22 @@ import {
   newId,
   playerLabel,
   powerOf,
-  putIntoGraveyard,
+  sacrificePermanent,
+  spellCast,
   queueTriggers,
   queueWard,
   shiftTargets,
   subtypesOf,
   tapPerm,
+  toughnessOf,
 } from "../core.js";
 import type { CardFilter, Effect, TargetChoice, TargetSpec } from "../effects.js";
 import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payForAbility, payMana, withDelve, withPhyrexianLife, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { CardDef, CardInstance, GameState, Permanent, PlayerId } from "../types.js";
-import { abilityHaste, abilityManaCost, abilityNeed, applyPayment, canCastNow, checkTargets, holdsPriority, openRound, sorceryTiming, timingError } from "./shared.js";
+import type { ManaCost } from "../mana.js";
+import { abilityHaste, abilityManaCost, abilityNeed, applyPayment, canCastNow, checkTargets, holdsPriority, levelLock, openRound, sorceryTiming, timingError } from "./shared.js";
 
 // Casting spells and activating abilities: each puts something on the stack and opens a round of priority.
 
@@ -210,8 +213,8 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   } else if (parsed.extraSacrifice || (parsed.extraSacrificeOrPay !== undefined && !payInstead)) {
     sacrificed = sacrifice ? findPermanentOrNull(state, sacrifice) : null;
     const typed = parsed.extraSacrificeType;
-    const fits = (perm: Permanent) => isCreature(state, perm) && (!typed || subtypesOf(state, perm).includes(typed));
-    if (!sacrificed || sacrificed.owner.id !== player || !fits(sacrificed.perm)) return `${def.name}: choose a ${typed ?? "creature"} you control to sacrifice${parsed.extraSacrificeOrPay ? `, or pay ${parsed.extraSacrificeOrPay}` : ""}.`;
+    const what = typed ?? (parsed.extraSacrificeOrArtifact ? "artifact or creature" : "creature");
+    if (!sacrificed || sacrificed.owner.id !== player || !extraSacrificeFits(state, parsed, sacrificed.perm)) return `${def.name}: choose a${/^[aeiou]/.test(what) ? "n" : ""} ${what} you control to sacrifice${parsed.extraSacrificeOrPay ? `, or pay ${parsed.extraSacrificeOrPay}` : ""}.`;
   } else if (sacrifice && !payInstead && !blighted) {
     return `${def.name} has no sacrifice cost.`;
   }
@@ -223,14 +226,19 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   }
   const taxed = tax > 0 ? { ...cost, generic: cost.generic + tax } : cost;
   const replicateCosts = replicate > 0 ? Array.from({ length: replicate }, () => parseManaCost(parsed.replicate!)) : [];
-  const extra = [kicked ? kickerCost : null, payInstead, ...replicateCosts].filter((c): c is NonNullable<typeof c> => c !== null);
+  // Waterbend: artifacts and creatures tapped to pay for part of it, each one {1}
+  const bent = kicked && kickerCost && parsed.kickerName === "waterbend" ? waterbendTaps(state, player, withX(taxed, x), kickerCost, def) : [];
+  if (bent === null) return `Not enough mana: ${def.name} costs ${def.manaCost} + waterbend ${parsed.kicker}, even tapping your artifacts and creatures.`;
+  const kickerPaid = kickerCost && bent.length > 0 ? { ...kickerCost, generic: kickerCost.generic - bent.length } : kickerCost;
+  const extra = [kicked ? kickerPaid : null, payInstead, ...replicateCosts].filter((c): c is NonNullable<typeof c> => c !== null);
   const full = withPhyrexianLife(withX(extra.reduce(addCosts, taxed), x), phyrexianLife);
   if (!full) return `${def.name} doesn't have that many Phyrexian mana symbols to pay with life.`;
   const delved = parsed.delve ? (delve ? [...new Set(delve)] : delveChoice(state, player, iid, full.generic)) : [];
   if (delve && delve.length > 0 && !parsed.delve) return `${def.name} doesn't have delve.`;
   if (delved.length > full.generic) return `${def.name}: delve can only pay for the generic mana in its cost ({${full.generic}}).`;
   if (delved.some((id) => id === iid || !me.graveyard.some((c) => c.iid === id))) return `${def.name}: delve exiles cards from your graveyard.`;
-  for (const p of harmonizer ? [...teamed, harmonizer] : teamed) tapPerm(state, p, player); // paid as part of the cost, before the mana (they can't also be tapped for mana)
+  for (const p of [...teamed, ...(harmonizer ? [harmonizer] : []), ...bent]) tapPerm(state, p, player); // paid as part of the cost, before the mana (they can't also be tapped for mana)
+  if (bent.length > 0) events.push({ type: "effect", text: `${def.name}: waterbend taps ${bent.map((p) => getCard(state, p.card.defId).name).join(", ")}.` });
   const paid = payMana(state, player, withDelve(full, delved.length), def);
   if (!paid.ok) {
     const price = warp ? `warp ${parsed.warp}` : from === "graveyard" && !fromYard ? (parsed.flashback ? `flashback ${flashbackSac ? `(sacrifice a ${flashbackSac})` : parsed.flashback}` : `harmonize ${parsed.harmonize}`) : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "") + (payInstead ? ` + ${parsed.extraSacrificeOrPay}` : "");
@@ -244,7 +252,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   // "Deals damage equal to the sacrificed creature's power": its power is remembered as the spell's X.
   const sacrificedPower = sacrificed && !flashbackSac ? Math.max(0, powerOf(state, sacrificed.perm)) : undefined;
   if (sacrificed) {
-    putIntoGraveyard(state, sacrificed.perm, player, events); // paid as part of the cost
+    sacrificePermanent(state, sacrificed.perm, player, events); // paid as part of the cost
     checkStateBasedActions(state, events); // an Aura on the sacrificed creature falls off right away
   }
 
@@ -286,24 +294,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   // Storm (Ral's emblem): a copy for each spell cast before it this turn, by either player.
   const castBefore = (state.players.p1.spellsCastThisTurn ?? 0) + (state.players.p2.spellsCastThisTurn ?? 0);
   if (me.stormEmblem && (def.type === "instant" || def.type === "sorcery")) pushCopies(state, player, card, effects, specs, own, events, "storm", spellX, castBefore);
-  // Prowess and friends: "whenever you cast a noncreature spell" ("...a noncreature or Dragon spell" counts Dragon creature spells too).
-  const spellTypes = ((def.typeLine ?? "").split(" // ")[0].split("—")[1] ?? "").toLowerCase().split(/\s+/);
-  for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "noncreatureSpell", def.type === "creature" ? { subtypes: spellTypes } : undefined);
-  if (def.type === "instant" || def.type === "sorcery") for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "instantOrSorcery", { count: manaSpent });
-  me.spellsCastThisTurn = (me.spellsCastThisTurn ?? 0) + 1;
-  const aimedAt = (iid: string) => findPermanentOrNull(state, iid);
-  const targetedCreatures = targets.flatMap((t) => (t.kind === "permanent" && aimedAt(t.iid) && isCreature(state, aimedAt(t.iid)!.perm) ? [aimedAt(t.iid)!] : []));
-  for (const perm of me.battlefield) {
-    queueTriggers(state, perm.card, player, "youCast", {
-      castCount: me.spellsCastThisTurn,
-      spellColors: def.colors ?? [],
-      spellSubtypes: spellTypes,
-      spellKicked: wasKicked,
-      targetsOwnCreature: targetedCreatures.some((f) => f.owner.id === player),
-      targetsCreature: targetedCreatures.length > 0,
-    });
-  }
-  for (const perm of state.players[OPPONENT[player]].battlefield) queueTriggers(state, perm.card, OPPONENT[player], "opponentCasts");
+  spellCast(state, player, def, targets, manaSpent, wasKicked);
   openRound(state, OPPONENT[player]);
   return null;
 }
@@ -316,6 +307,39 @@ export function tapPair(state: GameState, player: PlayerId): [Permanent, Permane
     for (let j = i + 1; j < mine.length; j++) if (types(mine[i]).some((t) => types(mine[j]).includes(t))) return [mine[i], mine[j]];
   }
   return null;
+}
+
+/**
+ * Waterbend: "while paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}."
+ * The ones it costs nothing to tap go first (artifacts that aren't creatures, creatures that couldn't attack this turn anyway);
+ * then mana; then, only if the mana runs short, creatures that could still attack. Null when it can't be paid at all.
+ */
+export function waterbendTaps(state: GameState, player: PlayerId, base: ManaCost, kicker: ManaCost, def: CardDef): Permanent[] | null {
+  const me = state.players[player];
+  const couldAttack = state.active === player && state.phase === "main1";
+  const rank = (p: Permanent) => (!isCreature(state, p) ? 0 : p.summoningSick || !couldAttack ? 1 : 2);
+  const pool = me.battlefield
+    .filter((p) => !p.tapped && getCard(state, p.card.defId).type !== "land" && (isCreature(state, p) || isArtifactDef(getCard(state, p.card.defId))))
+    .sort((a, b) => rank(a) - rank(b));
+  const taps = pool.filter((p) => rank(p) < 2).slice(0, kicker.generic);
+  const payable = () => {
+    // (a Treasure tapped to waterbend can't also be sacrificed for mana)
+    taps.forEach((p) => (p.tapped = true));
+    const ok = payMana(state, player, addCosts(base, { ...kicker, generic: kicker.generic - taps.length }), def).ok;
+    taps.forEach((p) => (p.tapped = false));
+    return ok;
+  };
+  for (const p of pool.filter((p) => rank(p) === 2)) {
+    if (taps.length >= kicker.generic || payable()) break;
+    taps.push(p);
+  }
+  return payable() ? taps : null;
+}
+
+/** "As an additional cost to cast this spell, sacrifice a creature" (or "a Goblin", or "an artifact or creature"): can this permanent pay it? */
+export function extraSacrificeFits(state: GameState, parsed: { extraSacrificeType?: string; extraSacrificeOrArtifact?: boolean }, perm: Permanent): boolean {
+  const kind = isCreature(state, perm) || (parsed.extraSacrificeOrArtifact === true && isArtifactDef(getCard(state, perm.card.defId)));
+  return kind && (!parsed.extraSacrificeType || subtypesOf(state, perm).includes(parsed.extraSacrificeType));
 }
 
 /** The cards that could pay a "discard a card" / "sacrifice a creature" cost. */
@@ -366,6 +390,8 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
   const needed = abilityNeed(state, player, ability);
   if (needed) return `${def.name}'s ability can't be used: ${needed}.`;
   if (ability.solvedOnly && !found.perm.solved) return `${def.name} isn't solved yet.`;
+  const level = levelLock(found.perm, ability);
+  if (level) return `${def.name}'s ability can't be used: ${level}.`;
   if (ability.minLife !== undefined && state.players[player].life < ability.minLife) return `${def.name}'s ability needs you to have at least ${ability.minLife} life.`;
   if (forbidden(state, found.perm, "noActivated")) return `${def.name}'s abilities can't be activated.`;
 
@@ -392,6 +418,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     paidX = cost.x ? x : undefined;
     applyPayment(state, player, paid, events);
   }
+  let sacToughness: number | undefined;
   if (ability.costCard) {
     if (!payWith || !costChoices(state, player, ability, iid).includes(payWith)) return `${def.name}: choose ${ability.costCard.label}.`;
     if (ability.costCard.kind === "discard" || (ability.costCard.kind === "sacArtifactOrDiscardNonland" && state.players[player].hand.some((c) => c.iid === payWith))) {
@@ -401,7 +428,9 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     } else {
       const victim = findPermanentOrNull(state, payWith);
       if (victim) {
-        putIntoGraveyard(state, victim.perm, player, events); // paid as part of the cost
+        // Witch's Oven: "if the sacrificed creature's toughness was 4 or greater"
+        if (isCreature(state, victim.perm)) sacToughness = toughnessOf(state, victim.perm);
+        sacrificePermanent(state, victim.perm, player, events); // paid as part of the cost
         checkStateBasedActions(state, events);
       }
     }
@@ -436,7 +465,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
   // "Sacrifice this permanent" is part of the cost: it is gone before the ability goes on the stack.
   const sacrificedPower = ability.sacrifice && onBoard ? Math.max(0, powerOf(state, found.perm)) : undefined;
   if (ability.sacrifice) {
-    putIntoGraveyard(state, found.perm, player, events);
+    sacrificePermanent(state, found.perm, player, events);
     checkStateBasedActions(state, events);
   }
 
@@ -451,6 +480,7 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     specs: abilitySpecs,
     text: ability.text,
     ...(paidX !== undefined ? { x: paidX } : sacrificedPower !== undefined ? { x: sacrificedPower } : {}),
+    ...(sacToughness !== undefined ? { sacToughness } : {}),
   });
   events.push({ type: "abilityActivated", player, iid, name: def.name, text: ability.text, ...(targets.length > 0 ? { targets } : {}) });
   queueWard(state, state.stack[state.stack.length - 1]);

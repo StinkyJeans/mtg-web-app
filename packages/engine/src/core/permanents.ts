@@ -141,6 +141,7 @@ export function staticEffectsOn(s: GameState, target: Permanent): StaticEffect[]
     for (const source of owner.battlefield) {
       for (const st of parseCard(getCard(s, source.card.defId)).statics ?? []) {
         if (st.cond?.yourTurn && s.active !== owner.id) continue;
+        if (st.level && (source.classLevel ?? 1) < st.level) continue;
         if (st.attackingOnly && !s.combat?.attackers.some((a) => a.attacker === target.card.iid)) continue;
         if (st.cond?.drawnAtLeast !== undefined && (s.players[owner.id].drawnThisTurn ?? 0) < st.cond.drawnAtLeast) continue;
         if (st.cond?.lifeAtLeast !== undefined && s.players[owner.id].life < st.cond.lifeAtLeast) continue;

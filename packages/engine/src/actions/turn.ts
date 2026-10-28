@@ -4,6 +4,7 @@ import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { GameState, PlayerState } from "../types.js";
 import type { GameEvent } from "../actions.js";
+import type { Effect } from "../effects.js";
 
 // Moving through the turn: the next phase, the end of the turn and the start of the next one.
 
@@ -26,6 +27,7 @@ export function advancePhase(state: GameState, events: GameEvent[]): void {
       }
       for (const perm of state.players[state.active].battlefield) queueTriggers(state, perm.card, state.active, "endStepEach");
       queueWarpExiles(state);
+      queueEndStepSacrifices(state);
       break;
     case "end":
       // Cleanup step (rule 514.1): discard down to the maximum hand size.
@@ -53,6 +55,31 @@ function queueWarpExiles(state: GameState): void {
   }
 }
 
+/** Reflection of Kiki-Jiki's copies: "Sacrifice it at the beginning of the next end step." */
+function queueEndStepSacrifices(state: GameState): void {
+  for (const owner of Object.values(state.players)) {
+    for (const perm of owner.battlefield) {
+      if (!perm.sacAtEnd) continue;
+      const name = state.cards[perm.card.defId].name;
+      state.triggerQueue.push({ specs: [], item: { kind: "ability", id: newId(state), controller: owner.id, source: perm.card.iid, sourceName: name, effects: [{ type: "sacrifice", what: { t: "self" } }], targets: [], specs: [], text: "Sacrifice this token at the beginning of the next end step." } });
+    }
+  }
+}
+
+/** Paradigm: "you may cast a copy of it from exile without paying its mana cost at the beginning of each of your first main phases". */
+function queueParadigms(state: GameState, p: PlayerState): void {
+  const names = new Set<string>();
+  for (const iid of p.paradigms ?? []) {
+    const card = p.exile.find((c) => c.iid === iid);
+    const def = card ? getCard(state, card.defId) : undefined;
+    if (!def || names.has(def.name)) continue;
+    names.add(def.name);
+    const targets = parseCard(def).spell?.targets ?? [];
+    const effects: Effect[] = [{ type: "mayPay", cost: "", prompt: `Paradigm: cast a copy of ${def.name}?`, then: [{ type: "castCopy", defId: def.id }], ...(targets.length > 0 ? { thenSpecs: targets } : {}) }];
+    state.triggerQueue.push({ specs: [], item: { kind: "ability", id: newId(state), controller: p.id, source: iid, sourceName: def.name, effects, targets: [], specs: [], text: `Paradigm: you may cast a copy of ${def.name}.` } });
+  }
+}
+
 export function startNextTurn(state: GameState, events: GameEvent[]): void {
   state.preventCombat = undefined;
   state.noPrevention = undefined;
@@ -71,6 +98,9 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
     p.attackedThisTurn = undefined;
     p.spellsCastThisTurn = 0;
     p.yardCastable = undefined;
+    p.leftThisTurn = undefined;
+    p.deathLife = undefined;
+    p.pool = undefined;
     p.battlefield.forEach((perm) => {
       perm.damage = 0;
       perm.unblockableTurn = undefined;
@@ -155,6 +185,7 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
     perm.lore = (perm.lore ?? 0) + 1;
     queueChapters(state, perm, state.active);
   }
+  queueParadigms(state, p);
 
   state.phase = "main1";
   events.push({ type: "phaseChanged", phase: "main1" });

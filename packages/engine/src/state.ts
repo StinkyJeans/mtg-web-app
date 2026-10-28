@@ -49,6 +49,13 @@ function makePlayer(id: PlayerId, deck: string[], rng: number, defs: Record<stri
   return [player, nextRng];
 }
 
+/** Shuffled before the ids are given out, like the library, so an id doesn't tell which card it is. */
+function sideboardOf(id: PlayerId, cards: string[], seed: number): CardInstance[] | undefined {
+  if (cards.length === 0) return undefined;
+  const [order] = shuffle(cards, seed);
+  return order.map((defId, i) => ({ iid: `${id}-sb${i}`, defId, owner: id }));
+}
+
 /**
  * Create a new game. Both players draw an opening hand of 7.
  * By default p1 goes first and the game starts at main1 of turn 1. With `mulligan: true` the game
@@ -58,13 +65,18 @@ export function createGame(
   decks: Record<PlayerId, string[]>,
   seed: number,
   cardDefs: Record<string, CardDef> = CARDS,
-  options: { startingPlayer?: PlayerId; mulligan?: boolean; shuffleStep?: boolean } = {},
+  options: { startingPlayer?: PlayerId; mulligan?: boolean; shuffleStep?: boolean; sideboards?: Partial<Record<PlayerId, string[]>> } = {},
 ): GameState {
   const [p1, rng1] = makePlayer("p1", decks.p1, seed, cardDefs);
   const [p2, rng2] = makePlayer("p2", decks.p2, rng1, cardDefs);
+  // The sideboard is outside the game: only "learn" reaches into it. A card the engine can't play stays out.
+  const usable = (id: string) => cardDefs[id] !== undefined && cardDefs[id].playable !== false && isSupportedCard(cardDefs[id]);
+  const sideboards = { p1: (options.sideboards?.p1 ?? []).filter(usable), p2: (options.sideboards?.p2 ?? []).filter(usable) };
+  p1.sideboard = sideboardOf("p1", sideboards.p1, seed);
+  p2.sideboard = sideboardOf("p2", sideboards.p2, seed + 1);
   // Keep only the cards actually used in this game.
   const cards: Record<string, CardDef> = Object.fromEntries(
-    [...new Set([...decks.p1, ...decks.p2])].map((id) => [id, cardDefs[id]]),
+    [...new Set([...decks.p1, ...decks.p2, ...sideboards.p1, ...sideboards.p2])].map((id) => [id, cardDefs[id]]),
   );
   // A transforming card is played as its front face; its back face waits in the card list for when it transforms.
   for (const [id, def] of Object.entries(cards)) {

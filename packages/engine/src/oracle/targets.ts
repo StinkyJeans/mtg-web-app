@@ -112,6 +112,7 @@ function targetSpecBase(phrase: string): TargetSpec | null {
     for (const non of m[1].match(/non([a-z]+)/g) ?? []) {
       const word = non.slice(3);
       if (word === "artifact") spec.notArtifact = true;
+      else if (word === "legendary") spec.nonlegendary = true;
       else if (COLOR_OF[word]) spec.notColors = [...(spec.notColors ?? []), COLOR_OF[word]];
       else return null;
     }
@@ -187,6 +188,12 @@ export function refFor(phrase: string, ctx: Ctx): Ref | null {
         return { t: "other" };
       }
       return ctx.allowSelf ? { t: "self" } : null;
+    case "that player": {
+      // "Target player discards two cards. Then exile that player's graveyard."
+      let i = ctx.targets.length - 1;
+      while (i >= 0 && ctx.targets[i].kind !== "player") i--;
+      return i >= 0 ? { t: "target", i } : null;
+    }
     case "attacking creatures":
     case "attacking creatures you control":
     case "each attacking creature":

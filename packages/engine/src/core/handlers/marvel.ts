@@ -1,13 +1,21 @@
 import { getCard } from "../../cards.js";
 import { parseCard } from "../../oracle.js";
 import { findPermanentOrNull, newId, nameOf } from "../permanents.js";
-import { makeToken, putCounters, putIntoGraveyard } from "../zones.js";
+import { makeToken, putCounters, sacrificePermanent } from "../zones.js";
 import { subjectsOf } from "../targets.js";
 import { cardMatches } from "../permanents.js";
 import { defSubtypes } from "../../creatureTypes.js";
 import { drawCards } from "../zones.js";
 import { isArtifactDef, isCreature, powerOf, toughnessOf, yardCreatureCards } from "../permanents.js";
 import type { EffectHandlers } from "./shared.js";
+
+const MAY_COST_PROMPT = {
+  artifactOrCard: "You may sacrifice an artifact or discard a card",
+  artifactOrNonland: "You may sacrifice an artifact or discard a nonland card",
+  otherCreature: "You may sacrifice another creature",
+  otherCreatureOrArtifact: "You may sacrifice another creature or an artifact",
+  threeOtherNonland: "You may sacrifice three other nonland permanents: choose the first (or stop, and sacrifice none)",
+} as const;
 
 /** Effects of the Marvel Super Heroes set: keyword counters, Plan counters and the like. */
 export const MARVEL_EFFECTS = {
@@ -19,16 +27,22 @@ export const MARVEL_EFFECTS = {
     const artifacts = me.battlefield.filter((p) => isArtifactDef(getCard(state, p.card.defId))).map((p) => p.card.iid);
     const others = me.battlefield.filter((p) => p.card.iid !== ctx.sourceId && isCreature(state, p)).map((p) => p.card.iid);
     const cards = me.hand.filter((c) => effect.cost === "artifactOrCard" || getCard(state, c.defId).type !== "land").map((c) => c.iid);
-    const options = effect.cost === "otherCreature" ? others : [...artifacts, ...cards];
-    if (options.length === 0) return;
+    const otherNonland = me.battlefield.filter((p) => p.card.iid !== ctx.sourceId && getCard(state, p.card.defId).type !== "land").map((p) => p.card.iid);
+    const options =
+      effect.cost === "otherCreature" ? others
+      : effect.cost === "otherCreatureOrArtifact" ? [...new Set([...others, ...artifacts.filter((iid) => iid !== ctx.sourceId)])]
+      : effect.cost === "threeOtherNonland" ? otherNonland
+      : [...artifacts, ...cards];
+    const count = effect.cost === "threeOtherNonland" ? 3 : 1;
+    if (options.length < count) return;
     startPick({
       player: ctx.controller,
-      prompt: effect.cost === "otherCreature" ? "You may sacrifice another creature" : `You may sacrifice an artifact or discard ${effect.cost === "artifactOrNonland" ? "a nonland card" : "a card"}`,
+      prompt: MAY_COST_PROMPT[effect.cost],
       kind: "mayCost",
       options,
       optional: true,
       owner: ctx.controller,
-      remaining: 1,
+      remaining: count,
       ordered: [],
       thenEffects: effect.then,
       thenCtx: ctx,
@@ -165,7 +179,7 @@ export const MARVEL_EFFECTS = {
     const plan = parseCard(getCard(state, perm.card.defId)).plan;
     if (!plan || perm.planCounters !== plan.threshold) return;
     const controller = found.owner.id;
-    putIntoGraveyard(state, perm, controller, events); // sacrificed
+    sacrificePermanent(state, perm, controller, events);
     say(`${ctx.sourceName} is sacrificed.`);
     if (plan.effects.length === 0) return;
     state.triggerQueue.push({

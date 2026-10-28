@@ -107,7 +107,7 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
       // against the bot, the host also brings the bot's deck: a random one
       const vsBot = room.players.some((p) => p.bot);
       const botDeck = vsBot ? await buildRandomDeck(size) : undefined;
-      send("deck", { name: picked ? picked.name : (mine as { name: string }).name, ids: picked ? picked.ids : (mine as { ids: string[] }).ids, ...(botDeck ? { botDeck: { name: botDeck.name, ids: botDeck.ids } } : {}) });
+      send("deck", { name: picked ? picked.name : (mine as { name: string }).name, ids: picked ? picked.ids : (mine as { ids: string[] }).ids, ...(picked?.side ? { side: picked.side } : {}), ...(botDeck ? { botDeck: { name: botDeck.name, ids: botDeck.ids } } : {}) });
     } finally {
       setBusy(false);
     }

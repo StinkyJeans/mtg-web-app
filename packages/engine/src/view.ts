@@ -6,7 +6,7 @@ const HIDDEN_DEF: CardDef = { id: HIDDEN_CARD_ID, name: "Hidden card", type: "ot
 
 /**
  * What one player is allowed to know about the game, for a server that holds the real state.
- *   - The opponent's hand and both libraries become face-down cards (the cards stay countable, their identity is gone).
+ *   - The opponent's hand and sideboard and both libraries become face-down cards (the cards stay countable, their identity is gone).
  *     The exception: cards a pick is showing to this player (look at the top three, search a library) stay visible to them.
  *   - Definitions of cards the viewer cannot see are removed, so the list of cards can't be used to read the opponent's deck.
  *   - The shuffle seed is removed, so nobody can work out the order of a library.
@@ -24,6 +24,7 @@ export function viewFor(state: GameState, seat: PlayerId | null): GameState {
   for (const id of ["p1", "p2"] as const) {
     hide(view.players[id].library);
     if (id !== seat) hide(view.players[id].hand);
+    if (id !== seat) hide(view.players[id].sideboard ?? []);
   }
   // keep only the definitions the viewer can still see somewhere in the state
   const rest = JSON.stringify({ ...view, cards: undefined });

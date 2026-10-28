@@ -11,6 +11,8 @@ export interface Deck {
   id: string;
   name: string;
   entries: DeckEntries;
+  /** The sideboard: outside the game, but "learn" can fetch a Lesson from it. */
+  side?: DeckEntries;
 }
 
 /** An official deck the game can fully play. `entries` are the cards it plays with (main deck and commander). */
@@ -26,11 +28,17 @@ interface DeckCardRow {
   board: string;
 }
 
-/** The game only uses the main deck (and a Commander deck's commander). The sideboard is ignored. */
+/** The game is played with the main deck (and a Commander deck's commander). The sideboard stays outside it (`sideOf`). */
 function toEntries(rows: DeckCardRow[]): DeckEntries {
   const entries: DeckEntries = {};
   for (const row of rows) if (row.board !== "side") entries[row.card_id] = (entries[row.card_id] ?? 0) + row.qty;
   return entries;
+}
+
+function sideOf(rows: DeckCardRow[]): DeckEntries | undefined {
+  const side: DeckEntries = {};
+  for (const row of rows) if (row.board === "side") side[row.card_id] = (side[row.card_id] ?? 0) + row.qty;
+  return Object.keys(side).length > 0 ? side : undefined;
 }
 
 /** One id per copy, e.g. {"mountain": 2} -> ["mountain", "mountain"]. This is what the engine takes. */
@@ -71,6 +79,7 @@ export async function listMyDecks(): Promise<Deck[]> {
     id: d.id,
     name: d.name,
     entries: toEntries(d.deck_cards),
+    ...(sideOf(d.deck_cards) ? { side: sideOf(d.deck_cards) } : {}),
   }));
 }
 
@@ -125,7 +134,10 @@ export async function listOfficialDecks(): Promise<OfficialDeck[]> {
     if (answer.error) throw new Error(answer.error.message);
     for (const c of answer.data as (DeckCardRow & { deck_id: string })[]) byDeck.set(c.deck_id, [...(byDeck.get(c.deck_id) ?? []), c]);
   }
-  return rows.map((d) => ({ id: d.id, name: d.name, deckType: d.deck_type, code: d.code, releaseDate: d.release_date, entries: toEntries(byDeck.get(d.id) ?? []) }));
+  return rows.map((d) => {
+    const side = sideOf(byDeck.get(d.id) ?? []);
+    return { id: d.id, name: d.name, deckType: d.deck_type, code: d.code, releaseDate: d.release_date, entries: toEntries(byDeck.get(d.id) ?? []), ...(side ? { side } : {}) };
+  });
 }
 
 /** A deck's colors in WUBRG order, from its cards. */
@@ -138,6 +150,8 @@ export interface DeckChoice {
   id: string;
   name: string;
   ids: string[];
+  /** Its sideboard, one id per copy (for "learn"). */
+  side?: string[];
   official: boolean;
   /** Its colors (W U B R G), a card picture to show as its cover, and the set an official deck is from. */
   colors: string[];
@@ -165,6 +179,7 @@ export async function listPlayableDecks(): Promise<{ choices: DeckChoice[]; hidd
     id: d.id,
     name: d.name,
     ids: expandDeck(d.entries),
+    ...(d.side ? { side: expandDeck(d.side) } : {}),
     official: isOfficial,
     colors: deckColors(defs, d.entries),
     ...(coverOf(defs, d.entries)?.image ? { cover: coverOf(defs, d.entries)!.image } : {}),
@@ -214,8 +229,9 @@ export async function saveDeck(deck: { id?: string; name: string; entries: DeckE
     if (error) throw new Error(error.message);
   }
 
-  // Remove cards that are no longer in the deck (written after the upsert so a failure never loses cards).
-  let stale = supabase.from("deck_cards").delete().eq("deck_id", id);
+  // Remove cards that are no longer in the deck (written after the upsert so a failure never loses cards). The editor only
+  // edits the main deck: the sideboard is left as it is.
+  let stale = supabase.from("deck_cards").delete().eq("deck_id", id).neq("board", "side");
   if (cardIds.length) stale = stale.not("card_id", "in", `(${cardIds.join(",")})`);
   const { error } = await stale;
   if (error) throw new Error(error.message);

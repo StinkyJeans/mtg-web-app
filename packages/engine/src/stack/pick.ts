@@ -15,10 +15,12 @@ import {
   powerOf,
   putCounters,
   putIntoGraveyard,
+  sacrificePermanent,
   removeFromBattlefield,
   runEffects,
 } from "../core.js";
 import { parseManaCost, payMana } from "../mana.js";
+import type { ManaColor } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import { shuffle } from "../state.js";
 import { OPPONENT } from "../types.js";
@@ -84,6 +86,10 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     const perm = iid && pick.options.includes(iid) ? owner.battlefield.find((p) => p.card.iid === pick.colorFor) : undefined;
     if (!iid || !pick.options.includes(iid)) return "Choose one of the colors.";
     if (perm) perm.chosenColor = iid as "W" | "U" | "B" | "R" | "G";
+    if (pick.poolColor) {
+      owner.pool = [...(owner.pool ?? []), { color: iid as ManaColor, turn: state.turn, phase: state.phase }];
+      events.push({ type: "effect", text: `${playerLabelOf(player)} adds {${iid}}.` });
+    }
     finish();
     return null;
   }
@@ -285,6 +291,71 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     return null;
   }
 
+  if (pick.kind === "mayCost" && pick.remaining > 1) {
+    // "You may sacrifice three other nonland permanents": they are chosen one by one and sacrificed together; stopping early sacrifices none.
+    if (iid === undefined) {
+      finish();
+      return null;
+    }
+    if (!pick.options.includes(iid)) return "That isn't one of the choices.";
+    pick.ordered.push(iid);
+    pick.options = pick.options.filter((o) => o !== iid);
+    if (pick.ordered.length < pick.remaining) {
+      pick.prompt = `Choose ${pick.remaining - pick.ordered.length} more to sacrifice (or stop, and sacrifice none)`;
+      return null;
+    }
+    for (const id of pick.ordered) {
+      const found = findPermanentOrNull(state, id);
+      if (!found) continue;
+      events.push({ type: "effect", text: `${playerLabelOf(player)} sacrifices ${getCard(state, found.perm.card.defId).name}.` });
+      sacrificePermanent(state, found.perm, found.owner.id, events);
+    }
+    checkStateBasedActions(state, events);
+    state.pendingPick = null;
+    afterYouDo(state, player, pick, events);
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "discardDraw") {
+    // "You may discard up to two cards. If you do, draw that many cards."
+    if (iid !== undefined) {
+      if (!pick.options.includes(iid)) return "That isn't one of the choices.";
+      owner.graveyard.push(take(owner.hand, iid));
+      pick.ordered.push(iid);
+      pick.options = pick.options.filter((o) => o !== iid);
+      if (pick.ordered.length < pick.remaining && pick.options.length > 0) {
+        pick.prompt = "You may discard one more card (or stop): then draw as many as you discarded";
+        return null;
+      }
+    }
+    if (pick.ordered.length > 0) {
+      cardsDiscarded(state, pick.owner, pick.ordered, events);
+      drawCards(state, pick.owner, pick.ordered.length, events);
+    }
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "learn") {
+    // A Lesson from outside the game goes to the hand; a card from the hand is discarded to draw one. Or nothing.
+    if (iid !== undefined) {
+      if (!pick.options.includes(iid)) return "That isn't one of the choices.";
+      const sideboard = owner.sideboard ?? [];
+      if (sideboard.some((c) => c.iid === iid)) {
+        const card = take(sideboard, iid);
+        owner.hand.push(card);
+        events.push({ type: "effect", text: `${playerLabelOf(pick.owner)} learns: they reveal ${getCard(state, card.defId).name} from outside the game and put it into their hand.` });
+      } else {
+        owner.graveyard.push(take(owner.hand, iid));
+        cardsDiscarded(state, pick.owner, [iid], events);
+        drawCards(state, pick.owner, 1, events);
+      }
+    }
+    finish();
+    return null;
+  }
+
   if (pick.kind === "mayCost") {
     // The artifact or creature is sacrificed (it is on the battlefield) or the card is discarded (it is in the hand); then "if you do" happens.
     if (iid === undefined) {
@@ -295,7 +366,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     const onField = findPermanentOrNull(state, iid);
     if (onField) {
       events.push({ type: "effect", text: `${playerLabelOf(player)} sacrifices ${getCard(state, onField.perm.card.defId).name}.` });
-      putIntoGraveyard(state, onField.perm, onField.owner.id, events);
+      sacrificePermanent(state, onField.perm, onField.owner.id, events);
       checkStateBasedActions(state, events);
     } else {
       const card = take(owner.hand, iid);
@@ -382,7 +453,21 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
         owner.graveyard.push(take(owner.hand, iid));
         cardsDiscarded(state, pick.owner, [iid], events);
       }
-      drawCards(state, pick.owner, 1, events);
+      drawCards(state, pick.owner, pick.drawN ?? 1, events);
+      break;
+    }
+    case "fromYard": {
+      const card = take(owner.graveyard, iid);
+      if (pick.yardTo === "hand") {
+        owner.hand.push(card);
+        events.push({ type: "effect", text: `${playerLabelOf(pick.owner)} returns ${getCard(state, card.defId).name} from their graveyard to their hand.` });
+        break;
+      }
+      events.push({ type: "effect", text: `${getCard(state, card.defId).name} returns from ${playerLabelOf(pick.owner)}'s graveyard to the battlefield${pick.finality ? " with a finality counter on it" : ""}.` });
+      state.pendingPick = null; // so the card can ask its own question as it enters
+      enterBattlefield(state, card, pick.owner, events);
+      const entered = owner.battlefield.find((p) => p.card.iid === card.iid);
+      if (entered && pick.finality) entered.finality = true;
       break;
     }
     case "toHand": {

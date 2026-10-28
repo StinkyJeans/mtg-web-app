@@ -29,6 +29,7 @@ import {
 import type { TargetChoice } from "./effects.js";
 import type { ManaColor } from "./mana.js";
 import { parseCard } from "./oracle.js";
+import { BACK_SUFFIX } from "./oracle/doubleFaced.js";
 import { shuffle, STARTING_HAND } from "./state.js";
 import { activateAbility, activateLoyalty, castSpell, chooseTargets, crewVehicle, cycleCard, getCastable, openWindow, passPriority, pickCard, plotCard, settle } from "./stack.js";
 import type { Outcome } from "./stack.js";
@@ -50,7 +51,7 @@ export type Action =
   | { type: "mulligan" }
   | { type: "keepHand"; bottom: string[] }
   | { type: "shuffleDeck" } // before keeping or mulliganing: shuffle the OTHER player's library
-  | { type: "playLand"; iid: string }
+  | { type: "playLand"; iid: string; back?: boolean } // `back`: a modal double-faced land played with its back face up
   | { type: "castCreature"; iid: string }
   | { type: "castSpell"; iid: string; targets?: TargetChoice[]; x?: number; kicked?: boolean; from?: "graveyard" | "exile" | "prepared"; modes?: number[]; sacrifice?: string; warp?: boolean; /** Teamwork: the creatures tapped as an additional cost. */ teamwork?: string[]; /** Phyrexian symbols paid with 2 life each even where mana could pay them. */ phyrexianLife?: number; /** Delve: the graveyard cards exiled to pay for generic mana (left out: the engine chooses). */ delve?: string[]; /** Replicate: how many times it is paid (the targets of each copy follow the spell's). */ replicate?: number; /** An Adventure card: cast its Adventure spell instead of the creature. */ adventure?: boolean; /** Harmonize: the creature tapped to pay {X} of the cost. */ harmonizeTap?: string }
   | { type: "activateAbility"; iid: string; index: number; targets?: TargetChoice[]; payWith?: string; /** The X of a cost like "{X}{R}": what the player chose to pay. */ x?: number; /** Phyrexian symbols paid with 2 life each even where mana could pay them. */ phyrexianLife?: number }
@@ -217,7 +218,10 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       }
       if (idx < 0) return fail("That card is not in your hand.");
       if (getCard(next, zone[idx].defId).type !== "land") return fail("That card is not a land.");
-      const [card] = zone.splice(idx, 1);
+      const backId = `${zone[idx].defId}${BACK_SUFFIX}`;
+      if (action.back && next.cards[backId]?.type !== "land") return fail("That land has no other face to play.");
+      const [played] = zone.splice(idx, 1);
+      const card = action.back ? { ...played, defId: backId, printed: played.defId } : played;
       me.battlefield.push({ card, tapped: (zone === me.exile && tappedLand) || entersTappedNow(next, player, getCard(next, card.defId)), summoningSick: true, damage: 0, enteredTurn: next.turn });
       me.landsPlayedThisTurn++;
       events.push({ type: "landPlayed", player, iid: card.iid });
@@ -658,6 +662,7 @@ export function getLegalActions(state: GameState, player: PlayerId): Action[] {
     if (getCard(state, card.defId).type !== "land") continue;
     const action: Action = { type: "playLand", iid: card.iid };
     if (applyAction(state, player, action).ok) actions.push(action);
+    if (state.cards[`${card.defId}${BACK_SUFFIX}`]?.type === "land" && applyAction(state, player, { ...action, back: true }).ok) actions.push({ ...action, back: true });
   }
   return actions;
 }

@@ -110,11 +110,12 @@ function resolveTop(state: GameState, events: GameEvent[]): void {
       }
     } else {
       if (!fizzled) runEffects(state, item.effects, { controller: item.controller, sourceId: item.card.iid, sourceName: def.name, sourceDefId: item.card.defId, targets: item.targets, specs: item.specs, stackId: item.id, x: item.x, kicked: item.kicked }, events);
-      spellLeavesStack(state, item, item.adventure && !fizzled ? "adventure" : "graveyard"); // flashback: exiled afterwards; a copy ceases to exist
+      if (!fizzled && !item.copy && !item.flashback && parseCard(def).paradigm) exileParadigm(state, item, def.name, events);
+      else spellLeavesStack(state, item, item.adventure && !fizzled ? "adventure" : "graveyard"); // flashback: exiled afterwards; a copy ceases to exist
     }
   } else {
     if (!fizzled) {
-      runEffects(state, item.effects, { controller: item.controller, sourceId: item.source, sourceName: item.sourceName, sourceDefId: findPermanentOrNull(state, item.source)?.perm.card.defId, targets: item.targets, specs: item.specs, stackId: item.id, ...(item.other ? { other: item.other } : {}), ...(item.x !== undefined ? { x: item.x } : {}), ...(item.died ? { died: item.died } : {}) }, events);
+      runEffects(state, item.effects, { controller: item.controller, sourceId: item.source, sourceName: item.sourceName, sourceDefId: findPermanentOrNull(state, item.source)?.perm.card.defId, targets: item.targets, specs: item.specs, stackId: item.id, ...(item.other ? { other: item.other } : {}), ...(item.x !== undefined ? { x: item.x } : {}), ...(item.died ? { died: item.died } : {}), ...(item.sacToughness !== undefined ? { sacToughness: item.sacToughness } : {}) }, events);
     }
   }
   checkStateBasedActions(state, events);
@@ -122,6 +123,14 @@ function resolveTop(state: GameState, events: GameEvent[]): void {
   if (state.combat) state.combat.attackers = state.combat.attackers.filter((a) => findPermanentOrNull(state, a.attacker) !== null);
   const did = outcomeSince(state, before);
   if (did.length > 0) told.did = did;
+}
+
+/** Paradigm: "Then exile this spell." Its owner may cast a copy of it at the beginning of each of their first main phases. */
+function exileParadigm(state: GameState, item: Extract<StackItem, { kind: "spell" }>, name: string, events: GameEvent[]): void {
+  const owner = state.players[item.card.owner];
+  owner.exile.push(item.card);
+  owner.paradigms = [...(owner.paradigms ?? []), item.card.iid];
+  events.push({ type: "effect", text: `${name} is exiled (paradigm): a copy of it may be cast at the beginning of each of its owner's first main phases.` });
 }
 
 /** Moves queued triggers onto the stack. One that needs a target waits for its controller to choose it. */

@@ -24,6 +24,8 @@ const CONFIRM: Partial<Record<PickKind, (name: string) => string>> = {
   exileToPlay: (n) => `Exile ${n}`,
   playExile: (n) => `Exile ${n}: play it this turn`,
   mayCost: (n) => `Sacrifice or discard ${n}`,
+  discardDraw: (n) => `Discard ${n}`,
+  fromYard: (n) => `Return ${n}`,
   legend: (n) => `Keep ${n}`,
   handToField: (n) => `Put ${n} onto the battlefield`,
   scry: (n) => `Put ${n} on the bottom`,
@@ -78,8 +80,10 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
   const pick = state.pendingPick;
   if (!pick) return null;
   const owner = state.players[pick.owner];
+  // (learn reaches into the sideboard; a few effects return a card from the graveyard)
+  const sideboard = new Set((owner.sideboard ?? []).map((c) => c.iid));
   const cards = pick.options.flatMap((iid) => {
-    const card = [...owner.hand, ...owner.library, ...owner.battlefield.map((p) => p.card)].find((c) => c.iid === iid);
+    const card = [...owner.hand, ...owner.library, ...owner.battlefield.map((p) => p.card), ...owner.graveyard, ...(owner.sideboard ?? [])].find((c) => c.iid === iid);
     return card ? [card] : [];
   });
   // A permanent to choose (to tap, return, keep...) is shown as it is now: power, toughness, counters, damage.
@@ -158,6 +162,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
               onClick={() => setSelected(c === chosen ? null : c.iid)}
               onZoom={() => onZoom(state.cards[c.defId])}
             />
+            {pick.kind === "learn" && <div className="mt-0.5 text-center text-[11px] font-semibold text-rose-700">{sideboard.has(c.iid) ? "Sideboard Lesson" : "In your hand"}</div>}
           </div>
         ))}
       </div>
@@ -200,17 +205,43 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
             disabled={!chosen}
             className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
           >
-            {chosen ? (CONFIRM[pick.kind] ?? ((n: string) => `Choose ${n}`))(state.cards[chosen.defId].name) : "Click a card, then confirm"}
+            {chosen ? confirmLabel(pick, state.cards[chosen.defId].name, sideboard.has(chosen.iid), onField(chosen.iid) !== undefined) : "Click a card, then confirm"}
           </button>
         )}
         {pick.optional && (
           <button onClick={() => confirm(undefined)} className="rounded-lg border border-zinc-400 px-3 py-1.5 text-sm hover:bg-zinc-200">
-            {pick.kind === "searchLand" || pick.kind === "searchAny" ? "Don't search" : pick.kind === "crew" ? "Cancel" : pick.kind === "scry" || pick.kind === "surveil" ? "Keep the rest on top" : pick.kind === "revealToHand" ? "Take nothing" : pick.kind === "rummage" || pick.kind === "discard" ? "Don't discard" : pick.kind === "tapSome" ? "Done" : pick.kind === "handExile" ? "Exile nothing" : pick.kind === "mayCost" ? "Don't" : pick.kind === "handToField" ? (pick.elseDraw ? "Don't: draw a card instead" : "Don't") : pick.kind === "look" ? "OK, leave it on top" : "No, leave it"}
+            {declineLabel(pick)}
           </button>
         )}
       </div>
     </section>
   );
+}
+
+type Pick = NonNullable<GameState["pendingPick"]>;
+
+function confirmLabel(pick: Pick, name: string, fromSideboard: boolean, onField: boolean): string {
+  if (pick.kind === "learn") return fromSideboard ? `Put ${name} into your hand` : `Discard ${name}, then draw a card`;
+  if (pick.kind === "mayCost") return onField ? `Sacrifice ${name}` : `Discard ${name}`;
+  return (CONFIRM[pick.kind] ?? ((n: string) => `Choose ${n}`))(name);
+}
+
+function declineLabel(pick: Pick): string {
+  const n = pick.ordered.length;
+  if (pick.kind === "discardDraw") return n > 0 ? `Stop: draw ${n === 1 ? "a card" : `${n} cards`}` : "Don't discard";
+  if (pick.kind === "mayCost" && pick.remaining > 1) return n > 0 ? "Stop: sacrifice none" : "Don't";
+  if (pick.kind === "learn") return "Don't learn";
+  if (pick.kind === "searchLand" || pick.kind === "searchAny") return "Don't search";
+  if (pick.kind === "crew") return "Cancel";
+  if (pick.kind === "scry" || pick.kind === "surveil") return "Keep the rest on top";
+  if (pick.kind === "revealToHand") return "Take nothing";
+  if (pick.kind === "rummage" || pick.kind === "discard") return "Don't discard";
+  if (pick.kind === "tapSome") return "Done";
+  if (pick.kind === "handExile") return "Exile nothing";
+  if (pick.kind === "mayCost") return "Don't";
+  if (pick.kind === "handToField") return pick.elseDraw ? "Don't: draw a card instead" : "Don't";
+  if (pick.kind === "look") return "OK, leave it on top";
+  return "No, leave it";
 }
 
 /** The card a choice comes from, found wherever it is now (a resolving spell is already in the graveyard). */

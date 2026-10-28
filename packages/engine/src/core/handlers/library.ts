@@ -47,7 +47,12 @@ export const LIBRARY_EFFECTS = {
     library.push(...ordered);
     say(`${playerLabel(ctx.controller)} reveals the top ${effect.n} cards and puts ${keep.length} onto the battlefield.`);
   },
-  exileTop({ state, ctx, say }, effect) {
+  exileTop({ state, ctx, say, nested }, effect) {
+    // "Exile the top three cards of your library": each one in turn, with the same permission to play it.
+    if ((effect.n ?? 1) > 1) {
+      nested(Array.from({ length: effect.n! }, () => ({ ...effect, n: 1 })));
+      return;
+    }
     const library = state.players[ctx.controller].library;
     const card = library.shift();
     if (!card) return;
@@ -116,13 +121,14 @@ export const LIBRARY_EFFECTS = {
     if (hand.length === 0 || state.pendingPick) return;
     startPick({
       player: ctx.controller,
-      prompt: effect.toBottom ? "You may put a card from your hand on the bottom of your library. If you do, draw a card." : "You may discard a card. If you do, draw a card.",
+      prompt: effect.toBottom ? "You may put a card from your hand on the bottom of your library. If you do, draw a card." : `You may discard a card. If you do, draw ${effect.draw && effect.draw > 1 ? `${effect.draw} cards` : "a card"}.`,
       kind: "rummage",
       options: hand.map((c) => c.iid),
       optional: true,
       owner: ctx.controller,
       remaining: 1,
       ordered: [],
+      ...(effect.draw ? { drawN: effect.draw } : {}),
       ...(effect.toBottom ? { restToGraveyard: false, randomBottom: false, bottomIids: ["bottom"] } : {}),
     });
   },
@@ -214,11 +220,15 @@ export const LIBRARY_EFFECTS = {
         cardsDiscarded(state, s.id, iids, events);
         continue;
       }
+      // "You choose a nonland card from it": the lands are seen but can't be chosen.
+      const choosable = effect.nonland ? hand.filter((c) => getCard(state, c.defId).type !== "land") : hand;
+      if (choosable.length === 0) continue;
       startPick({
         player: effect.chooser === "you" ? ctx.controller : s.id,
-        prompt: effect.chooser === "you" ? `${playerLabel(s.id)}'s hand: choose a card for them to discard` : `Discard ${plural(count, "card")}`,
+        prompt: effect.chooser === "you" ? `${playerLabel(s.id)}'s hand: choose a ${effect.nonland ? "nonland " : ""}card for them to discard` : `Discard ${plural(count, "card")}`,
         kind: "discard",
-        options: hand.map((c) => c.iid),
+        options: choosable.map((c) => c.iid),
+        ...(effect.nonland ? { seen: hand.filter((c) => !choosable.includes(c)).map((c) => c.iid) } : {}),
         optional: false,
         owner: s.id,
         remaining: count,

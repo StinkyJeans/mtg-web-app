@@ -167,6 +167,27 @@ export default function CastPlanPanels({ state, actor, plan, modePick, onModePic
       />
     );
   }
+  if (!kickerDone && c.kickerName === "waterbend") {
+    const tapped = (c.waterbendTaps ?? []).map((iid) => state.cards[state.players[actor].battlefield.find((p) => p.card.iid === iid)?.card.defId ?? ""]?.name).filter(Boolean);
+    return (
+      <ChoicePanel
+        title={`${plan.name}: you may waterbend ${c.kicker} (an additional cost)`}
+        options={[
+          { label: "Cast it normally", onPick: () => onAdvance({ ...plan, kicked: false }) },
+          {
+            label: (
+              <>
+                Waterbend <ManaText text={c.kicker ?? ""} />
+                {tapped.length > 0 ? `: tap ${tapped.join(", ")} (each pays {1}), the rest with mana` : ", paid with mana"}
+              </>
+            ),
+            onPick: () => onAdvance({ ...plan, kicked: true }),
+          },
+        ]}
+        onCancel={onCancel}
+      />
+    );
+  }
   if (!kickerDone) {
     const offspring = c.kickerName === "offspring";
     return (

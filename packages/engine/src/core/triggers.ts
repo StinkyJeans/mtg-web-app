@@ -1,9 +1,9 @@
 import type { GameEvent } from "../actions.js";
 import { getCard } from "../cards.js";
-import type { LastKnown, StackItem, TriggeredAbility } from "../effects.js";
+import type { LastKnown, StackItem, TargetChoice, TriggeredAbility } from "../effects.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
-import type { CardInstance, GameState, Permanent, PlayerId } from "../types.js";
+import type { CardDef, CardInstance, GameState, Permanent, PlayerId } from "../types.js";
 import {
   bindSpecs,
   findPermanentOrNull,
@@ -91,6 +91,7 @@ export function creatureEntered(state: GameState, card: CardInstance, controller
     for (const [n, trigger] of parseCard(def).triggers.entries()) {
       if (trigger.event !== "allyEnters") continue;
       if (trigger.other && perm.card.iid === card.iid) continue;
+      if (!levelReached(state, perm.card.iid, trigger.level)) continue;
       if (trigger.enchantments) {
         if (!isEnchantmentDef(getCard(state, card.defId))) continue; // eerie: "whenever an enchantment you control enters"
       } else if (trigger.artifacts) {
@@ -136,6 +137,35 @@ export function creatureMoved(state: GameState, perm: Permanent, controller: Pla
   }
 }
 
+/** A spell was cast (a copy cast from exile too): prowess and every other "whenever you cast" / "whenever an opponent casts" ability. */
+export function spellCast(state: GameState, player: PlayerId, def: CardDef, targets: TargetChoice[], manaSpent: number, kicked: boolean): void {
+  const me = state.players[player];
+  // "Whenever you cast a noncreature spell" ("...a noncreature or Dragon spell" counts Dragon creature spells too).
+  const spellTypes = ((def.typeLine ?? "").split(" // ")[0].split("—")[1] ?? "").toLowerCase().split(/\s+/);
+  for (const perm of me.battlefield) queueTriggers(state, perm.card, player, "noncreatureSpell", def.type === "creature" ? { subtypes: spellTypes } : undefined);
+  if (def.type === "instant" || def.type === "sorcery") for (const perm of me.battlefield) queueTriggers(state, perm.card, player, "instantOrSorcery", { count: manaSpent });
+  me.spellsCastThisTurn = (me.spellsCastThisTurn ?? 0) + 1;
+  const aimedAt = (iid: string) => findPermanentOrNull(state, iid);
+  const targetedCreatures = targets.flatMap((t) => (t.kind === "permanent" && aimedAt(t.iid) && isCreature(state, aimedAt(t.iid)!.perm) ? [aimedAt(t.iid)!] : []));
+  for (const perm of me.battlefield) {
+    queueTriggers(state, perm.card, player, "youCast", {
+      castCount: me.spellsCastThisTurn,
+      spellColors: def.colors ?? [],
+      spellSubtypes: spellTypes,
+      spellKicked: kicked,
+      targetsOwnCreature: targetedCreatures.some((f) => f.owner.id === player),
+      targetsCreature: targetedCreatures.length > 0,
+    });
+  }
+  for (const perm of state.players[OPPONENT[player]].battlefield) queueTriggers(state, perm.card, OPPONENT[player], "opponentCasts");
+}
+
+/** A Class's ability works once the Class has reached its level (a card that has left the battlefield looks back at it as it was). */
+function levelReached(state: GameState, iid: string, level?: number): boolean {
+  if (!level || level <= 1) return true;
+  return (findPermanentOrNull(state, iid)?.perm.classLevel ?? 1) >= level;
+}
+
 /** "This ability triggers only once each turn": remembered like an ability used this turn (keys above 1000 are triggers). False when it already triggered. */
 function claimOncePerTurn(perm: Permanent | undefined, n: number): boolean {
   if (perm?.usedAbilities?.includes(1000 + n)) return false;
@@ -160,6 +190,8 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
     if (trigger.spellSubtype && !(extra?.spellSubtypes ?? []).includes(trigger.spellSubtype)) continue;
     if (trigger.spellKicked && !extra?.spellKicked) continue; // "whenever you cast a kicked spell"
     if (event === "anyDies" && trigger.nontoken && extra?.token) continue; // "another nontoken creature"
+    if (trigger.tokenOnly && !extra?.token) continue; // "whenever you sacrifice a token"
+    if (!levelReached(state, card.iid, trigger.level)) continue;
     if (trigger.other && extra?.self) continue;
     if (trigger.selfOnly && !extra?.self) continue;
     // "Whenever you cast a spell that targets a creature you control / one or more creatures"

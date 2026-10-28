@@ -1,9 +1,9 @@
 import type { GameEvent } from "../actions.js";
 import { getCard } from "../cards.js";
-import { changeLife, findPermanentOrNull, isLegalTarget, isPermanentCard, isToken, playerToAct, tapPerm, toughnessOf } from "../core.js";
+import { changeLife, findPermanentOrNull, isCreature, isLegalTarget, isPermanentCard, playerToAct, sacrificePermanent, tapPerm, toughnessOf } from "../core.js";
 import type { TargetChoice, TargetSpec } from "../effects.js";
 import { hasKeyword } from "../keywords.js";
-import { manaAbilitySacrifices, manaCostOf, parseManaCost } from "../mana.js";
+import { manaAbilitySacrifices, manaCostOf, parseManaCost, POOL } from "../mana.js";
 import type { ManaColor, ManaCost } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import type { CardDef, GameState, PlayerId } from "../types.js";
@@ -56,26 +56,26 @@ export function openRound(state: GameState, holder: PlayerId): void {
   }
 }
 
-const tapPermanents = (state: GameState, player: PlayerId, iids: string[]) => {
-  const battlefield = state.players[player].battlefield;
-  for (const perm of [...battlefield]) {
+const tapPermanents = (state: GameState, player: PlayerId, iids: string[], events: GameEvent[]) => {
+  const me = state.players[player];
+  // Floating mana that was spent leaves the pool.
+  const spent = new Set(iids.filter((iid) => iid.startsWith(POOL)).map((iid) => Number(iid.slice(POOL.length))));
+  if (spent.size > 0) me.pool = (me.pool ?? []).filter((_, at) => !spent.has(at));
+  for (const perm of [...me.battlefield]) {
     if (!iids.includes(perm.card.iid)) continue;
     tapPerm(state, perm, player);
     // A Treasure is sacrificed when it is tapped for mana; a token simply ceases to exist.
-    if (manaAbilitySacrifices(getCard(state, perm.card.defId))) {
-      battlefield.splice(battlefield.indexOf(perm), 1);
-      if (!isToken(perm.card)) state.players[perm.card.owner].graveyard.push(perm.card);
-    }
+    if (manaAbilitySacrifices(getCard(state, perm.card.defId))) sacrificePermanent(state, perm, player, events);
   }
 };
 
 /** Pays a cost worked out by payMana: taps (or sacrifices) the sources and pays any life for Phyrexian mana. */
 export function applyPayment(state: GameState, player: PlayerId, paid: { tap: string[]; life: number; made: { iid: string; color: ManaColor }[] }, events: GameEvent[]): void {
   if (paid.made.length > 0) {
-    const nameOf = (iid: string) => getCard(state, state.players[player].battlefield.find((p) => p.card.iid === iid)?.card.defId ?? "").name;
+    const nameOf = (iid: string) => (iid.startsWith(POOL) ? "Floating mana" : getCard(state, state.players[player].battlefield.find((p) => p.card.iid === iid)?.card.defId ?? "").name);
     events.push({ type: "manaPaid", player, made: paid.made.map((m) => ({ ...m, name: nameOf(m.iid) })) });
   }
-  tapPermanents(state, player, paid.tap);
+  tapPermanents(state, player, paid.tap, events);
   if (paid.life > 0) changeLife(state, player, -paid.life, events);
 }
 
@@ -109,8 +109,9 @@ export function rememberMode(state: GameState, source: string, mode: number): vo
 /**
  * The mana an activated ability costs right now. Power-up: "reduce the cost by its mana cost if it entered this turn".
  */
-export function abilityManaCost(state: GameState, perm: { card: { defId: string }; enteredTurn?: number }, ability: { mana: string; powerUp?: boolean }): ManaCost | null {
+export function abilityManaCost(state: GameState, perm: { card: { defId: string; owner?: PlayerId }; enteredTurn?: number }, ability: { mana: string; powerUp?: boolean; lessPerLegendary?: number }): ManaCost | null {
   const cost = parseManaCost(ability.mana);
+  if (cost && ability.lessPerLegendary && perm.card.owner) return { ...cost, generic: Math.max(0, cost.generic - ability.lessPerLegendary * legendaryCreatures(state, perm.card.owner)) };
   if (!cost || !ability.powerUp || perm.enteredTurn !== state.turn) return cost;
   const printed = manaCostOf(getCard(state, perm.card.defId));
   if (!printed) return cost;
@@ -128,6 +129,19 @@ export function abilityManaCost(state: GameState, perm: { card: { defId: string 
 export const abilityHaste = (state: GameState, player: PlayerId): boolean => state.players[player].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).hasteForAbilities);
 
 /** "Activate only if there are two or more creature cards in your graveyard" / "...if you control a creature with toughness 4 or greater": why the ability can't be used now (null: it can). */
+/** Channel: "This ability costs {1} less to activate for each legendary creature you control." */
+const legendaryCreatures = (state: GameState, player: PlayerId): number =>
+  state.players[player].battlefield.filter((p) => isCreature(state, p) && /\bLegendary\b/.test(getCard(state, p.card.defId).typeLine ?? "")).length;
+
+/** A Class: its "Level N" ability is only for the next level, and an ability of a level works once the Class has reached it. */
+export function levelLock(perm: { classLevel?: number }, ability: { levelUp?: number; level?: number }): string | null {
+  const at = perm.classLevel ?? 1;
+  if (ability.levelUp !== undefined && ability.levelUp <= at) return "that level is already reached";
+  if (ability.levelUp !== undefined && ability.levelUp > at + 1) return `it must reach level ${ability.levelUp - 1} first`;
+  if (ability.level !== undefined && at < ability.level) return `it needs level ${ability.level}`;
+  return null;
+}
+
 export function abilityNeed(state: GameState, player: PlayerId, ability: { needYardCreatures?: number; needToughness?: number }): string | null {
   const me = state.players[player];
   if (ability.needYardCreatures !== undefined && me.graveyard.filter((c) => getCard(state, c.defId).type === "creature").length < ability.needYardCreatures) {

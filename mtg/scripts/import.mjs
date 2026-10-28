@@ -133,8 +133,11 @@ async function loadOracle() {
 function isPlayable(c, type) {
   // A prepare card is one creature card with a spell beside it: the engine reads both halves from the joined text.
   // An Adventure card is the same: a creature with its Adventure spell beside it.
-  // A Case is one face; its "To solve" and "Solved" lines are read like any other.
-  if (c.layout !== "normal" && c.layout !== "prepare" && c.layout !== "adventure" && c.layout !== "case") return false;
+  // A Case is one face; its "To solve" and "Solved" lines are read like any other. So is a Class, level by level.
+  // A transforming card (Fable of the Mirror-Breaker) and a modal double-faced land (a Pathway) have both faces in the joined
+  // text: the engine knows which of them it can play (packages/engine/src/oracle/doubleFaced.ts) and rejects the others.
+  const landPair = c.layout === "modal_dfc" && c.type_line.split(" // ").every((t) => /^Land\b/.test(t));
+  if (!["normal", "prepare", "adventure", "case", "class", "transform"].includes(c.layout) && !landPair) return false;
   if (!["land", "creature", "artifact", "enchantment", "planeswalker", "instant", "sorcery"].includes(type)) return false;
   return isSupportedCard({
     id: "check",

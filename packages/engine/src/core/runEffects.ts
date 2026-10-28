@@ -9,10 +9,11 @@ import { PERMANENT_EFFECTS } from "./handlers/permanents.js";
 import type { EffectHandlers, EffectRun } from "./handlers/shared.js";
 import { STACK_EFFECTS } from "./handlers/stack.js";
 import { ZONE_EFFECTS } from "./handlers/zones.js";
+import { SACRIFICE_EFFECTS } from "./handlers/sacrifice.js";
 
 // Running a spell's or ability's effects, one after another. What each kind of effect does is in handlers/.
 
-const HANDLERS: Required<EffectHandlers> = { ...DAMAGE_EFFECTS, ...PERMANENT_EFFECTS, ...ZONE_EFFECTS, ...LIBRARY_EFFECTS, ...STACK_EFFECTS, ...MARVEL_EFFECTS };
+const HANDLERS: Required<EffectHandlers> = { ...DAMAGE_EFFECTS, ...PERMANENT_EFFECTS, ...ZONE_EFFECTS, ...LIBRARY_EFFECTS, ...STACK_EFFECTS, ...MARVEL_EFFECTS, ...SACRIFICE_EFFECTS };
 
 /** Runs a spell's or ability's effects in order. State-based actions are checked by the caller afterwards. */
 export function runEffects(state: GameState, effects: Effect[], ctx: RunContext, events: GameEvent[]): void {

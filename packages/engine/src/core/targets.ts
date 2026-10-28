@@ -71,6 +71,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (spec.controller === "opponent" && found.owner.id === controller) return false;
       if (spec.toughness && !statFits(spec.toughness, toughnessOf(state, found.perm))) return false;
       if (spec.notArtifact && isArtifactDef(def)) return false;
+      if (spec.nonlegendary && /\bLegendary\b/.test(def.typeLine ?? "")) return false;
       if (spec.power && !statFits(spec.power, powerOf(state, found.perm))) return false;
       if (spec.keyword && kw(state, found.perm, spec.keyword.name) !== spec.keyword.has) return false;
       if (spec.filter && spec.filter !== "tapped") {

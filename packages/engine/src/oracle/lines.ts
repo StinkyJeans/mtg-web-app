@@ -5,6 +5,7 @@ import { readEntersWithCounters, readEntersWithMinusCounters, readKickedCounters
 import { readLifeGainedTrigger, readLandfall, readAttackWithOthers, readBecomesTarget, readCastSpellTrigger, readDrawCardTrigger, readEnchantedDealsDamage, readPackTactics, readBeginningOfStep, readAnySpellCast, readCastKindSpell, readAllyDies, readCountersPutOnAlly, readAnotherCreatureEntersOrLeaves, readBlocksOrBlocked, readDamagedCreatureDies, readDamageAndAnyDies, readEerie, readReturnWhenHostDies, readTapXOnEnter, readDiesReturnsToBattlefield, readAllyEnters, readYouAttack, readYouDiscard, readExcessDamage, readSelfTrigger, readTrigger, readAllyAttacks, readToSolve } from "./lines/triggers.js";
 import { readLoyaltyAbility, readCrew, readEquip, readSacrificeForMana, readLandcycling, readActivatedAbility, readRestrictedMana, readSolvedAbility } from "./lines/activated.js";
 
+import { readSacrificeTrigger, readFirebending, readCreatureLandWithTrigger, readTappedIfMoreLands } from "./lines/sacrifice.js";
 import { MARVEL_ABILITY_WORD, readAttacksAlone, readExalted, readChapter, readEquippedAttacks, readAbilityTargets, readAlienInvasion, readAllyDamaged, readGrimReaper, readHostUpkeep, readNoOneDies, readAnyDrawSecond, readDamagePrevention, readEnrage, readIronManCombat, readAllyTapped, readAttackConditions, readHasteForAbilities, readTokensEnter, readBecomesTapped, readControlsArtifactCreatureOrPlan, readScarletWitchDiscount, readTokenAndCounterLords, readUnblockableIfSmall, readVillainOrArtifactEnters, readCountersPlusOne, readCounteredThisTurn, readEntersGreater, readHandSize, readPlanThreshold, readSpellTargetsTrigger, readTeamworkTrigger, readYardCondition, readYouPutCounters } from "./lines/marvel.js";
 
 // One line of a permanent's text: a keyword, a triggered, activated or static ability, an aura or equipment line.
@@ -13,6 +14,10 @@ import { MARVEL_ABILITY_WORD, readAttacksAlone, readExalted, readChapter, readEq
 /** The readers in the order they are tried. The first one that reads the line wins, so a more specific sentence must come before a general one. */
 const READERS: ((line: string, out: ParsedCard) => boolean)[] = [
   readLoyaltyAbility,
+  readSacrificeTrigger,
+  readFirebending,
+  readCreatureLandWithTrigger,
+  readTappedIfMoreLands,
   readTeamworkTrigger,
   readPlanThreshold,
   readChapter,
@@ -149,12 +154,16 @@ export function parseCreatureLine(rawLine: string, out: ParsedCard): void {
   if (once) {
     const before = out.triggers.length;
     // Only once each turn, "whenever one or more other creatures ... enter" is the same as "whenever another creature ... enters".
-    const head = rawLine.slice(0, once.index).replace(/^whenever one or more other creatures you control( with power \d+ or less)? enter,/, "whenever another creature you control$1 enters,");
+    const head = rawLine
+      .slice(0, once.index)
+      .replace(/^whenever one or more other creatures you control( with power \d+ or less)? enter,/, "whenever another creature you control$1 enters,")
+      .replace(/^whenever one or more creatures you control die,/, "whenever a creature you control dies,");
     parseCreatureLine(head, out);
     for (let i = before; i < out.triggers.length; i++) out.triggers[i] = { ...out.triggers[i], oncePerTurn: true };
     return;
   }
-  const line = rawLine.replace(/\.$/, "").replace(/^(?:raid|opus) — /, "").replace(MARVEL_ABILITY_WORD, "");
+  // "When The Sackville-Bagginses enter": a name that is plural
+  const line = rawLine.replace(/\.$/, "").replace(/^(?:raid|opus|channel) — /, "").replace(/^when ~ enter,/, "when ~ enters,").replace(MARVEL_ABILITY_WORD, "");
 
   for (const read of READERS) if (read(line, out)) return;
   out.unsupported.push(line);

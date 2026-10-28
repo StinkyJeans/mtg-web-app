@@ -105,6 +105,7 @@ export function putIntoGraveyard(state: GameState, perm: Permanent, controller: 
   const types = creature ? subtypesOf(state, perm) : [];
   const lki = { power: creature ? powerOf(state, perm) : 0, counters: perm.counters ?? 0, minusCounters: perm.minusCounters ?? 0 };
   battlefield.splice(at, 1);
+  leftBattlefield(state, controller);
   leaveCombat(state, perm);
   creatureMoved(state, perm, controller, "leaves");
   releaseHeld(state, perm);
@@ -119,6 +120,7 @@ export function putIntoGraveyard(state: GameState, perm: Permanent, controller: 
       for (const other of owner.id === controller ? [perm, ...battlefield] : owner.battlefield) queueTriggers(state, other.card, owner.id, "anyDies", { self: other === perm, token: isToken(perm.card) });
     }
   }
+  if (creature) queueDeathLife(state);
   if (perm.diesReturn) {
     const text = "When this creature dies, return it to the battlefield tapped under its owner's control with a +1/+1 counter on it.";
     state.triggerQueue.push({ specs: [], item: { kind: "ability", id: newId(state), controller, source: perm.card.iid, sourceName: nameOf(state, perm), effects: [{ type: "returnSelfToBattlefield", tapped: true, counters: 1 }], targets: [], specs: [], text } });
@@ -196,10 +198,41 @@ export function removeFromBattlefield(state: GameState, perm: Permanent, control
   const at = battlefield.indexOf(perm);
   if (at < 0) return null;
   battlefield.splice(at, 1);
+  leftBattlefield(state, controller);
   leaveCombat(state, perm);
   creatureMoved(state, perm, controller, "leaves");
   releaseHeld(state, perm);
   return isToken(perm.card) ? null : printedCard(perm.card);
+}
+
+/** Revolt: "if a permanent left the battlefield under your control this turn". */
+function leftBattlefield(state: GameState, controller: PlayerId): void {
+  const p = state.players[controller];
+  p.leftThisTurn = (p.leftThisTurn ?? 0) + 1;
+}
+
+/** Ruinous Waterbending: "whenever a creature dies this turn, you gain 1 life", for each player who cast it this turn. */
+function queueDeathLife(state: GameState): void {
+  for (const p of Object.values(state.players)) {
+    for (let i = 0; i < (p.deathLife ?? 0); i++) {
+      const text = "Whenever a creature dies this turn, you gain 1 life.";
+      state.triggerQueue.push({ specs: [], item: { kind: "ability", id: newId(state), controller: p.id, source: `deathlife-${p.id}`, sourceName: "Ruinous Waterbending", effects: [{ type: "gainLife", amount: 1, who: { t: "you" } }], targets: [], specs: [], text, trigger: true } });
+    }
+  }
+}
+
+/**
+ * A permanent is sacrificed: it goes to its owner's graveyard, then "whenever you sacrifice a permanent / a token" and
+ * "whenever a player sacrifices a permanent" trigger. The sacrificed permanent looks back too (Mayhem Devil sacrificed itself).
+ */
+export function sacrificePermanent(state: GameState, perm: Permanent, controller: PlayerId, events: GameEvent[]): void {
+  const token = isToken(perm.card);
+  const watchers = Object.values(state.players).flatMap((pl) => pl.battlefield.map((p) => ({ card: p.card, owner: pl.id })));
+  putIntoGraveyard(state, perm, controller, events);
+  for (const { card, owner } of watchers) {
+    queueTriggers(state, card, owner, "anySacrifice");
+    if (owner === controller) queueTriggers(state, card, owner, "youSacrifice", { token });
+  }
 }
 
 /** Makes a token and puts it onto the battlefield under `controller`. */
@@ -223,6 +256,7 @@ export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerI
   state.players[controller].battlefield.push({ card, tapped: spec.tapped === true, summoningSick: spec.type === "creature", damage: 0 });
   events.push({ type: "permanentEntered", player: controller, iid: card.iid });
   for (const p of state.players[controller].battlefield) queueTriggers(state, p.card, controller, "tokenEnters"); // "whenever one or more tokens you control enter"
+  if (spec.hasteThisTurn) state.players[controller].battlefield[state.players[controller].battlefield.length - 1].tempKeywords = ["haste"];
   // "...tapped and attacking": the token joins the attack that is going on.
   if (spec.tappedAttacking && state.combat && spec.type === "creature") {
     const perm = state.players[controller].battlefield[state.players[controller].battlefield.length - 1];
@@ -234,7 +268,7 @@ export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerI
 }
 
 /** A token that is a copy of a card, with base power and toughness 1/1 (offspring) unless `small` is false. */
-export function makeTokenCopy(state: GameState, def: CardDef, controller: PlayerId, events: GameEvent[], small = true): void {
+export function makeTokenCopy(state: GameState, def: CardDef, controller: PlayerId, events: GameEvent[], small = true): string {
   const defId = small ? `token-copy-${def.id}-1-1` : def.id.startsWith("token-copy-") ? def.id : `token-copy-${def.id}`;
   state.cards[defId] ??= { ...def, id: defId, ...(small ? { power: 1, toughness: 1 } : {}), playable: false };
   const card: CardInstance = { iid: `tok${state.nextId++}`, defId, owner: controller };
@@ -242,6 +276,7 @@ export function makeTokenCopy(state: GameState, def: CardDef, controller: Player
   events.push({ type: "permanentEntered", player: controller, iid: card.iid });
   queueTriggers(state, card, controller, "enters");
   creatureEntered(state, card, controller);
+  return card.iid;
 }
 
 /** Removes a spell or ability from the stack without it resolving. A countered spell goes to its owner's graveyard (exile, for flashback). */

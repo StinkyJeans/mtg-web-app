@@ -339,8 +339,18 @@ export function payForAbility(state: GameState, player: PlayerId, cost: ManaCost
   return others?.ok ? others : payMana(state, player, cost, undefined, def);
 }
 
+/** A payment source standing for floating mana: "pool:" and its place in the player's pool. */
+export const POOL = "pool:";
+const COMBAT_PHASES = ["attackers", "blockers", "damage"];
+
+/** Floating mana the player can spend right now (with its place in the pool): made this phase, or this combat for firebending. */
+export function floatingMana(state: GameState, player: PlayerId): { at: number; color: ManaColor }[] {
+  return (state.players[player].pool ?? []).flatMap((m, at) => (m.turn === state.turn && (m.combat ? COMBAT_PHASES.includes(state.phase) : m.phase === state.phase) ? [{ at, color: m.color }] : []));
+}
+
 function payFrom(state: GameState, player: PlayerId, cost: ManaCost, forSpell: CardDef | undefined, forAbility: CardDef | undefined, useFilters: boolean): PayResult {
-  const sources: Source[] = [];
+  // Floating mana is spent before anything is tapped.
+  const sources: Source[] = floatingMana(state, player).map((m) => ({ iid: `${POOL}${m.at}`, colors: [m.color] }));
   const spare = state.players[player].spareMana ?? [];
   // Lands come first, so a creature or artifact that makes mana is only used when the lands can't pay; a land that costs life comes after the others.
   // Mana that gives the spell haste (Carnelian Orb of Dragonkind on a Dragon) goes before everything.
@@ -523,7 +533,7 @@ function paySources(state: GameState, player: PlayerId, cost: ManaCost, sources:
   const plenty = new Map<ManaColor, number>();
   for (const src of rest) if (src.colors.length === 1) plenty.set(src.colors[0], (plenty.get(src.colors[0]) ?? 0) + 1);
   rest.sort((a, b) => {
-    const rank = (src: Source) => (forSpell && hasteFrom(state, src.iid, forSpell) ? -Infinity : (src.life ? 5000 : 0) + (src.colors.length === 1 ? -(plenty.get(src.colors[0]) ?? 0) : 1000 + src.colors.length));
+    const rank = (src: Source) => (src.iid.startsWith(POOL) || (forSpell && hasteFrom(state, src.iid, forSpell)) ? -Infinity : (src.life ? 5000 : 0) + (src.colors.length === 1 ? -(plenty.get(src.colors[0]) ?? 0) : 1000 + src.colors.length));
     return rank(a) - rank(b);
   });
   if (rest.length < cost.generic + extraGeneric + filterCost) return { ok: false, missing: "generic" };
@@ -564,17 +574,19 @@ export interface ManaSource {
 
 /** A player's permanents that make mana, tapped or not: what each makes and how much. */
 export function manaSources(state: GameState, player: PlayerId): ManaSource[] {
-  return state.players[player].battlefield.flatMap((perm): ManaSource[] => {
+  const floating = floatingMana(state, player).map((m): ManaSource => ({ iid: `${POOL}${m.at}`, name: "Floating mana", colors: [m.color], amount: 1, tapped: false, sick: false }));
+  return [...floating, ...state.players[player].battlefield.flatMap((perm): ManaSource[] => {
     const def = getCard(state, perm.card.defId);
     const colors = makesOneColorMana(state, perm) ? ALL_FIVE : manaColorsOf(state, perm);
     if (colors.length > 0) return [{ iid: perm.card.iid, name: def.name, colors, amount: manaAmountOf(state, player, perm), tapped: perm.tapped, sick: false }];
     const later = def.type === "creature" && perm.summoningSick ? (manaAbilityColors(def) ?? []) : [];
     return later.length > 0 ? [{ iid: perm.card.iid, name: def.name, colors: later, amount: manaAbilityAmount(def), tapped: perm.tapped, sick: true }] : [];
-  });
+  })];
 }
 
 export function availableMana(state: GameState, player: PlayerId): Record<ManaColor, number> {
   const pool: Record<ManaColor, number> = { W: 0, U: 0, B: 0, R: 0, G: 0, C: 0 };
+  for (const m of floatingMana(state, player)) pool[m.color] += 1;
   for (const perm of state.players[player].battlefield) {
     if (perm.tapped) continue;
     const colors = makesOneColorMana(state, perm) ? ALL_FIVE : manaColorsOf(state, perm);

@@ -43,7 +43,8 @@ interface Member {
   seat: PlayerId;
   connected: boolean;
   vote: number | null;
-  deck: { name: string; ids: string[] } | null;
+  /** `side`: the sideboard, outside the game ("learn" can fetch a Lesson from it). */
+  deck: { name: string; ids: string[]; side?: string[] } | null;
   /** The computer player: it has no browser, and the room plays its moves. */
   isBot?: boolean;
 }
@@ -107,6 +108,7 @@ export interface Replay {
   starting: PlayerId;
   names: Record<PlayerId, string>;
   decks: Record<PlayerId, string[]>;
+  sides?: Partial<Record<PlayerId, string[]>>;
   cards: GameState["cards"];
   /** Every action in order: who did it, what, and the mana the player chose to spare (see applyFor). */
   log: { p: PlayerId; a: Action; s?: string[] }[];
@@ -201,7 +203,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       this.publish();
     },
 
-    deck: async (client: Client, message: { name?: string; ids?: unknown; botDeck?: { name?: string; ids?: unknown } }) => {
+    deck: async (client: Client, message: { name?: string; ids?: unknown; side?: unknown; botDeck?: { name?: string; ids?: unknown } }) => {
       const m = this.member(client);
       if (!m || this.stage !== "decks" || this.size === null) return;
       // at most 200 entries are even looked at (the biggest deck is 60), each a short text
@@ -216,6 +218,14 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
         if (stuck) throw new Error(`${stuck.name} can't be played yet.`);
         Object.assign(this.defs, cards);
       };
+      // A sideboard is at most 15 cards; one the engine can't play is just left out.
+      const sideboard = async (x: unknown) => {
+        const ids = idsOf(x).slice(0, 15);
+        const cards = ids.length > 0 ? await loadCards(ids) : {};
+        const usable = ids.filter((id) => cards[id] && cards[id].playable !== false && unplayableCards(cards, [id]).length === 0);
+        Object.assign(this.defs, cards);
+        return usable;
+      };
       try {
         const ids = idsOf(message?.ids);
         await check(ids);
@@ -225,7 +235,8 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
           await check(botIds);
           this.bot.deck = { name: String(message?.botDeck?.name ?? "Bot deck").slice(0, 40), ids: botIds };
         }
-        m.deck = { name: String(message?.name ?? "Deck").slice(0, 40), ids };
+        const side = await sideboard(message?.side);
+        m.deck = { name: String(message?.name ?? "Deck").slice(0, 40), ids, ...(side.length > 0 ? { side } : {}) };
       } catch (e) {
         client.send("error", { message: e instanceof Error ? e.message : "That deck can't be used." });
         return;
@@ -667,10 +678,11 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     const [a, b] = [this.members.find((x) => x.seat === "p1")!, this.members.find((x) => x.seat === "p2")!];
     this.deckNames = { p1: a.deck!.name, p2: b.deck!.name };
     const decks = { p1: a.deck!.ids, p2: b.deck!.ids };
+    const sides = { ...(a.deck!.side ? { p1: a.deck!.side } : {}), ...(b.deck!.side ? { p2: b.deck!.side } : {}) };
     try {
       const seed = Math.floor(Math.random() * 2 ** 31);
-      this.game = createGame(decks, seed, this.defs, { startingPlayer: first, mulligan: true, shuffleStep: true });
-      this.replay = { v: 1, seed, starting: first, names: { p1: a.account.username, p2: b.account.username }, decks, cards: this.game.cards, log: [], at: new Date().toISOString() };
+      this.game = createGame(decks, seed, this.defs, { startingPlayer: first, mulligan: true, shuffleStep: true, sideboards: sides });
+      this.replay = { v: 1, seed, starting: first, names: { p1: a.account.username, p2: b.account.username }, decks, ...(Object.keys(sides).length > 0 ? { sides } : {}), cards: this.game.cards, log: [], at: new Date().toISOString() };
     } catch (e) {
       // a deck the engine can't play got through: send both players back to choose again, instead of leaving the match stuck
       console.error("Could not start the match:", e instanceof Error ? e.message : e);

@@ -52,7 +52,7 @@ import { useCustomCursor } from "@/lib/cursor";
 import BlockPanel from "./BlockPanel";
 import { attackHint, blockHint, canBlock } from "./combatHints";
 import { readable } from "./cardText";
-import { ChoicePanel, XPanel } from "./ChoicePanels";
+import { ChoicePanel, LandFacePanel, XPanel } from "./ChoicePanels";
 import { PickPanel, ResolvingNotice } from "./PickPanel";
 import { StackPanel } from "./StackPanel";
 import { chainSteps, nextChain } from "./chain";
@@ -188,6 +188,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [aimed, setAimed] = useState<TargetChoice | null>(null); // a target clicked, waiting for "Confirm target"
   const [confirmSkip, setConfirmSkip] = useState(false); // "Skip attack" and "No blocks" ask once more while a creature could attack or block
   const [plan, setPlan] = useState<CastPlan | null>(null); // a spell being cast step by step
+  const [landFace, setLandFace] = useState<string | null>(null); // a modal land (a Pathway) waiting for its face to be chosen
   const [modePick, setModePick] = useState<number[]>([]);
   const [history, setHistory] = useState<Announcement[]>([]); // everything cast or used, kept for the turn
   const [announcements, setAnnouncements] = useState<Announcement[]>([]); // "Player 1 cast ...", shown on the caster's side
@@ -281,6 +282,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     setAimed(null);
     setConfirmSkip(false);
     setPlan(null);
+    setLandFace(null);
     setAbilityX(null);
     setLifeConfirm(null);
     setModePick([]);
@@ -316,7 +318,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         caller="p1"
         onBack={() => setPending(null)}
         onDone={(first, summary) => {
-          const fresh = createGame(pending.decks, newSeed(), pending.cards, { startingPlayer: first, mulligan: true, shuffleStep: true });
+          const fresh = createGame(pending.decks, newSeed(), pending.cards, { startingPlayer: first, mulligan: true, shuffleStep: true, ...(pending.sides ? { sideboards: pending.sides } : {}) });
           stageDoneRef.current = false;
           flushSync(() => {
             setStageSeen(false);
@@ -565,7 +567,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       return;
     }
     if (state.cards[defId].type === "land") {
-      act({ type: "playLand", iid });
+      if (state.cards[`${defId}//back`]?.type === "land") setLandFace(iid);
+      else act({ type: "playLand", iid });
       return;
     }
     // A card in exile that may be played (Expressive Iteration) is shown with the hand and cast the same way.
@@ -617,7 +620,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       ...(p.adventure ? { adventure: true } : {}),
       ...(p.harmonizeTap ? { harmonizeTap: p.harmonizeTap } : {}),
     });
-    const title = p.name + (p.x !== undefined && c.maxX !== undefined ? ` (X = ${p.x})` : "") + (p.kicked ? (c.blight ? " (blighted)" : c.kickerName === "offspring" ? " (with offspring)" : " (kicked)") : "") + (p.teamwork?.length ? " (teamwork)" : "") + (p.warp ? " (warp)" : "") + (p.replicate ? ` (${p.replicate + 1} copies with replicate)` : "");
+    const title = p.name + (p.x !== undefined && c.maxX !== undefined ? ` (X = ${p.x})` : "") + (p.kicked ? (c.blight ? " (blighted)" : c.kickerName === "offspring" ? " (with offspring)" : c.kickerName === "waterbend" ? " (waterbend)" : " (kicked)") : "") + (p.teamwork?.length ? " (teamwork)" : "") + (p.warp ? " (warp)" : "") + (p.replicate ? ` (${p.replicate + 1} copies with replicate)` : "");
     setPlan(null);
     if (specs.length === 0) {
       act(build([]));
@@ -925,6 +928,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             onCancel={resetSelection}
           />
         )}
+        {landFace && <LandFacePanel state={state} actor={actor} iid={landFace} onPlay={(back) => { setLandFace(null); act({ type: "playLand", iid: landFace, ...(back ? { back: true } : {}) }); }} onCancel={resetSelection} />}
         {plan && (
           <CastPlanPanels
             state={state}

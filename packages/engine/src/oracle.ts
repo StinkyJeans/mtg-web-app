@@ -95,6 +95,23 @@ export function parseCard(def: CardDef): ParsedCard {
         result.extraSacrifice = true;
         return false;
       }
+      if (/^as an additional cost to cast ~, sacrifice an artifact or creature\.?$/.test(line)) {
+        result.extraSacrifice = true;
+        result.extraSacrificeOrArtifact = true;
+        return false;
+      }
+      // Waterbend {4}: an optional extra cost, paid with mana or by tapping artifacts and creatures (see stack/cast.ts)
+      const waterbend = /^as an additional cost to cast ~, you may waterbend (\{\d+\})\.?$/.exec(line);
+      if (waterbend) {
+        result.kicker = waterbend[1];
+        result.kickerName = "waterbend";
+        return false;
+      }
+      // Paradigm: after the spell resolves it is exiled, and a copy may be cast at the beginning of each of your first main phases.
+      if (line === "paradigm" && (def.type === "instant" || def.type === "sorcery")) {
+        result.paradigm = true;
+        return false;
+      }
       const flashback = /^flashback (\{[^}]+\}(?:\{[^}]+\})*)\.?$/.exec(line);
       if (flashback && parseManaCost(flashback[1])) {
         result.flashback = flashback[1];
@@ -248,7 +265,19 @@ export function parseCard(def: CardDef): ParsedCard {
     else result.unsupported.push(text || "(no text)");
   } else if (def.type === "creature" || def.type === "land" || def.type === "artifact" || def.type === "enchantment" || def.type === "planeswalker") {
     const creatureLines = text.split("\n").filter(Boolean);
+    let classLevel = 1;
     for (let i = 0; i < creatureLines.length; i++) {
+      // A Class: "{1}{B}: Level 2", and the abilities after it are those of level 2.
+      const level = /^((?:\{[^}]+\})+): level (\d+)$/.exec(creatureLines[i]);
+      if (level && parseManaCost(level[1])) {
+        classLevel = Number(level[2]);
+        result.activated.push({ tap: false, mana: level[1], effects: [{ type: "levelUp", level: classLevel }], targets: [], text: `${level[1]}: Level ${classLevel}`, sorceryOnly: true, levelUp: classLevel });
+        continue;
+      }
+      if (classLevel > 1) {
+        readAtLevel(creatureLines[i], result, classLevel);
+        continue;
+      }
       // "When ~ enters, choose one —" / "Whenever ~ deals combat damage to a player, choose one that hasn't been chosen —", then one bullet line per mode
       const modal = /^when(?:ever)? ~ (enters(?: the battlefield)?|deals combat damage to a player),? choose one( that hasn't been chosen)? —$/.exec(creatureLines[i]);
       if (modal) {
@@ -301,6 +330,15 @@ export function parseCard(def: CardDef): ParsedCard {
   result.ok = result.unsupported.length === 0;
   cache.set(def, result);
   return result;
+}
+
+/** A line of a Class's level: what it adds works only once the Class has reached that level. */
+function readAtLevel(line: string, result: ParsedCard, level: number): void {
+  const before = { triggers: result.triggers.length, activated: result.activated.length, statics: result.statics?.length ?? 0 };
+  parseCreatureLine(line, result);
+  for (let i = before.triggers; i < result.triggers.length; i++) result.triggers[i] = { ...result.triggers[i], level };
+  for (let i = before.activated; i < result.activated.length; i++) result.activated[i] = { ...result.activated[i], level };
+  for (let i = before.statics; i < (result.statics?.length ?? 0); i++) result.statics![i] = { ...result.statics![i], level };
 }
 
 /** For tooling: the individual sentences of a card's text that were not understood (empty if the card is ok). */
