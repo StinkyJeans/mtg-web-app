@@ -248,12 +248,11 @@ export function spellLeavesStack(state: GameState, item: Extract<StackItem, { ki
   state.players[item.card.owner][to === "hand" ? "hand" : item.flashback ? "exile" : "graveyard"].push(item.card);
 }
 
-export function counterStackItem(state: GameState, item: StackItem, events: GameEvent[]): void {
+export function counterStackItem(state: GameState, item: StackItem, events: GameEvent[], by?: string): void {
   state.stack.splice(state.stack.indexOf(item), 1);
-  if (item.kind === "spell") {
-    spellLeavesStack(state, item);
-    events.push({ type: "countered", name: getCard(state, item.card.defId).name });
-  }
+  if (item.kind === "spell") spellLeavesStack(state, item);
+  const name = item.kind === "spell" ? getCard(state, item.card.defId).name : `${item.sourceName}'s ability`;
+  events.push({ type: "countered", name, controller: item.controller, ...(by ? { by } : {}) });
 }
 
 

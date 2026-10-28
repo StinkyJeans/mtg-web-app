@@ -126,7 +126,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       if (paid?.ok) {
         applyPayment(state, player, paid, events);
         if (pick.payLife) changeLife(state, player, -pick.payLife, events);
-      } else counterStackItem(state, item, events);
+      } else counterStackItem(state, item, events, pick.source?.name);
     }
     finish();
     return null;

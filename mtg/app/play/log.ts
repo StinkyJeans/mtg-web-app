@@ -8,9 +8,12 @@ export const setPlayerNames = (given?: Partial<Record<PlayerId, string>>) => {
 };
 export const playerName = (p: PlayerId) => names[p];
 
-function nameOf(state: GameState, iid: string): string {
+/** A card's name wherever it is, the stack included. */
+export function nameOf(state: GameState, iid: string): string {
+  const spell = state.stack.find((i) => i.kind === "spell" && i.card.iid === iid);
+  if (spell?.kind === "spell") return state.cards[spell.card.defId].name;
   for (const p of Object.values(state.players)) {
-    const all = [...p.hand, ...p.graveyard, ...p.library, ...p.battlefield.map((x) => x.card)];
+    const all = [...p.hand, ...p.graveyard, ...p.library, ...p.exile, ...p.battlefield.map((x) => x.card)];
     const card = all.find((c) => c.iid === iid);
     if (card) return state.cards[card.defId].name;
   }
@@ -67,7 +70,11 @@ export function describeEvents(events: GameEvent[], state: GameState): string[] 
         lines.push(e.text);
         break;
       case "countered":
-        lines.push(`${e.name} is countered.`);
+        lines.push(`${playerName(e.controller)}'s ${e.name} is countered${e.by ? ` by ${e.by}` : ""}.`);
+        break;
+      case "resolved":
+        if (e.fizzled) lines.push(`${playerName(e.controller)}'s ${e.name} does nothing (it fizzles): ${e.fizzled}.`);
+        else if (!e.ability) lines.push(`${playerName(e.controller)}'s ${e.name} resolves.`);
         break;
       case "turnStarted":
         lines.push(`— Turn ${e.turn}: ${playerName(e.player)} —`);

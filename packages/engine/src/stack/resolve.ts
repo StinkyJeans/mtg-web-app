@@ -9,14 +9,17 @@ import {
   findPermanentOrNull,
   isLegalTarget,
   isPermanentCard,
+  isProtectedFrom,
+  kw,
   legalTargets,
+  playerLabel,
   putCounters,
   queueChapters,
   queueTriggers,
   runEffects,
   spellLeavesStack,
 } from "../core.js";
-import type { TargetChoice } from "../effects.js";
+import type { StackItem, TargetChoice, TargetSpec } from "../effects.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { CardInstance, GameState, PlayerId } from "../types.js";
@@ -51,9 +54,38 @@ export function enterBattlefield(state: GameState, card: CardInstance, controlle
   creatureEntered(state, card, controller); // (for other permanents only triggers about their type apply, e.g. "a Cartouche you control enters")
 }
 
+/** Why a target stopped being legal, in words for the players: "Glistener Elf has hexproof". */
+function whyIllegal(state: GameState, target: TargetChoice, spec: TargetSpec, controller: PlayerId): string {
+  if (target.kind === "stack") return "the spell or ability it targeted has left the stack";
+  if (target.kind === "card") return "the card it targeted has left the graveyard";
+  if (target.kind !== "permanent") return "its target is no longer legal";
+  const found = findPermanentOrNull(state, target.iid);
+  if (!found) return "its target has left the battlefield";
+  const name = getCard(state, found.perm.card.defId).name;
+  if (found.owner.id !== controller && kw(state, found.perm, "hexproof")) return `${name} has hexproof`;
+  if (found.perm.untargetableBy?.includes(controller)) return `${name} can't be the target of ${playerLabel(controller)}'s spells or abilities this turn`;
+  if (spec.source && isProtectedFrom(state, found.perm, spec.source)) return `${name} has protection from it`;
+  return `${name} is no longer a legal target`;
+}
+
+/**
+ * Why this spell or ability would do nothing if it resolved now: every target it had stopped being legal (rule 608.2b),
+ * e.g. "Glistener Elf has hexproof". Null while it still has a legal target, or when it has none to lose.
+ */
+export function fizzleReason(state: GameState, item: StackItem): string | null {
+  if (item.specs.length === 0) return null;
+  const stackId = item.kind === "spell" ? item.id : undefined;
+  if (item.targets.some((t, i) => isLegalTarget(state, item.specs[i], t, item.controller, stackId))) return null;
+  return whyIllegal(state, item.targets[0], item.specs[0], item.controller);
+}
+
 function resolveTop(state: GameState, events: GameEvent[]): void {
   const item = state.stack.pop();
   if (!item) return;
+  // Checked as it starts to resolve, once it has left the stack (it can't be its own target any more).
+  const fizzled = fizzleReason(state, item);
+  const name = item.kind === "spell" ? getCard(state, item.card.defId).name : `${item.sourceName}'s ability`;
+  events.push({ type: "resolved", name, controller: item.controller, ...(item.kind === "ability" ? { ability: true as const } : {}), ...(fizzled ? { fizzled } : {}) });
 
   if (item.kind === "spell") {
     const def = getCard(state, item.card.defId);
@@ -61,25 +93,17 @@ function resolveTop(state: GameState, events: GameEvent[]): void {
       if (parseCard(def).aura) {
         // An Aura needs its target to still be legal when it resolves; otherwise it just goes to the graveyard.
         const target = item.targets[0];
-        if (target?.kind === "permanent" && isLegalTarget(state, item.specs[0], target, item.controller, item.id)) {
-          enterBattlefield(state, item.card, item.controller, events, target.iid);
-        } else {
-          events.push({ type: "effect", text: `${def.name} fizzles: its target is gone.` });
-          state.players[item.card.owner].graveyard.push(item.card);
-        }
+        if (target?.kind === "permanent" && !fizzled) enterBattlefield(state, item.card, item.controller, events, target.iid);
+        else state.players[item.card.owner].graveyard.push(item.card);
       } else {
         enterBattlefield(state, item.card, item.controller, events, undefined, item.x, item.kicked === true, item.haste === true, item.warped === true);
       }
     } else {
-      // If every target became illegal the spell is removed without doing anything (rule 608.2b).
-      const allIllegal = item.specs.length > 0 && item.targets.every((t, i) => !isLegalTarget(state, item.specs[i], t, item.controller, item.id));
-      if (allIllegal) events.push({ type: "effect", text: `${def.name} fizzles: its target is gone.` });
-      else runEffects(state, item.effects, { controller: item.controller, sourceId: item.card.iid, sourceName: def.name, sourceDefId: item.card.defId, targets: item.targets, specs: item.specs, stackId: item.id, x: item.x, kicked: item.kicked }, events);
+      if (!fizzled) runEffects(state, item.effects, { controller: item.controller, sourceId: item.card.iid, sourceName: def.name, sourceDefId: item.card.defId, targets: item.targets, specs: item.specs, stackId: item.id, x: item.x, kicked: item.kicked }, events);
       spellLeavesStack(state, item); // flashback: exiled afterwards; a copy ceases to exist
     }
   } else {
-    const allIllegal = item.specs.length > 0 && item.targets.every((t, i) => !isLegalTarget(state, item.specs[i], t, item.controller));
-    if (!allIllegal) {
+    if (!fizzled) {
       runEffects(state, item.effects, { controller: item.controller, sourceId: item.source, sourceName: item.sourceName, sourceDefId: findPermanentOrNull(state, item.source)?.perm.card.defId, targets: item.targets, specs: item.specs, stackId: item.id, ...(item.other ? { other: item.other } : {}), ...(item.x !== undefined ? { x: item.x } : {}), ...(item.died ? { died: item.died } : {}) }, events);
     }
   }

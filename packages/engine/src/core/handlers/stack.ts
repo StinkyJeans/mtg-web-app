@@ -18,7 +18,7 @@ export const STACK_EFFECTS = {
       const name = item.kind === "spell" ? getCard(state, item.card.defId).name : item.sourceName;
       if (!payMana(state, item.controller, cost).ok) {
         say(`${playerLabel(item.controller)} can't pay ${effect.cost}: ${name} is countered.`);
-        counterStackItem(state, item, events);
+        counterStackItem(state, item, events, ctx.sourceName);
         continue;
       }
       startPick({
@@ -73,7 +73,7 @@ export const STACK_EFFECTS = {
       ...(effect.thenSpecs ? { thenSpecs: effect.thenSpecs } : {}),
     });
   },
-  wardCheck({ state, events, say, startPick }, effect) {
+  wardCheck({ state, ctx, events, say, startPick }, effect) {
     const item = state.stack.find((i) => i.id === effect.itemId);
     const cost = parseManaCost(effect.cost);
     if (!item || !cost) return;
@@ -82,7 +82,7 @@ export const STACK_EFFECTS = {
     // Life can be paid only by a player who has at least that much (rule 119.4).
     if (!payMana(state, item.controller, cost).ok || (effect.life ?? 0) > state.players[item.controller].life) {
       say(`${playerLabel(item.controller)} can't pay ${price}: ${name} is countered.`);
-      counterStackItem(state, item, events);
+      counterStackItem(state, item, events, `ward (${ctx.sourceName})`);
       return;
     }
     startPick({
@@ -142,11 +142,7 @@ export const STACK_EFFECTS = {
         say(`${getCard(state, s.item.card.defId).name} can't be countered.`);
         continue;
       }
-      state.stack.splice(state.stack.indexOf(s.item), 1);
-      if (s.item.kind === "spell") {
-        spellLeavesStack(state, s.item);
-        events.push({ type: "countered", name: getCard(state, s.item.card.defId).name });
-      }
+      counterStackItem(state, s.item, events, ctx.sourceName);
     }
   },
 } satisfies EffectHandlers;

@@ -85,7 +85,9 @@ export type GameEvent =
   | { type: "permanentEntered"; player: PlayerId; iid: string }
   | { type: "damage"; source: string; target: string | PlayerId; amount: number }
   | { type: "effect"; text: string }
-  | { type: "countered"; name: string }
+  | { type: "countered"; name: string; controller: PlayerId; /** What countered it: a spell, or a ward that wasn't paid. */ by?: string }
+  /** The top of the stack resolved. `fizzled`: it did nothing, because every target it had stopped being legal (why, in words). */
+  | { type: "resolved"; name: string; controller: PlayerId; ability?: true; fizzled?: string }
   | { type: "creatureDied"; player: PlayerId; iid: string }
   | { type: "cardsDiscarded"; player: PlayerId; iids: string[] }
   | { type: "conceded"; player: PlayerId }

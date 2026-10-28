@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyAction, CARDS, createGame, getLegalActions, playerToAct } from "../index.js";
-import type { Action, CardDef, CardInstance, GameState, PlayerId } from "../index.js";
+import { applyAction, CARDS, createGame, fizzleReason, getLegalActions, playerToAct } from "../index.js";
+import type { Action, CardDef, CardInstance, GameEvent, GameState, PlayerId } from "../index.js";
 
 const DEFS: Record<string, CardDef> = {
   ...CARDS,
@@ -10,6 +10,7 @@ const DEFS: Record<string, CardDef> = {
   divination: { id: "divination", name: "Divination", type: "sorcery", cost: 1, manaCost: "{R}", text: "Draw two cards." },
   elder: { id: "elder", name: "Elder", type: "creature", cost: 1, manaCost: "{R}", power: 1, toughness: 1, text: "When Elder enters, you gain 2 life." },
   pinger: { id: "pinger", name: "Pinger", type: "creature", cost: 1, manaCost: "{R}", power: 1, toughness: 1, text: "{T}: Pinger deals 1 damage to any target." },
+  shield: { id: "shield", name: "Shield", type: "instant", cost: 1, manaCost: "{R}", text: "Target creature you control gains hexproof until end of turn." },
 };
 
 const perm = (iid: string, defId: string, owner: PlayerId) => ({ card: { iid, defId, owner } as CardInstance, tapped: false, summoningSick: false, damage: 0 });
@@ -95,4 +96,41 @@ test("while the stack is open only responses are allowed", () => {
   assert.equal(playerToAct(g), "p2");
   assert.equal(applyAction(g, "p2", { type: "passPhase" }).ok, false);
   assert.ok(getLegalActions(g, "p2").some((a) => a.type === "passPriority"));
+});
+
+/** Plays `actions` and then passes until the stack is empty, keeping every event. */
+function played(g: GameState, actions: [PlayerId, Action][]): { g: GameState; events: GameEvent[] } {
+  const events: GameEvent[] = [];
+  const step = (who: PlayerId, a: Action) => {
+    const r = applyAction(g, who, a);
+    assert.ok(r.ok, r.ok ? "" : r.error);
+    events.push(...r.events);
+    g = r.state;
+  };
+  for (const [who, a] of actions) step(who, a);
+  for (let i = 0; i < 10 && g.priority; i++) step(g.priority.holder, { type: "passPriority" });
+  return { g, events };
+}
+
+test("a countered spell says what countered it, and the counterspell resolves", () => {
+  let g = setup(["bolt"], ["cancel"]);
+  g = act(g, "p1", { type: "castSpell", iid: "h0", targets: [{ kind: "player", id: "p2" }] });
+  const { events } = played(g, [["p2", { type: "castSpell", iid: "o0", targets: [{ kind: "stack", id: g.stack[0].id }] }]]);
+  assert.deepEqual(events.filter((e) => e.type === "countered" || e.type === "resolved"), [
+    { type: "resolved", name: "Cancel", controller: "p2" },
+    { type: "countered", name: "Bolt", controller: "p1", by: "Cancel" },
+  ]);
+});
+
+test("a spell whose target gained hexproof in response does nothing, and says why", () => {
+  let g = setup(["bolt", "bolt"], ["shield"]);
+  g.players.p2.battlefield.push(perm("c0", "elder", "p2"));
+  g = act(g, "p1", { type: "castSpell", iid: "h0", targets: [{ kind: "permanent", iid: "c0" }] });
+  g = act(g, "p2", { type: "castSpell", iid: "o0", targets: [{ kind: "permanent", iid: "c0" }] });
+  g = act(g, "p1", { type: "passPriority" }); // Shield resolves; p1 still holds a Bolt, so the round waits on them
+  assert.equal(g.stack.length, 1);
+  assert.equal(fizzleReason(g, g.stack[0]), "Elder has hexproof", "the stack shows it won't do anything");
+  const { g: after, events } = played(g, []);
+  assert.deepEqual(events.find((e) => e.type === "resolved"), { type: "resolved", name: "Bolt", controller: "p1", fizzled: "Elder has hexproof" });
+  assert.ok(after.players.p2.battlefield.some((p) => p.card.iid === "c0"), "the Elder lives");
 });

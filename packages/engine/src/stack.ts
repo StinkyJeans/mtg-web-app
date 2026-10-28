@@ -9,7 +9,7 @@ export { canCastNow, holdsPriority } from "./stack/shared.js";
 export { activateAbility, activateLoyalty, castCostOf, castSpell, costChoices, crewVehicle, cycleCard, liftedSpecs } from "./stack/cast.js";
 export { abilityLockReason, getActivatable, getCastable, getCrewable, getCyclable, getLoyaltyAbilities, hasResponse } from "./stack/options.js";
 export type { Activatable, Castable, Crewable, Cyclable, LoyaltyOption } from "./stack/options.js";
-export { chooseTargets, openWindow, passPriority, settle } from "./stack/resolve.js";
+export { chooseTargets, fizzleReason, openWindow, passPriority, settle } from "./stack/resolve.js";
 export { pickCard } from "./stack/pick.js";
 
 export type { StackItem };

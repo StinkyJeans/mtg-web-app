@@ -52,6 +52,8 @@ import { readable } from "./cardText";
 import { ChoicePanel, XPanel } from "./ChoicePanels";
 import { PickPanel, ResolvingNotice } from "./PickPanel";
 import { StackPanel } from "./StackPanel";
+import { chainSteps, nextChain } from "./chain";
+import type { Chain } from "./chain";
 import { TargetPanel } from "./TargetPanel";
 import type { ChatMessage } from "./SidePanels";
 import AbilitiesDialog from "./AbilitiesDialog";
@@ -186,6 +188,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [history, setHistory] = useState<Announcement[]>([]); // everything cast or used, kept for the turn
   const [announcements, setAnnouncements] = useState<Announcement[]>([]); // "Player 1 cast ...", shown on the caster's side
   const [revealing, setRevealing] = useState<{ items: Announcement[]; cards: Record<string, CardDef> } | null>(null); // online: the opponent's play, shown before the board changes
+  const [chain, setChain] = useState<Chain>({ steps: [], over: false }); // spells and abilities answering each other, and how each left the stack
   const [lifeConfirm, setLifeConfirm] = useState<{ text: string; options: { label: React.ReactNode; go: () => void }[] } | null>(null); // "this costs life / taps a creature: do it?"
   const [xValue, setXValue] = useState(0);
   const [abilityX, setAbilityX] = useState<{ a: Activatable; payWith?: string } | null>(null); // an ability with {X} in its cost, waiting for the player's X
@@ -223,6 +226,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     if (game.priority || game.pendingChoice || game.pendingPick) return;
     void endTurnRef.current();
   }, [online, game, endingTurn]);   
+
+  // A chain's summary goes away by itself after a while (or when the next chain starts).
+  useEffect(() => {
+    if (!chain.over) return;
+    const t = setTimeout(() => setChain({ steps: [], over: false }), 15000);
+    return () => clearTimeout(t);
+  }, [chain]);
 
   useOnlineMatch(online, game, seat, gameRef, commitRef, openingDeal);
 
@@ -440,6 +450,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     }
     const gone = r.events.flatMap((e) => (e.type === "creatureDied" ? [e.iid] : e.type === "cardsDiscarded" ? e.iids : []));
     const before = gameRef.current; // the board as it was, to see what this action changed
+    const steps = chainSteps(r.events, before ?? r.state, r.state);
     await playCasts(r.events, r.state); // beams fly to their targets, and the result shows as they land
     await playLeaving(before, r.state, r.events); // exiled or returned cards fade away first
     await playToGraveyard(gone);
@@ -458,6 +469,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       setPreview(null);
       setLog((l) => [...describeEvents(r.events, r.state).reverse(), ...l].slice(0, 60));
       setEndNote(endReason(r.events, r.state));
+      setChain((c) => nextChain(c, steps, before, r.state));
       // Online: the opponent passed the turn. Said loudly, in case this player looked away while waiting.
       if (online && r.events.some((e) => e.type === "turnStarted" && e.player === viewer)) setTurnSplash((n) => n + 1);
       setRevealing(null);
@@ -669,6 +681,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     }
     if (state.phase === "blockers") {
       if (owner === actor && possibleBlockers.includes(iid)) {
+        // Players may still respond to the attack: blockers are declared once both pass. Until then, advice without clicks.
+        if (state.priority) return { ring: "", combat: blockHint(state, actor, perm) };
         if (getForcedBlocks(state).some((f) => f.blocker === iid)) return { ring: "", combat: { tone: "blocked", label: "🛡 Must block", why: "An attacker's text forces every creature able to block it to do so." } };
         const target = blocks[iid];
         return {
@@ -856,7 +870,15 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
         <AttackTargetsPanel state={state} actor={actor} attacking={attacking} targets={attackTargets} onChange={setAttackTargets} />
 
-        <StackPanel state={state} actor={actor} onPass={() => act({ type: "passPriority" })} waiting={online && !mine ? `Waiting for ${playerName(playerToAct(state))} to ${state.pendingPick || state.pendingChoice ? "choose" : "respond"}…` : undefined} />
+        <StackPanel
+          state={state}
+          actor={actor}
+          onPass={() => act({ type: "passPriority" })}
+          waiting={online && !mine ? `Waiting for ${playerName(playerToAct(state))} to ${state.pendingPick || state.pendingChoice ? "choose" : "respond"}…` : undefined}
+          chain={chain.steps}
+          chainOver={chain.over}
+          onCloseChain={() => setChain({ steps: [], over: false })}
+        />
 
         {lifeConfirm && (
           <ChoicePanel
