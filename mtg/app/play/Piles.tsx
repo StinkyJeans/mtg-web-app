@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import type { CardDef, GameState, PlayerId } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
 import CardView from "./CardView";
@@ -21,7 +22,7 @@ const LABEL_SIZE = "clamp(0.55rem, 9cqh, 0.8rem)";
  * A pile of cards: the library (face down, count) or the graveyard (top card face up, click to browse).
  * `data-pile` lets the animations find it, so cards can fly in.
  */
-export function Pile({ state, owner, kind, compact, onOpen, deckName, sleeve }: { state: GameState; owner: PlayerId; kind: "library" | "graveyard" | "exile"; compact?: boolean; onOpen?: () => void; deckName?: string; sleeve?: { css: string; edge: string } }) {
+function PileInner({ state, owner, kind, compact, onOpen, deckName, sleeve }: { state: GameState; owner: PlayerId; kind: "library" | "graveyard" | "exile"; compact?: boolean; onOpen?: () => void; deckName?: string; sleeve?: { css: string; edge: string } }) {
   const cards = state.players[owner][kind];
   const unseen = useUnseenCards(owner);
   const shown = cards.length + (kind === "library" ? unseen : 0); // (the opening hands are dealt on screen: the library counts down)
@@ -120,3 +121,6 @@ export function GraveyardDialog({ state, owner, zone = "graveyard", onClose, onZ
     </div>
   );
 }
+
+/** A pile is drawn again only when its cards, or what it is called or dressed in, changed (the game state is a new object after every move). */
+export const Pile = memo(PileInner, (a, b) => JSON.stringify([a.state.players[a.owner][a.kind], a.owner, a.kind, a.compact, a.deckName, a.sleeve, !!a.onOpen]) === JSON.stringify([b.state.players[b.owner][b.kind], b.owner, b.kind, b.compact, b.deckName, b.sleeve, !!b.onOpen]));

@@ -1,3 +1,4 @@
+import { memo } from "react";
 import type { CardDef } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
 import { isTokenDef, useTokenArt } from "@/lib/tokenArt";
@@ -200,7 +201,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
   );
 }
 
-export default function CardView(props: Props) {
+function CardViewInner(props: Props) {
   const card = <Card {...props} />;
   if (!props.onZoom) return card;
 
@@ -222,3 +223,35 @@ export default function CardView(props: Props) {
     </div>
   );
 }
+
+/**
+ * A card is drawn again only when something it shows has changed. The game state is a brand new object after every move, so what is compared is
+ * what the card shows, not the objects. A card that can be clicked is always drawn again (its click handler remembers the game as it was
+ * when it was drawn, and must not be an old one); the hover and enlarge handlers only depend on the card and what is shown, which is compared.
+ */
+function sameCard(a: Props, b: Props): boolean {
+  if (a.onClick || b.onClick) return false;
+  const x = a as unknown as Record<string, unknown>;
+  const y = b as unknown as Record<string, unknown>;
+  for (const k of new Set([...Object.keys(x), ...Object.keys(y)])) {
+    const p = x[k];
+    const q = y[k];
+    if (typeof p === "function" || typeof q === "function") {
+      if (!!p !== !!q) return false; // (only whether the handler exists)
+      continue;
+    }
+    if (p === q) continue;
+    if (k === "def") {
+      const d = p as CardDef | undefined;
+      const e = q as CardDef | undefined;
+      if (d?.id === e?.id && d?.name === e?.name && d?.text === e?.text && d?.image === e?.image) continue;
+      return false;
+    }
+    if (typeof p === "object" && typeof q === "object" && p && q && JSON.stringify(p) === JSON.stringify(q)) continue;
+    return false;
+  }
+  return true;
+}
+
+const CardView = memo(CardViewInner, sameCard);
+export default CardView;

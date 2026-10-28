@@ -1,7 +1,7 @@
 "use client";
 
 import { useAnimationsOn } from "@/lib/motion";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { ManaText } from "./ManaSymbols";
 import { ManaMeter } from "./ManaMeter";
@@ -80,7 +80,7 @@ function LifeTotal({ id, value }: { id: PlayerId; value: number }) {
 }
 
 /** Both players' name, life, mana and pile sizes. The player to act is highlighted. */
-export function PlayersPanel({
+function PlayersPanelInner({
   state,
   order,
   actor,
@@ -204,17 +204,40 @@ export function ChatPanel({ messages, as, onSend }: { messages: ChatMessage[]; a
 }
 
 /** Game log, newest first. */
-export function LogPanel({ lines }: { lines: string[] }) {
+/** One line of the log: drawn once (the mana symbols in it are worked out then) and left alone while it is not changed. */
+const LogLine = memo(function LogLine({ line }: { line: string }) {
+  return (
+    <div className={line.startsWith("—") ? "mt-2 border-t border-zinc-300/70 pt-1.5 font-bold text-zinc-900" : ""}>
+      <ManaText text={line} />
+    </div>
+  );
+});
+
+/**
+ * The log, newest line first. Each new move adds lines at the top, so a line is known by its text and by how many identical lines are older than
+ * it, not by its place in the list: the lines already there keep their page elements and are not drawn again (the list can have sixty lines,
+ * and it was redrawn in full after every single move, by every viewer).
+ */
+export const LogPanel = memo(function LogPanel({ lines }: { lines: string[] }) {
+  const older = new Map<string, number>();
+  const keyed = [...lines].reverse().map((line) => {
+    const n = older.get(line) ?? 0;
+    older.set(line, n + 1);
+    return { line, key: `${n}:${line}` };
+  }).reverse();
   return (
     <section className={`${panel} h-48 lg:h-auto lg:min-h-[8.5rem] lg:flex-1`}>
       <h2 className={title}>Log</h2>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1 text-[15px] leading-relaxed text-zinc-800">
-        {lines.map((line, i) => (
-          <div key={i} className={line.startsWith("—") ? "mt-2 border-t border-zinc-300/70 pt-1.5 font-bold text-zinc-900" : ""}>
-            <ManaText text={line} />
-          </div>
+        {keyed.map((x) => (
+          <LogLine key={x.key} line={x.line} />
         ))}
       </div>
     </section>
   );
-}
+});
+
+/** What a players panel shows comes from these: both players (their mana can depend on the other's cards), whose turn it is and what is being waited for. The game state itself is a new object after every move. */
+const panelSig = (p: { state: GameState; order: PlayerId[]; actor: PlayerId; heading?: string; onResign?: unknown }) =>
+  JSON.stringify([p.order, p.state.players.p1, p.state.players.p2, p.actor, p.heading, p.state.turn, p.state.phase, p.state.active, p.state.priority?.holder, !!p.state.pendingPick, !!p.state.pendingChoice, p.state.winner, !!p.onResign]);
+export const PlayersPanel = memo(PlayersPanelInner, (a, b) => panelSig(a) === panelSig(b));

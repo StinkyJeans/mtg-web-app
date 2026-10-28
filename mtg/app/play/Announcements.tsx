@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, memo } from "react";
 import type { GameState } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
 import { animationsEnabled } from "@/lib/motion";
@@ -69,7 +69,7 @@ export function TurnSplash() {
  * Everything cast or used this turn, kept on screen until the turn ends: spells go to the graveyard as soon as they
  * resolve, so without this it is hard to follow what has happened and what is still in effect.
  */
-export function PlayedThisTurn({ items, state, onZoom }: { items: Announcement[]; state: GameState; onZoom: (defId: string) => void }) {
+function PlayedThisTurnInner({ items, state, onZoom }: { items: Announcement[]; state: GameState; onZoom: (defId: string) => void }) {
   if (items.length === 0) return null;
   return (
     <section className="flex shrink-0 flex-col gap-1 rounded-xl border border-amber-300 bg-amber-50/80 p-2 shadow-sm">
@@ -126,3 +126,6 @@ export function PassReminder({ state, after, opponent, onEndTurn }: { state: Gam
     </div>
   );
 }
+
+/** Drawn again only when what was played changed. */
+export const PlayedThisTurn = memo(PlayedThisTurnInner, (a, b) => JSON.stringify(a.items) === JSON.stringify(b.items));

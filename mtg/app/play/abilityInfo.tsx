@@ -48,6 +48,9 @@ export function abilityList(state: GameState, actor: PlayerId) {
   };
 }
 
+/** What a spectator has: nothing can be done by someone who is only watching, so none of it is worked out (it is a lot of rules checks, after every move). */
+export const NO_ABILITIES: ReturnType<typeof abilityList> = { abilities: [], cycles: [], crews: [], loyalty: [], plots: [], flashbacks: [], exileLands: [] };
+
 export const countAbilities = (list: ReturnType<typeof abilityList>) =>
   list.abilities.length + list.cycles.length + list.crews.length + list.loyalty.length + list.plots.length + list.flashbacks.length + list.exileLands.length;
 

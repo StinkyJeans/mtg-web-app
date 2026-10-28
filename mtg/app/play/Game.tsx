@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { flushSync } from "react-dom";
 import {
@@ -60,7 +60,7 @@ import type { Chain } from "./chain";
 import { TargetPanel } from "./TargetPanel";
 import type { ChatMessage } from "./SidePanels";
 import AbilitiesDialog from "./AbilitiesDialog";
-import { abilityList, countAbilities, lockedAbilities } from "./abilityInfo";
+import { abilityList, countAbilities, lockedAbilities, NO_ABILITIES } from "./abilityInfo";
 import { Battlefield, Side } from "./Board";
 import type { LaneContext } from "./Board";
 import CastPlanPanels from "./CastPlanPanels";
@@ -169,7 +169,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     return () => document.body.classList.remove("mtg-cursor");
   }, [cursorOn]);
   const [localLog, setLog] = useState<string[]>([]);
-  const log = online && net.game?.summary ? [...localLog, net.game.summary] : localLog; // newest first; the coin toss is the oldest line
+  const summary = online ? net.game?.summary : undefined;
+  const log = useMemo(() => (summary ? [...localLog, summary] : localLog), [localLog, summary]); // newest first; the coin toss is the oldest line (the same list while nothing was added: the log is not drawn again)
   const [localError, setError] = useState<string | null>(null);
   const error = localError ?? (online ? net.error : null);
   const [attacking, setAttacking] = useState<string[]>([]);
@@ -354,12 +355,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   // Online the server only tells each player their own deck.
   const playedDecks: Partial<Record<PlayerId, PlayedDeck>> = online ? (net.game?.deck ? { [actor]: net.game.deck } : {}) : localDecks;
   const keepDeck = (who: PlayerId, id: string) => setSavedDecks((s) => ({ ...s, [who]: id }));
-  const legal = getLegalActions(state, actor);
+  // Someone who is only watching can do nothing, so none of what could be done is worked out for them (these rules checks run after every move).
+  const legal = watching ? [] : getLegalActions(state, actor);
   const playable = new Set(legal.flatMap((a) => (a.type === "playLand" || a.type === "castCreature" || a.type === "castSpell" ? [a.iid] : [])));
-  const possibleAttackers = getPossibleAttackers(state);
-  const possibleBlockers = getPossibleBlockers(state);
+  const possibleAttackers = watching ? [] : getPossibleAttackers(state);
+  const possibleBlockers = watching ? [] : getPossibleBlockers(state);
   // Blocks the rules force ("all creatures able to block it do so") are part of the blocks from the start.
-  const blocks = { ...chosenBlocks, ...Object.fromEntries(getForcedBlocks(state).map((f) => [f.blocker, f.attacker])) };
+  const blocks = { ...chosenBlocks, ...(watching ? {} : Object.fromEntries(getForcedBlocks(state).map((f) => [f.blocker, f.attacker]))) };
   const attackerIds = state.combat?.attackers.map((a) => a.attacker) ?? [];
 
   /**
@@ -781,10 +783,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     const top = r.top - 8 - h >= 8 ? r.top - 8 - h : Math.min(r.bottom + 8, window.innerHeight - h - 8);
     setPreview({ def, el, left: Math.min(Math.max(8, r.left + r.width / 2 - PREVIEW_W / 2), window.innerWidth - PREVIEW_W - 8), top: Math.max(8, top) });
   }
-  const abilities = abilityList(state, actor);
+  const abilities = watching ? NO_ABILITIES : abilityList(state, actor);
   const abilityCount = countAbilities(abilities);
   const abilityIids = new Set<string>([...abilities.abilities.map((x) => x.iid), ...abilities.loyalty.map((x) => x.iid), ...abilities.crews.map((x) => x.iid)]);
-  const abilityLocked = lockedAbilities(state, actor).length;
+  const abilityLocked = watching ? 0 : lockedAbilities(state, actor).length;
   const inspect = (def: Inspected["def"], status?: string[]) => setInspected({ def, status });
   const lane: LaneContext = { state, attackingIds: attackerIds, onInspect: inspect, onZoom: setZoomed, onPreview: showPreview, onUnpreview: () => setPreview(null) };
   // Choosing attackers or blockers: the player's combat zone shows even while it is empty.

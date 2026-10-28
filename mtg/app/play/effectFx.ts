@@ -381,12 +381,17 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
         }
         continue;
       }
-      const box = boxOf(el);
-      if (!box) continue;
-      if (old.card.defId !== perm.card.defId) jobs.push(() => flip(el));
       const dp = powerOf(after, perm) - powerOf(before, old);
       const dt = toughnessOf(after, perm) - toughnessOf(before, old);
       const dc = (perm.counters ?? 0) - (old.counters ?? 0);
+      const oldKeys = keywordsOf(old);
+      const newKeys = keywordsOf(perm);
+      // Most cards did not change at all: those are not even measured (the position of a card costs a layout read).
+      const changed = old.card.defId !== perm.card.defId || dp !== 0 || dt !== 0 || dc !== 0 || perm.attachedTo !== old.attachedTo || [...newKeys].some((k) => !oldKeys.has(k));
+      if (!changed) continue;
+      const box = boxOf(el);
+      if (!box) continue;
+      if (old.card.defId !== perm.card.defId) jobs.push(() => flip(el));
       if ((dp !== 0 || dt !== 0) && !hadCombat) {
         const good = dp + dt >= 0;
         add(() => floatText(box, `${sign(dp)}/${sign(dt)}`, good ? GOOD : BAD, 200, 22, -16));
@@ -396,9 +401,8 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
         if (dc > 0) add(() => riseSparkles(box, GOOD, 4, 120));
       }
       if ((dp !== 0 || dt !== 0) && !hadCombat && dp + dt >= 0) add(() => riseSparkles(box, GOOD, 4, 180));
-      const oldKeys = keywordsOf(old);
       let k = 0;
-      for (const kwd of keywordsOf(perm)) {
+      for (const kwd of newKeys) {
         if (oldKeys.has(kwd)) continue;
         const delay = 300 + k++ * 140;
         const dy = 14 + (k - 1) * 20; // below the size change, and each word below the one before
@@ -419,8 +423,16 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
  */
 export async function playLeaving(before: GameState | null | undefined, after: GameState, events: GameEvent[]): Promise<void> {
   if (!before || typeof document === "undefined" || document.hidden || !animationsEnabled()) return;
-  snap = new Map(Array.from(document.querySelectorAll<HTMLElement>("[data-card-iid]"), (el) => [el.dataset.cardIid ?? "", boxOf(el)] as const).filter((x): x is [string, Box] => !!x[0] && !!x[1]));
   const stays = new Set(battlefieldOf(after).map((x) => x.perm.card.iid));
+  // Where cards stood, kept for the ones that are about to leave the page (an effect aimed at a creature that died still needs to know where it was).
+  // Only those are measured: reading the position of every card on the page after every move cost a layout read per card, many times a second.
+  const kept = new Set([...stays, ...Object.values(after.players).flatMap((p) => p.hand.map((c) => c.iid))]);
+  snap = new Map(
+    Array.from(document.querySelectorAll<HTMLElement>("[data-card-iid]"))
+      .filter((el) => !kept.has(el.dataset.cardIid ?? ""))
+      .map((el) => [el.dataset.cardIid ?? "", boxOf(el)] as const)
+      .filter((x): x is [string, Box] => !!x[0] && !!x[1]),
+  );
   const died = new Set(events.flatMap((e) => (e.type === "creatureDied" ? [e.iid] : e.type === "cardsDiscarded" ? e.iids : [])));
   const leaving = battlefieldOf(before).filter(({ perm }) => !stays.has(perm.card.iid) && !died.has(perm.card.iid));
   if (leaving.length === 0 || leaving.length > 8) return;

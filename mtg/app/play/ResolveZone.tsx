@@ -1,5 +1,6 @@
 "use client";
 
+import { memo, useState } from "react";
 import type { CardDef, GameState, StackItem } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
 import { animationsEnabled } from "@/lib/motion";
@@ -68,7 +69,7 @@ const onStack = (state: GameState, iid?: string) => !!iid && state.stack.some((i
  * The "to resolve" zone on the mat: what is on the stack, and what the other player just cast or used, shown as the cards
  * themselves so every play can be followed. `revealing` is the other player's play, shown before the board changes.
  */
-export default function ResolveZone({
+function ResolveZoneInner({
   state,
   played,
   revealing,
@@ -103,12 +104,32 @@ export default function ResolveZone({
       .reverse()
       .map((a): Entry => ({ key: `played-${a.id}`, status: statusOf(a), kind: a.kind, def: a.defId ? state.cards[a.defId] : undefined, title: a.title, play: a, lines: a.lines, onClose: () => onClose(a.id) })),
   ].slice(0, MAX_SHOWN);
+  // The player can close the panel when it is in the way. It stays closed for exactly what it shows now; anything new put on the stack opens it again.
+  const [closedFor, setClosedFor] = useState<string | null>(null);
+  const signature = entries.map((e) => e.key).join("|");
   if (entries.length === 0) return null;
+  if (closedFor === signature) {
+    return (
+      <button
+        type="button"
+        onClick={() => setClosedFor(null)}
+        aria-label={`Show what is on the stack (${entries.length})`}
+        className="fixed left-[56%] top-[26dvh] z-40 -translate-x-1/2 rounded-full bg-slate-950/85 px-3 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-widest text-amber-200 shadow-lg shadow-black/40 hover:bg-slate-900"
+      >
+        To resolve · {entries.length} ▸
+      </button>
+    );
+  }
 
   return (
     // It floats over the board (no panel behind it), so the player's mat stays visible around the cards. Only the cards take clicks.
     <section aria-label="To resolve" aria-live="polite" className="pointer-events-none fixed left-[56%] top-[26dvh] z-40 flex w-[min(24rem,92vw)] -translate-x-1/2 flex-col gap-2">
-      <h3 className="self-start rounded-full bg-slate-950/80 px-3 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-widest text-amber-200 shadow-lg shadow-black/40">To resolve</h3>
+      <div className="pointer-events-auto flex items-center gap-2 self-start rounded-full bg-slate-950/80 py-0.5 pl-3 pr-1 shadow-lg shadow-black/40">
+        <h3 className="font-display text-[11px] font-extrabold uppercase tracking-widest text-amber-200">To resolve</h3>
+        <button type="button" onClick={() => setClosedFor(signature)} aria-label="Close the list of what is on the stack" title="Close (it opens again when something new is cast)" className="rounded-full px-2 text-sm leading-5 text-amber-100 hover:bg-white/15">
+          ×
+        </button>
+      </div>
       {entries.map((e) => (
         <div key={e.key} className={`announce-in pointer-events-auto flex items-start gap-2.5 rounded-lg bg-white p-2 text-zinc-900 shadow-2xl shadow-black/50 ring-2 ${LOOK[e.status].ring}`}>
           <button
@@ -148,3 +169,10 @@ export default function ResolveZone({
     </section>
   );
 }
+
+/**
+ * Drawn again only when what it shows changed: what is on the stack, what was just played, what is being revealed. (The game state is a new
+ * object after every move, and this was worked out and drawn after each one even when the stack was empty and nothing had been played.)
+ */
+const ResolveZone = memo(ResolveZoneInner, (a, b) => JSON.stringify([a.state.stack, a.played, a.revealing?.items]) === JSON.stringify([b.state.stack, b.played, b.revealing?.items]));
+export default ResolveZone;
