@@ -281,6 +281,8 @@ export interface StaticEffect {
   cond?: { artifactCreatureOrPlan?: boolean; powerAtMost?: number; selfCounteredThisTurn?: boolean; yardCreatures?: number; drawnAtLeast?: number; lifeAtLeast?: number; yourTurn?: boolean; enteredThisTurn?: boolean; controls?: string; attacking?: boolean; lostLife?: boolean };
   /** "Tapped creatures you control have hexproof." */
   tappedOnly?: boolean;
+  /** "Other untapped creatures you control have hexproof." */
+  untappedOnly?: boolean;
   /** "Gets +1/+1 for each enchantment you control": the power and toughness are multiplied by this count. */
   per?: CountSpec;
   /** "Each creature you control that you've put one or more +1/+1 counters on this turn has hexproof": the creature it applies to. */

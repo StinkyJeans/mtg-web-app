@@ -44,6 +44,7 @@ const DEFS: Record<string, CardDef> = {
   swamp: { id: "swamp", name: "Swamp", type: "land", cost: 0, typeLine: "Basic Land — Swamp" },
   // protections and counters
   hexed: creature("hexed", 2, 2, "Hexproof", ["hexproof"]),
+  warden: creature("warden", 3, 3, "Other untapped creatures you control have hexproof.", ["hexproof"]),
   zap: spell("zap", "Zap", "instant", "Zap deals 3 damage to any target."),
   ward: spell("ward", "Counterspell", "instant", "Counter target spell."),
   stubborn: spell("stubborn", "Stubborn", "sorcery", "Stubborn deals 2 damage to any target.\nStubborn can't be countered.".replace(/Stubborn can't/, "This spell can't")),
@@ -211,6 +212,14 @@ test("hexproof: only its controller can target it", () => {
   own.players.p2.hand[0] = { iid: "o0", defId: "zap", owner: "p2" };
   const r = applyAction({ ...own }, "p2", { type: "castSpell", iid: "o0", targets: on("t0") });
   assert.equal(r.ok, true);
+});
+
+test("hexproof: \"other untapped creatures you control have hexproof\" protects the others only while they are untapped", () => {
+  const g = setup(["zap"], ["bear"], ["warden", "bear2"]);
+  refuses(g, "p1", { type: "castSpell", iid: "h0", targets: on("t1") }); // the untapped bear is protected
+  find(g, "t1").tapped = true;
+  const ok = applyAction({ ...g }, "p1", { type: "castSpell", iid: "h0", targets: on("t1") }); // tapped: no longer protected
+  assert.equal(ok.ok, true);
 });
 
 // ───────── counterspells and prowess ─────────

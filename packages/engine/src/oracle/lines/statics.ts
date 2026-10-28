@@ -180,10 +180,11 @@ export function readHostBecomes(line: string, out: ParsedCard): boolean {
 }
 
 export function readTappedCreaturesHave(line: string, out: ParsedCard): boolean {
-  const tappedGrant = /^tapped creatures you control have (.+)$/.exec(line);
-  const tappedKeywords = tappedGrant ? keywordList(tappedGrant[1]) : null;
-  if (tappedKeywords) {
-    (out.statics ??= []).push({ scope: "yours", tappedOnly: true, power: 0, toughness: 0, keywords: tappedKeywords });
+  // "Tapped creatures you control have hexproof." / "Other untapped creatures you control have hexproof."
+  const tappedGrant = /^(other )?(tapped|untapped) creatures you control have (.+)$/.exec(line);
+  const tappedKeywords = tappedGrant ? keywordList(tappedGrant[3]) : null;
+  if (tappedGrant && tappedKeywords) {
+    (out.statics ??= []).push({ scope: "yours", ...(tappedGrant[2] === "tapped" ? { tappedOnly: true } : { untappedOnly: true }), ...(tappedGrant[1] ? { other: true } : {}), power: 0, toughness: 0, keywords: tappedKeywords });
     return true;
   }
   return false;

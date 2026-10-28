@@ -134,6 +134,7 @@ export function staticEffectsOn(s: GameState, target: Permanent): StaticEffect[]
         if (st.cond?.controls && !s.players[owner.id].battlefield.some((p) => subtypesOf(s, p).includes(st.cond!.controls!))) continue;
         if (st.cond?.attacking && !s.combat?.attackers.some((a) => a.attacker === source.card.iid)) continue;
         if (st.tappedOnly && !target.tapped) continue;
+        if (st.untappedOnly && target.tapped) continue;
         if (st.subtypes) {
           const line = subtypesOf(s, target);
           if (!st.subtypes.some((t) => line.includes(t))) continue;
