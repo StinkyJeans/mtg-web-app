@@ -1,6 +1,7 @@
 import type { GameEvent, GameState } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
 import { playSound } from "@/lib/sound";
+import { dropLife } from "./lifeCount";
 import { TINT, reticle, ring, slash, sparkBurst } from "./effectFx";
 
 // Combat animation. Attackers lunge at what they are hitting: a blocking creature (it recoils) or the
@@ -494,6 +495,7 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
       const el = isPlayer(hit.target) ? lifeEl(hit.target) : cardEl(hit.target);
       if (!el) continue;
       if (isPlayer(hit.target)) {
+        if (!hit.infect) dropLife(hit.target, hit.amount); // the life total starts counting down now, as the hit lands
         flashLife(el);
       } else {
         // Every creature the attacker hit is shoved away from it.

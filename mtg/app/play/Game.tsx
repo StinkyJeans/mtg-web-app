@@ -41,7 +41,8 @@ import { announcementsFrom, describeEvents, endReason, playerName } from "./log"
 import type { Announcement } from "./log";
 import { PassReminder, PlayedThisTurn, TurnSplash, WelcomeSplash } from "./Announcements";
 import ResolveZone, { holdReveal, isRevealing } from "./ResolveZone";
-import { ChatPanel, lifeSettling, LogPanel, PlayersPanel } from "./SidePanels";
+import { lifeSettling } from "./lifeCount";
+import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
 import BackgroundPicker from "./BackgroundPicker";
 import AppearanceDialog from "./AppearanceDialog";
 import { useAppearance } from "@/lib/playmat";

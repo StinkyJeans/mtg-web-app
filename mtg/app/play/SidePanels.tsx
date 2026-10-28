@@ -1,11 +1,12 @@
 "use client";
 
 import { useAnimationsOn } from "@/lib/motion";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { availableMana, MANA_COLORS } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { ManaSymbol } from "./ManaSymbols";
 import { playerName } from "./log";
+import { lifeBusyUntil, registerLife } from "./lifeCount";
 import { useUnseenCards } from "./pileFx";
 import { lifeColor, PLAYER_STYLE } from "./theme";
 
@@ -18,41 +19,59 @@ export interface ChatMessage {
 const panel = "flex min-h-0 flex-col gap-2 rounded-lg border border-zinc-200 bg-zinc-100/60 p-3";
 const title = "text-sm font-semibold uppercase tracking-wide text-zinc-500";
 
-let settleAt = 0;
-/** How long (ms) until the life totals have finished counting: the result screen waits for it, so the last points are seen going down. */
-export const lifeSettling = () => Math.max(0, settleAt - performance.now());
-
 /**
- * A life total that counts up or down to its new value, one point at a time and slowly: the bigger the change, the longer it takes (a
- * heavy hit is felt going down). Past zero it keeps going into the negatives. The combat animation finds it by `data-life`.
+ * A life total that counts up or down ONE POINT AT A TIME: a creature that hits for 5 takes 20 to 19, 18, 17, 16, 15, each step a beat
+ * apart with a small pop, so every point of damage is seen going. Past zero it keeps going into the negatives. The attack animation starts
+ * the count the moment its hit lands (see `lifeCount`); a change that arrives from the game state does the same if it is not already shown.
+ * The combat animation finds the number by `data-life`.
  */
 function LifeTotal({ id, value }: { id: PlayerId; value: number }) {
   const [shown, setShown] = useState(value);
-  const previous = useRef(value);
-
-  useEffect(() => {
-    if (previous.current === value) return;
-    const from = previous.current;
-    previous.current = value;
-    const start = performance.now();
-    const ms = Math.min(2600, Math.max(700, 450 + Math.abs(value - from) * 170));
-    settleAt = Math.max(settleAt, start + ms);
-    let frame = 0;
-    const step = (now: number) => {
-      const k = Math.min((now - start) / ms, 1);
-      setShown(Math.round(from + (value - from) * (1 - (1 - k) * (1 - k)))); // (it starts quickly and the last points come slowly)
-      if (k < 1) frame = requestAnimationFrame(step);
-    };
-    frame = requestAnimationFrame(step);
-    return () => cancelAnimationFrame(frame);
-  }, [value]);
-
+  const current = useRef(value); // what is on screen right now
+  const target = useRef(value); // where the count is going
+  const number = useRef<HTMLSpanElement>(null);
+  const wrap = useRef<HTMLSpanElement>(null);
+  const pop = useRef<Animation | null>(null); // one pop animation, replayed on every point (a new one each time is a lot of small work)
+  const timer = useRef(0);
   const on = useAnimationsOn();
-  const danger = value <= 5 ? 2 : value <= 10 ? 1 : 0; // 2: glowing red and pumping slowly, 1: a slow amber glow
+
+  // Counts towards `target`, a point per beat. A new change while it is counting just moves the target: one count, never two at once.
+  const count = useCallback(() => {
+    window.clearTimeout(timer.current);
+    const points = Math.abs(target.current - current.current);
+    if (points === 0) return;
+    const beat = Math.max(110, Math.min(300, 2000 / points)); // ms per point: a few points are counted slowly, a long count still ends in about two seconds
+    lifeBusyUntil(performance.now() + beat * points);
+    // Each step only changes the text of the number (no React render, nothing laid out again) and pops its wrapper (transform only: the
+    // number itself already has its own pulsing animation when it is low). React is told once, at the end, for the colour and glow.
+    const tick = () => {
+      current.current += target.current > current.current ? 1 : -1;
+      const text = number.current?.firstChild;
+      if (text) text.nodeValue = String(current.current);
+      if (wrap.current) {
+        pop.current ??= wrap.current.animate([{ transform: "scale(1.3)" }, { transform: "scale(1)" }], { duration: 180, easing: "ease-out" });
+        pop.current.currentTime = 0;
+        pop.current.play();
+      }
+      if (current.current !== target.current) timer.current = window.setTimeout(tick, beat);
+      else setShown(current.current);
+    };
+    tick();
+  }, []);
+
+  useEffect(() => registerLife(id, (change) => { target.current += change; count(); }), [id, count]);
+  useEffect(() => {
+    if (value === target.current) return; // (the attack already counted it)
+    target.current = value;
+    count();
+  }, [value, count]);
+  useEffect(() => () => window.clearTimeout(timer.current), []);
+
+  const danger = shown <= 5 ? 2 : shown <= 10 ? 1 : 0; // 2: glowing red and pumping slowly, 1: a slow amber glow
   return (
-    <span className="relative inline-flex items-center justify-center">
+    <span ref={wrap} className="relative inline-flex items-center justify-center">
       {danger > 0 && <span aria-hidden="true" className={`life-halo ${danger === 2 ? "life-halo-red" : "life-halo-amber"} ${on ? "life-halo-moving" : ""}`} />}
-      <span data-life={id} className={`font-display relative inline-block text-4xl font-bold tabular-nums ${danger === 2 ? "text-red-600 life-pump" : danger === 1 ? "text-amber-600" : "text-emerald-700"} ${danger === 2 && on ? "life-pump-moving" : ""}`}>
+      <span ref={number} data-life={id} className={`font-display relative inline-block text-4xl font-bold tabular-nums ${danger === 2 ? "text-red-600 life-pump" : danger === 1 ? "text-amber-600" : "text-emerald-700"} ${danger === 2 && on ? "life-pump-moving" : ""}`}>
         {shown}
       </span>
     </span>
