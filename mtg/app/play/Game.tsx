@@ -568,14 +568,16 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       act({ type: "playLand", iid });
       return;
     }
-    const ways = getCastable(state, actor).filter((c) => c.iid === iid && c.zone === undefined);
+    // A card in exile that may be played (Expressive Iteration) is shown with the hand and cast the same way.
+    const inExile = state.players[actor].exile.some((c) => c.iid === iid);
+    const ways = getCastable(state, actor).filter((c) => c.iid === iid && (inExile ? c.zone === "exile" : c.zone === undefined));
     const castable = ways.find((c) => !c.adventure) ?? ways[0];
     if (!castable) {
       act({ type: "castSpell", iid, targets: [] }); // not castable now: the engine says why
       return;
     }
     const adventure = ways.find((c) => c.adventure);
-    advance({ iid, name: state.cards[defId].name, castable, ...(adventure ? { adventureCastable: adventure } : {}) });
+    advance({ iid, name: state.cards[defId].name, castable, ...(inExile ? { from: "exile" as const } : {}), ...(adventure ? { adventureCastable: adventure } : {}) });
   }
 
   /** Moves a spell on to whatever it still needs: modes, the kicker, X, targets, and finally the cast itself. */
@@ -1002,6 +1004,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             actor={actor}
             mine={mine}
             playable={playable}
+            exiled={state.players[actor].exile.filter((c) => playable.has(c.iid))}
             handPick={handPick}
             onClick={clickHandCard}
             onPreview={showPreview}

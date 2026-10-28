@@ -48,7 +48,7 @@ export function AbilityPanel({
   /** `source`: for a copy cast from a prepared creature, that creature's name. */
   flashbacks?: { iid: string; name: string; cost: string; zone?: "graveyard" | "exile" | "prepared"; source?: string; why?: "yard" | "harmonize" | ExileReason; tax?: number; sacrifice?: string }[];
   /** Lands in exile that may be played ("you may play that card"). */
-  exileLands?: { iid: string; name: string; tapped?: boolean }[];
+  exileLands?: { iid: string; name: string; tapped?: boolean; why?: ExileReason }[];
   onPlayLand?: (iid: string) => void;
   onFlashback?: (iid: string) => void;
   /** Abilities that exist but can't be used right now, with the reason. Shown greyed out. */
@@ -158,7 +158,7 @@ export function AbilityPanel({
         ))}
         {exileLands.map((l) => (
           <button key={`exile-land-${l.iid}`} onClick={() => onPlayLand?.(l.iid)} className="rounded-lg border border-emerald-400 bg-white px-3 py-2 text-left text-base leading-snug hover:bg-emerald-100">
-            <span className="font-semibold">Play {l.name}</span> as your land for the turn — {l.tapped ? "it was exiled from your hand, and enters tapped" : "it was exiled and you attacked this turn"}
+            <span className="font-semibold">Play {l.name}</span> as your land for the turn — {l.tapped ? "it was exiled from your hand, and enters tapped" : l.why === "thisTurn" ? "it was exiled from your library, and you may play it this turn" : l.why === "untilNextTurn" ? "it was exiled from your library, and you may play it until the end of your next turn" : l.why === "untilEndStep" ? "it was exiled from your library, and you may play it until your next end step" : "it was exiled and you attacked this turn"}
           </button>
         ))}
         {plots.map((p) => (

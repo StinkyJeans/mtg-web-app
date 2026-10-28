@@ -9,6 +9,8 @@ interface Props {
   actor: PlayerId;
   mine: boolean;
   playable: Set<string>;
+  /** Cards in exile the player may play now (Expressive Iteration, an Adventure, warp...): they sit with the hand's playable cards. */
+  exiled?: CardInstance[];
   handPick: string[];
   onClick: (iid: string, defId: string) => void;
   onPreview: (def: CardDef, el: HTMLElement) => void;
@@ -18,7 +20,7 @@ interface Props {
 }
 
 /** The player's hand. While choosing cards (mulligan, discard) it stays together; otherwise playable cards come first, apart from the rest. */
-export default function HandRow({ state, actor, mine, playable, handPick, onClick, onPreview, onUnpreview, onInspect, onZoom }: Props) {
+export default function HandRow({ state, actor, mine, playable, exiled = [], handPick, onClick, onPreview, onUnpreview, onInspect, onZoom }: Props) {
   const hand = state.players[actor].hand;
   const mulligansTaken = state.opening?.taken[actor] ?? 0;
   // While deciding whether to keep or mulligan the cards can only be looked at, until a mulligan means choosing cards to bottom.
@@ -28,7 +30,7 @@ export default function HandRow({ state, actor, mine, playable, handPick, onClic
 
   const card = (c: CardInstance) => {
     const def = state.cards[c.defId];
-    const notes = handNotes(state, actor, c.iid, c.defId, playable.has(c.iid));
+    const notes = exiled.includes(c) ? { castable: true, castLabel: "✓ From exile", hint: exileHint(state, actor, c.iid) } : handNotes(state, actor, c.iid, c.defId, playable.has(c.iid));
     return (
       <div key={c.iid} className="shrink-0" onMouseEnter={(e) => onPreview(def, e.currentTarget)} onMouseLeave={onUnpreview}>
         <CardView
@@ -48,7 +50,7 @@ export default function HandRow({ state, actor, mine, playable, handPick, onClic
   };
 
   if (choosing) return <div className="flex min-h-[calc(var(--card-h,168px)*0.8)] items-start gap-1.5 overflow-x-auto py-1">{hand.map(card)}</div>;
-  const ready = hand.filter((c) => playable.has(c.iid));
+  const ready = [...hand.filter((c) => playable.has(c.iid)), ...exiled];
   const waiting = hand.filter((c) => !playable.has(c.iid));
   // Playable cards and the rest sit side by side in one row, so the hand takes one card's height.
   return (
@@ -67,6 +69,22 @@ export default function HandRow({ state, actor, mine, playable, handPick, onClic
       )}
     </div>
   );
+}
+
+/** Why a card in exile may be played now. */
+function exileHint(state: GameState, actor: PlayerId, iid: string): string {
+  const entry = state.players[actor].mayPlay?.find((e) => e.iid === iid);
+  const why =
+    entry?.source === "thisTurn" ? "it was exiled from your library, and you may play it this turn"
+    : entry?.source === "adventure" ? "it went on an Adventure: you may cast the creature from exile"
+    : entry?.source === "warp" ? "warp exiled it: you may cast it from exile"
+    : entry?.source === "plot" ? "you plotted it: cast it for free, as a sorcery"
+    : entry?.source === "airbend" ? "it was airbent: you may cast it for {2} while it is exiled"
+    : entry?.source === "exiled" ? `it was exiled from your hand: you may play it while it stays exiled${entry.tax ? `, for {${entry.tax}} more` : ""}`
+    : entry?.throughTurn !== undefined ? "it was exiled from your library, and you may play it until the end of your next turn"
+    : entry?.untilTurn !== undefined ? "it was exiled from your library, and you may play it until your next end step"
+    : "it was exiled, and you may play it now";
+  return `In exile: ${why}.`;
 }
 
 /**

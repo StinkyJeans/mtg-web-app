@@ -42,7 +42,10 @@ export function abilityList(state: GameState, actor: PlayerId) {
       }),
     exileLands: getLegalActions(state, actor).flatMap((a) =>
       a.type === "playLand" && me.exile.some((c) => c.iid === a.iid)
-        ? [{ iid: a.iid, name: state.cards[me.exile.find((c) => c.iid === a.iid)!.defId].name, ...(me.mayPlay?.some((e) => e.iid === a.iid && e.tappedLand) ? { tapped: true } : {}) }]
+        ? [(() => {
+            const entry = me.mayPlay?.find((e) => e.iid === a.iid);
+            return { iid: a.iid, name: state.cards[me.exile.find((c) => c.iid === a.iid)!.defId].name, ...(entry?.tappedLand ? { tapped: true } : {}), ...(entry ? { why: exileReason(entry) } : {}) };
+          })()]
         : [],
     ),
   };
