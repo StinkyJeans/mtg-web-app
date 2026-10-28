@@ -38,7 +38,7 @@ export function enterBattlefield(state: GameState, card: CardInstance, controlle
   const minus = parsed.entersWithMinus ?? 0;
   const remembered = {
     ...(parsed.statics?.some((st) => st.cond?.enteredThisTurn) || parsed.activated.some((a) => a.powerUp) ? { enteredTurn: state.turn } : {}),
-    ...(x > 0 && parsed.triggers.some((t) => t.xTargets) ? { xPaid: x } : {}),
+    ...(x > 0 && parsed.triggers.some((t) => t.xTargets || (t.event === "enters" && JSON.stringify(t.effects).includes('"X"'))) ? { xPaid: x } : {}), // ("Tap X target creatures", "When this enters, draw X cards")
     ...(parsed.entersPrepared && parsed.prepare ? { prepared: parsed.prepare.id } : {}),
   };
   if (remembered.prepared) state.cards[remembered.prepared] ??= parsed.prepare!; // the copy of its spell, waiting to be cast

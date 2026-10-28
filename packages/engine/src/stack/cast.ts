@@ -277,6 +277,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
       castCount: me.spellsCastThisTurn,
       spellColors: def.colors ?? [],
       spellSubtypes: spellTypes,
+      spellKicked: wasKicked,
       targetsOwnCreature: targetedCreatures.some((f) => f.owner.id === player),
       targetsCreature: targetedCreatures.length > 0,
     });

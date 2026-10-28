@@ -97,7 +97,9 @@ export function creatureEntered(state: GameState, card: CardInstance, controller
       } else if (!trigger.subtypes && !(entering && isCreature(state, entering))) continue; // plain "another creature enters" is about creatures
       if (trigger.nontoken && isToken(card)) continue;
       if (trigger.orArtifact && !(isArtifactDef(getCard(state, card.defId)) || (entering && trigger.subtypes?.some((t) => subtypesOf(state, entering).includes(t))))) continue;
-      if (trigger.subtypes && !trigger.orArtifact && !trigger.subtypes.some((t) => (entering ? subtypesOf(state, entering) : []).includes(t))) continue;
+      // ("another artifact you control enters": "artifact" is a card type here, not a creature type)
+      const enteringDef = getCard(state, card.defId);
+      if (trigger.subtypes && !trigger.orArtifact && !trigger.subtypes.some((t) => (t === "artifact" ? isArtifactDef(enteringDef) : t === "enchantment" ? isEnchantmentDef(enteringDef) : (entering ? subtypesOf(state, entering) : []).includes(t)))) continue;
       if (trigger.maxPower !== undefined && entering && powerOf(state, entering) > trigger.maxPower) continue;
       if (trigger.cond?.enteringGreater && !(entering && (powerOf(state, entering) > powerOf(state, perm) || toughnessOf(state, entering) > toughnessOf(state, perm)))) continue;
       if (trigger.oncePerTurn && !claimOncePerTurn(perm, n)) continue;
@@ -144,7 +146,7 @@ function claimOncePerTurn(perm: Permanent | undefined, n: number): boolean {
  * Queues the card's triggered abilities for `event`. They go on the stack when the game next settles.
  * `subtypes`: the creature types of what the event is about (a creature spell cast, a creature that died or got counters); `self`: it is this card.
  */
-export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { firstTap?: boolean; targetsOwnCreature?: boolean; targetsCreature?: boolean; spellColors?: string[]; spellSubtypes?: string[]; castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; bySpell?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown; count?: number; token?: boolean }): void {
+export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { firstTap?: boolean; targetsOwnCreature?: boolean; targetsCreature?: boolean; spellColors?: string[]; spellSubtypes?: string[]; spellKicked?: boolean; castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; bySpell?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown; count?: number; token?: boolean }): void {
   const def = getCard(state, card.defId);
   const triggers = parseCard(def).triggers;
   for (let n = 0; n < triggers.length; n++) {
@@ -155,6 +157,7 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
     // "Whenever you cast a red spell" / "a Lesson spell"
     if (trigger.spellColor && !(extra?.spellColors ?? []).includes(trigger.spellColor)) continue;
     if (trigger.spellSubtype && !(extra?.spellSubtypes ?? []).includes(trigger.spellSubtype)) continue;
+    if (trigger.spellKicked && !extra?.spellKicked) continue; // "whenever you cast a kicked spell"
     if (event === "anyDies" && trigger.nontoken && extra?.token) continue; // "another nontoken creature"
     if (trigger.other && extra?.self) continue;
     if (trigger.selfOnly && !extra?.self) continue;
@@ -210,7 +213,7 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
         text: trigger.text,
         ...(extra?.other ? { other: extra.other } : {}),
         ...(died ? { died } : {}),
-        ...(extra?.count !== undefined ? { x: extra.count } : {}),
+        ...(extra?.count !== undefined ? { x: extra.count } : event === "enters" && !trigger.xTargets && findPermanentOrNull(state, card.iid)?.perm.xPaid ? { x: findPermanentOrNull(state, card.iid)!.perm.xPaid } : {}), // ("When this enters, draw X cards": the X that was paid)
       },
     });
   }

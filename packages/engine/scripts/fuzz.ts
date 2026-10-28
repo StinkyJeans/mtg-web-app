@@ -304,7 +304,7 @@ function transition(before: GameState, after: GameState, events: GameEvent[], ac
       for (const e of events) {
         if (e.type === "lifeGained" && e.player === id) delta += e.amount;
         else if (e.type === "lifeLost" && e.player === id) delta -= e.amount;
-        else if (e.type === "combatDamage" && e.target === id) delta -= e.amount;
+        else if (e.type === "combatDamage" && e.target === id && !e.infect) delta -= e.amount; // (infect damage to a player is poison counters, not life)
       }
       const real = after.players[id].life - before.players[id].life;
       if (real !== delta) problems.push(`${id}'s life changed by ${real} but the events say ${delta} (${action.type})`);

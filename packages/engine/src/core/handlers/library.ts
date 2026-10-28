@@ -314,6 +314,17 @@ export const LIBRARY_EFFECTS = {
     });
   },
   topOfLibrary({ state, ctx, say }, effect) {
+    // "When this creature dies, put it on top of its owner's library": it is already in the graveyard by the time the trigger resolves.
+    if (effect.what.t === "self") {
+      for (const owner of Object.values(state.players)) {
+        const at = owner.graveyard.findIndex((c) => c.iid === ctx.sourceId);
+        if (at < 0) continue;
+        const [card] = owner.graveyard.splice(at, 1);
+        state.players[card.owner].library.unshift(card);
+        say(`${getCard(state, card.defId).name} is put on top of its owner's library.`);
+        return;
+      }
+    }
     for (const s of subjectsOf(state, effect.what, ctx)) {
       if (s.k !== "perm") continue;
       const card = removeFromBattlefield(state, s.perm, s.owner);

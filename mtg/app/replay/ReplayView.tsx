@@ -56,7 +56,8 @@ function Viewer({ replay }: { replay: Replay }) {
   const built = useMemo(() => buildSteps(replay), [replay]);
   const steps = built.steps;
   const [at, setAt] = useState(0);
-  const [playing, setPlaying] = useState(false);
+  // It starts playing by itself: the first move is only a table with nothing on it yet (the hands are dealt, the lands and spells come later), which looked like an empty page.
+  const [playing, setPlaying] = useState(true);
   const [speed, setSpeed] = useState(1);
   const [zoomed, setZoomed] = useState<CardDef | null>(null);
   const last = steps.length - 1;

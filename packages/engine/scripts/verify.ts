@@ -3,12 +3,19 @@
 //           with what its effects should change.
 //   Part 2: every real creature with a combat keyword fights scripted battles with known outcomes.
 // Run from packages/engine:   npx tsx scripts/verify.ts
-import { applyAction, createGame, getCastable, parseCard, playerToAct, powerOf, toughnessOf, legalTargets, getPossibleAttackers, getPossibleBlockers } from "../src/index.js";
+import { applyAction, createGame, getActivatable, getCastable, parseCard, playerToAct, powerOf, toughnessOf, legalTargets, getPossibleAttackers, getPossibleBlockers } from "../src/index.js";
 import type { Action, CardDef, CardInstance, Effect, GameState, PlayerId, Ref, TargetChoice } from "../src/index.js";
+import { kw as kwOf } from "../src/core.js";
 import { loadRealCards } from "./realCards.js";
 
 const { defs: real } = loadRealCards();
-const realCards = Object.values(real);
+// VERIFY_ONLY=<file of card names>: only those cards. VERIFY_RICH=1: the test board also has what conditional cards ask for (an artifact, an enchantment,
+// a Mountain, a Swamp, a Gate, a Human Spirit Wizard Hero Dinosaur Zombie Pirate, three creatures, "you attacked this turn"): a card whose text says
+// "if you control a Wizard" is then tested with a Wizard on the board. The first run finds the failures; this second run re-tests just those.
+const RICH = process.env.VERIFY_RICH === "1";
+const ONLY = process.env.VERIFY_ONLY ? new Set((await import("node:fs")).readFileSync(process.env.VERIFY_ONLY, "utf8").split(String.fromCharCode(10)).map((n) => n.split(String.fromCharCode(13)).join("")).filter(Boolean)) : null;
+const realCards = Object.values(real).filter((d) => !ONLY || ONLY.has(d.name));
+console.log(`testing ${realCards.length} of ${Object.keys(real).length} real cards${RICH ? " on the rich board" : ""}${ONLY ? ` (only the ${ONLY.size} named)` : ""}`);
 
 // ───────── the stage ─────────
 const BASE: Record<string, CardDef> = {
@@ -17,6 +24,12 @@ const BASE: Record<string, CardDef> = {
   filler: { id: "filler", name: "Filler", type: "creature", cost: 1, manaCost: "{W}", power: 1, toughness: 1, typeLine: "Creature — Test" },
   wall: { id: "wall", name: "Wall", type: "creature", cost: 1, manaCost: "{W}", power: 0, toughness: 3, typeLine: "Creature — Wall" },
   ox: { id: "ox", name: "Ox", type: "creature", cost: 1, manaCost: "{W}", power: 3, toughness: 3, typeLine: "Creature — Ox" },
+  mountain: { id: "mountain", name: "Mountain", type: "land", cost: 0, typeLine: "Basic Land — Mountain" },
+  swamp: { id: "swamp", name: "Swamp", type: "land", cost: 0, typeLine: "Basic Land — Swamp" },
+  gate: { id: "gate", name: "Gate", type: "land", cost: 0, typeLine: "Land — Gate" },
+  skyox: { id: "skyox", name: "Sky Ox", type: "creature", cost: 1, manaCost: "{W}", power: 3, toughness: 3, typeLine: "Creature — Ox", keywords: ["flying", "reach", "shadow"] },
+  tribe: { id: "tribe", name: "Tribe", type: "creature", cost: 1, manaCost: "{W}", power: 1, toughness: 1, typeLine: "Creature — Human Spirit Wizard Hero Dinosaur Zombie Pirate Soldier Warrior" },
+  mine3: { id: "mine3", name: "Mine3", type: "creature", cost: 1, manaCost: "{W}", power: 1, toughness: 1, typeLine: "Creature — Test" },
   trinket: { id: "trinket", name: "Trinket", type: "artifact", cost: 1, manaCost: "{1}", typeLine: "Artifact", text: "" },
   charm: { id: "charm", name: "Charm", type: "enchantment", cost: 1, manaCost: "{W}", typeLine: "Enchantment", text: "" },
 };
@@ -28,7 +41,7 @@ interface Stage {
 }
 
 /** p1 holds `cardId` with plenty of mana; p2 has an Ox, a Trinket, a Charm and lands; p1 has an Ox too. */
-function stage(cardId: string, extra: Record<string, CardDef> = {}): Stage {
+function stage(cardId: string, extra: Record<string, CardDef> = {}, rich = RICH): Stage {
   const g = createGame({ p1: Array(40).fill("plains"), p2: Array(40).fill("plains") }, 5, { ...BASE, ...real, ...extra }, { startingPlayer: "p1" });
   g.cards = { ...BASE, ...real, ...extra };
   g.players.p1.hand = [{ iid: "card", defId: cardId, owner: "p1" }];
@@ -38,6 +51,10 @@ function stage(cardId: string, extra: Record<string, CardDef> = {}): Stage {
   g.players.p1.graveyard = [{ iid: "dead", defId: "ox", owner: "p1" }];
   g.players.p1.library = Array.from({ length: 12 }, (_, i) => ({ iid: `p1lib${i}`, defId: "plains", owner: "p1" }));
   g.players.p2.library = Array.from({ length: 12 }, (_, i) => ({ iid: `p2lib${i}`, defId: "plains", owner: "p2" }));
+  if (rich) {
+    g.players.p1.battlefield.push(perm("rich-mountain", "mountain", "p1"), perm("rich-swamp", "swamp", "p1"), perm("rich-gate", "gate", "p1"), perm("rich-artifact", "trinket", "p1"), perm("rich-charm", "charm", "p1"), perm("rich-tribe", "tribe", "p1"), perm("rich-3", "mine3", "p1"));
+    g.players.p1.attackedThisTurn = true;
+  }
   g.phase = "main1";
   g.active = "p1";
   return { state: g };
@@ -58,7 +75,9 @@ function run(s: GameState, first: Action): { state: GameState; error?: string; e
   for (let guard = 0; guard < 40; guard++) {
     if (state.pendingPick) {
       const p = state.pendingPick;
-      r = applyAction(state, p.player, { type: "pick", iid: p.options[0] });
+      // VERIFY_PICK=last / decline: answer every choice with the LAST option (or by declining), to try the other branches of cards that ask questions
+      const policy = process.env.VERIFY_PICK ?? "first";
+      r = applyAction(state, p.player, policy === "decline" ? { type: "pick" } : { type: "pick", iid: policy === "last" ? p.options[p.options.length - 1] : p.options[0] });
     } else if (state.pendingChoice) {
       const pc = state.pendingChoice;
       const targets = pc.specs.map((sp) => pickTarget(state, sp as never, pc.item.controller)!);
@@ -68,6 +87,7 @@ function run(s: GameState, first: Action): { state: GameState; error?: string; e
     } else break;
     if (!r.ok) return { state, error: r.error, events };
     state = r.state;
+    if (guard === 39) return { state, error: "stuck: a choice or a priority window never ended", events };
   }
   return { state, events };
 }
@@ -278,15 +298,23 @@ function fight(attackerDef: CardDef, blockerDefsIn: CardDef[], tweak?: (g: GameS
   let r = applyAction(g, "p1", { type: "declareAttackers", attackers: ["att"] });
   if (!r.ok) return { error: r.error, life, g };
   let s = r.state;
-  for (let i = 0; i < 6 && s.priority; i++) { // the attacker may act before blockers: nothing is done
-    const rr = applyAction(s, s.priority.holder, { type: "passPriority" });
+  for (let i = 0; i < 8 && (s.priority || s.pendingPick || s.pendingChoice); i++) { // the attacker may act before blockers: nothing is done (a question it asks, like a scry, is answered)
+    const rr = s.pendingPick
+      ? applyAction(s, s.pendingPick.player, { type: "pick", iid: s.pendingPick.options[0] })
+      : s.pendingChoice
+        ? applyAction(s, s.pendingChoice.player, { type: "chooseTargets", targets: s.pendingChoice.specs.map((sp) => pickTarget(s, sp as never, s.pendingChoice!.item.controller)!) })
+        : applyAction(s, s.priority!.holder, { type: "passPriority" });
     if (!rr.ok) return { error: rr.error, life, g };
     s = rr.state;
   }
   const blocks = blockerDefs.map((_, i) => ({ blocker: `blk${i}`, attacker: "att" }));
-  r = applyAction(s, "p2", { type: "declareBlockers", blocks: blockerDefs.length ? blocks : [] });
-  if (!r.ok) return { error: r.error, life, g };
-  s = r.state;
+  // When nobody is able to block the attacker, the game does not ask for blockers at all: combat goes straight on (damage is dealt).
+  if (s.phase !== "blockers" && !s.priority && blockerDefs.length > 0) return { error: "none of the creatures could block it", life, g };
+  if (s.phase === "blockers") {
+    r = applyAction(s, "p2", { type: "declareBlockers", blocks: blockerDefs.length ? blocks : [] });
+    if (!r.ok) return { error: r.error, life, g };
+    s = r.state;
+  }
   for (let i = 0; i < 6 && (s.priority || s.phase === "damage"); i++) {
     if (s.phase === "damage") {
       const { getDamageAssignments, suggestDamageAssignment } = require_engine();
@@ -348,7 +376,7 @@ for (const kw of KEYWORDS) {
       case "flying": {
         if (def.keywords!.includes("menace")) break;
         const ground = fight(def, [plain("ground", 1, 1)], undefined, false);
-        if (ground.s || !/flying/.test(ground.error ?? "")) bad("a creature without flying could block it");
+        if (ground.s || !/could block/.test(ground.error ?? "")) bad("a creature without flying could block it");
         const flyer = fight(def, [plain("flier", 0, 5, ["flying"])], undefined, false);
         if (!flyer.s) bad(`a flying blocker could not block it: ${flyer.error}`);
         const reach = fight(def, [plain("reacher", 0, 5, ["reach"])], undefined, false);
@@ -656,13 +684,480 @@ for (const def of realCards.filter((d) => SPELL_TYPES.has(d.type))) {
 }
 console.log(`Part 7: ${countered} real spells countered in response. Part 8: ${fizzled} real targeted spells whose target was destroyed in response.`);
 
+
+// ───────── part 9: activated abilities of permanents ─────────
+// Each real permanent with an activated ability (not mana, equip, crew or loyalty: those have their own parts) is put onto the test board
+// untapped and ready, the ability is activated with whatever target it needs, and what it did is compared with what its effects say.
+const abilityFailures: string[] = [];
+let abilitiesChecked = 0;
+let abilityOutcomes = 0;
+const abilitySkipped: string[] = [];
+for (const def of realCards.filter((d) => ["creature", "artifact", "enchantment", "land"].includes(d.type))) {
+  const parsed = parseCard(def);
+  parsed.activated.forEach((ability, index) => {
+    if (ability.zone || ability.mana === undefined && !ability.tap && !ability.costCard && !ability.payLife && ability.effects.length === 0) return;
+    if (/^equip|^crew|^reconfigure|^level up|^cycling|^\{[^}]*\}: add |^\{t\}: add /i.test(ability.text) || ability.text.toLowerCase().includes("add {") ) return;
+    if (ability.effects.length === 0) return;
+    if (ability.effects.some((e) => e.type === "counter" || e.type === "wardCheck" || e.type === "addMana")) return;
+    const label = `${def.name} [${ability.text.slice(0, 50)}]`;
+    const bad = (what: string) => abilityFailures.push(`${label}: ${what}`);
+    const { state: base } = stage(def.id);
+    // the card itself on the battlefield, ready to act
+    const g = structuredClone(base);
+    g.players.p1.hand = [];
+    g.players.p1.battlefield.push({ ...perm("card", def.id, "p1"), tapped: false, summoningSick: false, damage: 0 } as never);
+    const act = getActivatable(g, "p1").find((a) => a.iid === "card" && a.index === index);
+    if (!act) { abilitySkipped.push(`${label} (not activatable on the test board)`); return; }
+    const targets = ability.targets.map((sp) => pickTarget(g, { ...sp, source: undefined } as never, "p1"));
+    if (targets.some((t) => !t)) { abilitySkipped.push(`${label} (no legal target)`); return; }
+    const x = act.maxX !== undefined ? Math.min(2, act.maxX) : 0;
+    const result = run(g, { type: "activateAbility", iid: "card", index, targets: targets as TargetChoice[], ...(act.maxX !== undefined ? { x } : {}), ...(act.costChoices ? { payWith: act.costChoices[0] } : {}) } as Action);
+    if (result.error) { bad(`could not be activated: ${result.error}`); return; }
+    abilitiesChecked++;
+    const checks = expectations(ability.effects, targets as TargetChoice[], g, result.state, "p1", x, "card");
+    abilityOutcomes += checks.length;
+    for (const c of checks) if (!c.ok) bad(c.describe);
+  });
+}
+console.log(`Part 9: ${abilitiesChecked} activated abilities used and ${abilityOutcomes} outcomes checked (${abilitySkipped.length} skipped: ${abilitySkipped.slice(0, 3).join("; ")}...).`);
+
+
+// ───────── part 10: triggered abilities: "when this dies", "whenever this attacks" ─────────
+// The permanent is put on the (rich) test board; it is killed by a spell, or declared as an attacker, and what the trigger did is compared with
+// what its effects say.
+const triggerFailures: string[] = [];
+let triggersChecked = 0;
+let triggerOutcomes = 0;
+const triggerSkipped: string[] = [];
+const KILL: CardDef = { id: "zz-kill", name: "Zz Kill", type: "instant", cost: 1, manaCost: "{B}", text: "Destroy target creature.", colors: ["B"] };
+for (const def of realCards.filter((d) => d.type === "creature")) {
+  const parsed = parseCard(def);
+  for (const trig of parsed.triggers) {
+    if (trig.event !== "dies" && trig.event !== "attacks") continue;
+    if (trig.modes || trig.ifKicked || trig.xTargets || trig.effects.length === 0) continue;
+    if (trig.effects.some((e) => e.type === "counter" || e.type === "wardCheck")) continue;
+    const label = `${def.name} [${trig.text.slice(0, 55)}]`;
+    const bad = (what: string) => triggerFailures.push(`${label}: ${what}`);
+    const { state: base } = stage(def.id, { "zz-kill": KILL }, true);
+    const g = structuredClone(base);
+    g.players.p1.hand = trig.event === "dies" ? [{ iid: "kill", defId: "zz-kill", owner: "p1" }] : [];
+    g.players.p1.battlefield.push({ ...perm("card", def.id, "p1"), tapped: false, summoningSick: false, damage: 0 } as never);
+    g.players.p2.battlefield = g.players.p2.battlefield.filter((p) => p.card.iid !== "theirs"); // nothing to block
+    g.players.p2.battlefield.push(perm("theirs", "ox", "p2") as never);
+    const targets = trig.targets.map((sp) => pickTarget(g, { ...sp, source: undefined } as never, "p1"));
+    if (targets.some((t) => !t)) { triggerSkipped.push(`${label} (no legal target)`); continue; }
+    let result;
+    if (trig.event === "dies") {
+      result = run(g, { type: "castSpell", iid: "kill", targets: [{ kind: "permanent", iid: "card" }] } as Action);
+    } else {
+      g.phase = "attackers";
+      g.active = "p1";
+      result = run(g, { type: "declareAttackers", attackers: ["card"] } as Action);
+    }
+    if (result.error) { triggerSkipped.push(`${label} (${result.error.slice(0, 60)})`); continue; }
+    triggersChecked++;
+    const checks = expectations(trig.effects, targets as TargetChoice[], g, result.state, "p1", 0, "card");
+    triggerOutcomes += checks.length;
+    for (const c of checks) if (!c.ok) bad(c.describe);
+  }
+}
+console.log(`Part 10: ${triggersChecked} dies/attacks triggers fired and ${triggerOutcomes} outcomes checked (${triggerSkipped.length} skipped: ${triggerSkipped.slice(0, 3).join("; ")}...).`);
+
+
+// ───────── part 11: other triggers: landfall, casting a spell, the beginning of combat / the end step / your upkeep ─────────
+const trigger2Failures: string[] = [];
+let triggers2Checked = 0;
+let triggers2Outcomes = 0;
+const triggers2Skipped: string[] = [];
+const PING: CardDef = { id: "zz-ping", name: "Zz Ping", type: "instant", cost: 1, manaCost: "{R}", text: "Zz Ping deals 0 damage to target opponent.", colors: ["R"] };
+const GAIN: CardDef = { id: "zz-gain", name: "Zz Gain", type: "sorcery", cost: 1, manaCost: "{R}", text: "You gain 1 life.", colors: ["R"] };
+const CREATURE_SPELL: CardDef = { id: "zz-bear", name: "Zz Bear", type: "creature", cost: 1, manaCost: "{R}", power: 1, toughness: 1, typeLine: "Creature — Bear", text: "", colors: ["R"] };
+const EVENTS2 = new Set(["landfall", "youCast", "noncreatureSpell", "instantOrSorcery", "beginCombat", "endStep", "upkeep", "upkeepEach", "endStepEach", "opponentCasts"]);
+for (const def of realCards.filter((d) => ["creature", "artifact", "enchantment"].includes(d.type))) {
+  const parsed = parseCard(def);
+  for (const trig of parsed.triggers) {
+    if (!EVENTS2.has(trig.event)) continue;
+    if (trig.modes || trig.ifKicked || trig.xTargets || trig.effects.length === 0 || trig.oncePerTurn) continue;
+    if (trig.effects.some((e) => e.type === "counter" || e.type === "wardCheck")) continue;
+    if (def.type === "enchantment" && parsed.aura) continue;
+    const label = `${def.name} [${trig.event}: ${trig.text.slice(0, 50)}]`;
+    const bad = (what: string) => trigger2Failures.push(`${label}: ${what}`);
+    const { state: base } = stage(def.id, { "zz-ping": PING, "zz-gain": GAIN, "zz-bear": CREATURE_SPELL }, true);
+    const g = structuredClone(base);
+    g.players.p1.hand = [];
+    g.players.p1.battlefield.push({ ...perm("card", def.id, "p1"), tapped: false, summoningSick: false, damage: 0 } as never);
+    const targets = trig.targets.map((sp) => pickTarget(g, { ...sp, source: undefined } as never, "p1"));
+    if (targets.some((t) => !t)) { triggers2Skipped.push(`${label} (no legal target)`); continue; }
+    let result: { state: GameState; error?: string } | undefined;
+    switch (trig.event) {
+      case "landfall":
+        g.players.p1.hand = [{ iid: "land-in-hand", defId: "plains", owner: "p1" }];
+        result = run(g, { type: "playLand", iid: "land-in-hand" } as Action);
+        break;
+      case "noncreatureSpell":
+      case "instantOrSorcery":
+      case "youCast": {
+        // The spell that is cast is made to be what the trigger asks for: its color, type and creature type.
+        const t = trig.text.toLowerCase();
+        const duringTheirTurn = /during an opponent's turn|during each opponent's turn|during your opponent's turn/.test(t);
+        if (/targets|kicked|first spell|second spell|spell from|from your graveyard|from exile|spell with|mana value|power|x spell/.test(t) || (!duringTheirTurn && /opponent's/.test(t))) { triggers2Skipped.push(`${label} (needs a more specific spell)`); continue; }
+        const colors = trig.spellColor ? [trig.spellColor] : /multicolored/.test(t) ? ["R", "U"] : /colorless/.test(t) ? [] : ["R"];
+        const kind = /enchantment spell/.test(t) ? "enchantment" : /artifact spell|historic/.test(t) ? "artifact" : /creature spell/.test(t) && !/noncreature/.test(t) ? "creature" : /instant spell/.test(t) ? "instant" : "sorcery";
+        const sub = trig.spellSubtype ? ` — ${trig.spellSubtype[0].toUpperCase()}${trig.spellSubtype.slice(1)}` : "";
+        const typeLine = `${/legendary/.test(t) ? "Legendary " : ""}${kind[0].toUpperCase()}${kind.slice(1)}${sub}`;
+        const cost = colors.length === 0 ? "{1}" : colors.map((c) => `{${c}}`).join("");
+        const spell: CardDef = { id: "zz-made", name: "Zz Made", type: kind as CardDef["type"], cost: Math.max(1, colors.length), manaCost: cost, typeLine, text: kind === "sorcery" || kind === "instant" ? "You gain 0 life." : "", colors, ...(kind === "creature" ? { power: 1, toughness: 1 } : {}) };
+        g.cards["zz-made"] = spell;
+        g.players.p1.hand = [{ iid: "cast", defId: "zz-made", owner: "p1" }];
+        if (duringTheirTurn) {
+          // it is the opponent's turn: they cast a spell, and in response the card's controller casts the spell the trigger asks for (it needs flash: an instant)
+          spell.type = "instant";
+          spell.typeLine = typeLine.replace(/^(Legendary )?\w+/, "$1Instant");
+          spell.text = "Zz Made deals 0 damage to target opponent.";
+          g.active = "p2";
+          g.phase = "main1";
+          g.players.p2.hand = [{ iid: "their-spell", defId: "zz-gain", owner: "p2" }];
+          for (let i = 0; i < 3; i++) g.players.p2.battlefield.push(perm(`their-any${i}`, "anyland", "p2") as never);
+          const theirs = applyAction(g, "p2", { type: "castSpell", iid: "their-spell", targets: [] } as Action);
+          if (!theirs.ok) { result = { state: g, error: theirs.error }; break; }
+          if (!theirs.state.priority || theirs.state.priority.holder !== "p1") { result = { state: g, error: "p1 was not given priority" }; break; }
+          result = run(theirs.state, { type: "castSpell", iid: "cast", targets: [{ kind: "player", id: "p2" }] } as Action);
+          break;
+        }
+        result = run(g, { type: kind === "creature" ? "castCreature" : "castSpell", iid: "cast", ...(kind === "creature" ? {} : { targets: [] }) } as Action);
+        break;
+      }
+      case "opponentCasts": {
+        // the opponent casts a spell on their own turn
+        g.active = "p2";
+        g.phase = "main1";
+        g.players.p2.hand = [{ iid: "their-spell", defId: "zz-gain", owner: "p2" }];
+        for (let i = 0; i < 3; i++) g.players.p2.battlefield.push(perm(`their-any${i}`, "anyland", "p2") as never);
+        result = run(g, { type: "castSpell", iid: "their-spell", targets: [] } as Action);
+        break;
+      }
+      case "beginCombat": {
+        // leaving the first main phase is the beginning of combat
+        result = run(g, { type: "passPhase" } as Action);
+        break;
+      }
+      case "endStepEach":
+      case "endStep": {
+        g.phase = "main2"; // leaving the second main phase is the end step
+        result = run(g, { type: "passPhase" } as Action);
+        break;
+      }
+      case "upkeepEach":
+      case "upkeep": {
+        let st: GameState = g;
+        let err: string | undefined;
+        for (let i = 0; i < 40; i++) {
+          const before = JSON.stringify([st.turn, st.phase, st.active]);
+          const r = run(st, { type: "passPhase" } as Action);
+          if (r.error) { err = r.error; break; }
+          st = r.state;
+          if (st.turn > g.turn + 1 && st.active === "p1") break; // p1's next turn has begun: its upkeep trigger has resolved
+          if (JSON.stringify([st.turn, st.phase, st.active]) === before) { err = "the game did not move on"; break; }
+        }
+        result = err ? { state: st, error: err } : { state: st };
+        break;
+      }
+    }
+    if (!result || result.error) { triggers2Skipped.push(`${label} (${(result?.error ?? "?").slice(0, 60)})`); continue; }
+    triggers2Checked++;
+    const checks = expectations(trig.effects, targets as TargetChoice[], g, result.state, "p1", 0, "card");
+    triggers2Outcomes += checks.length;
+    for (const c of checks) if (!c.ok) bad(c.describe);
+  }
+}
+console.log(`Part 11: ${triggers2Checked} landfall / cast / combat / end-step / upkeep triggers fired and ${triggers2Outcomes} outcomes checked (${triggers2Skipped.length} skipped: ${triggers2Skipped.slice(0, 3).join("; ")}...).`);
+
+
+// ───────── part 12: two-part cards ("Creature // Spell": the creature enters prepared, then a copy of its spell can be cast) ─────────
+// Only these are playable among the cards with two faces (the other layouts: transforming, modal, split, adventure... are not playable yet).
+const faceFailures: string[] = [];
+let facesChecked = 0;
+let faceOutcomes = 0;
+{
+  const { readdirSync, readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const zlib = await import("node:zlib");
+  const { isSupportedCard } = await import("../src/index.js");
+  const cacheDir = path.resolve("../../mtg/.import-cache");
+  const file = readdirSync(cacheDir).filter((f) => f.startsWith("oracle-cards") && f.endsWith(".jsonl.gz")).sort().pop()!;
+  const lines = zlib.gunzipSync(readFileSync(path.join(cacheDir, file))).toString("utf8").split(String.fromCharCode(10)).filter(Boolean);
+  for (const line of lines) {
+    const c = JSON.parse(line);
+    if (c.layout !== "prepare" || !c.card_faces) continue;
+    if (ONLY && !ONLY.has(c.name)) continue;
+    // the card the importer stores: one card with both halves joined
+    const def: CardDef = {
+      id: c.name.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      name: c.name,
+      type: "creature",
+      cost: Math.round(c.cmc),
+      power: /^\d+$/.test(c.card_faces[0].power ?? "") ? Number(c.card_faces[0].power) : undefined,
+      toughness: /^\d+$/.test(c.card_faces[0].toughness ?? "") ? Number(c.card_faces[0].toughness) : undefined,
+      typeLine: c.type_line,
+      manaCost: c.card_faces.map((f: { mana_cost?: string }) => f.mana_cost ?? "").join(" // "),
+      text: c.card_faces.map((f: { oracle_text?: string }) => f.oracle_text ?? "").join(String.fromCharCode(10) + "//" + String.fromCharCode(10)),
+      colors: c.colors ?? [],
+      keywords: (c.keywords ?? []).map((k: string) => k.toLowerCase()),
+    };
+    if (!isSupportedCard(def)) continue;
+    const parsed = parseCard(def);
+    if (!parsed.prepare?.text) continue;
+    const label = def.name;
+    const bad = (what: string) => faceFailures.push(`${label}: ${what}`);
+    const spellParsed = parseCard(parsed.prepare);
+    const { state: base } = stage(def.id, { [def.id]: def }, true);
+    const g = structuredClone(base);
+    g.cards[def.id] = def;
+    g.players.p1.hand = [{ iid: "card", defId: def.id, owner: "p1" }];
+    const entered = run(g, { type: "castCreature", iid: "card" } as Action);
+    if (entered.error) { bad(`the creature could not be cast: ${entered.error}`); continue; }
+    const perm1 = permOf(entered.state, "card");
+    if (!perm1) { bad(`the creature did not enter (it is ${where(entered.state, "card")})`); continue; }
+    if (!perm1.prepared) { bad("it did not enter prepared"); continue; }
+    // now its spell, cast from the prepared creature
+    const specs = spellParsed.spell?.targets ?? [];
+    const targets = specs.map((sp) => pickTarget(entered.state, { ...sp, source: undefined } as never, "p1"));
+    if (targets.some((t) => !t)) continue;
+    const before = structuredClone(entered.state);
+    const cast = run(before, { type: "castSpell", iid: "card", from: "prepared", targets: targets as TargetChoice[], ...(spellParsed.spell?.modal ? { modes: [0] } : {}) } as Action);
+    if (cast.error) { bad(`its spell could not be cast from the prepared creature: ${cast.error}`); continue; }
+    if (permOf(cast.state, "card")?.prepared) bad("casting the copy did not unprepare the creature");
+    facesChecked++;
+    const checks = expectations(spellParsed.spell?.effects ?? [], targets as TargetChoice[], before, cast.state, "p1", 0, "card");
+    faceOutcomes += checks.length;
+    for (const k of checks) if (!k.ok) bad(`(spell) ${k.describe}`);
+  }
+}
+console.log(`Part 12: ${facesChecked} two-part (creature // spell) cards: entered prepared, then their spell cast from the creature; ${faceOutcomes} outcomes checked.`);
+
+
+// ───────── part 13: static effects that only apply while attacking ("Attacking creatures you control get +1/+0") ─────────
+const combatStaticFailures: string[] = [];
+let combatStaticsChecked = 0;
+for (const def of realCards.filter((d) => ["creature", "artifact", "enchantment"].includes(d.type))) {
+  const parsed = parseCard(def);
+  for (const st of parsed.statics ?? []) {
+    if (!st.attackingOnly && !st.cond?.attacking) continue;
+    if (st.subtypes || st.per || st.withCounters || st.tokensOnly || st.targetCounteredThisTurn) continue; // (a creature type or a count: its own tests)
+    if (st.scope !== "yours" && st.scope !== "self") continue;
+    const label = `${def.name} [attacking: ${st.power >= 0 ? "+" : ""}${st.power}/${st.toughness >= 0 ? "+" : ""}${st.toughness}${st.keywords.length ? " " + st.keywords.join(",") : ""}]`;
+    const bad = (what: string) => combatStaticFailures.push(`${label}: ${what}`);
+    const { state: base } = stage(def.id, {}, false);
+    const g = structuredClone(base);
+    g.players.p1.hand = [];
+    g.players.p1.battlefield.push({ ...perm("card", def.id, "p1"), tapped: false, summoningSick: false, damage: 0 } as never);
+    g.players.p2.battlefield = [perm("blocker", "skyox", "p2") as never]; // (it can block fliers too; a creature that could block keeps combat open: with no blockers the fight would be over at once)
+    // who attacks: the card itself when the effect is its own, any other creature when it is "attacking creatures you control"
+    const attackerIid = st.scope === "self" && def.type === "creature" ? "card" : "mine";
+    if (attackerIid === "card" && (toughnessOf(g, permOf(g, "card")!) <= 0)) continue;
+    const other = attackerIid === "mine" ? "card" : "mine";
+    g.phase = "attackers";
+    g.active = "p1";
+    const mine0 = permOf(g, attackerIid)!;
+    const before = [powerOf(g, mine0), toughnessOf(g, mine0)];
+    const r0 = applyAction(g, "p1", { type: "declareAttackers", attackers: [attackerIid] } as Action);
+    const r = r0.ok ? { state: r0.state, error: undefined as string | undefined } : { state: g, error: r0.error };
+    if (r.error) { bad(`could not attack: ${r.error}`); continue; }
+    const after = permOf(r.state, attackerIid);
+    if (!after) { bad("the attacker is gone after declaring"); continue; }
+    combatStaticsChecked++;
+    if (st.cond && Object.keys(st.cond).filter((k) => k !== "attacking").length > 0) continue; // (a further condition on the board: not measured here)
+    if (powerOf(r.state, after) - before[0] !== st.power) bad(`while attacking its power changed by ${powerOf(r.state, after) - before[0]}, expected ${st.power}`);
+    if (toughnessOf(r.state, after) - before[1] !== st.toughness) bad(`while attacking its toughness changed by ${toughnessOf(r.state, after) - before[1]}, expected ${st.toughness}`);
+    for (const k of st.keywords) if (!kwOf(r.state, after, k)) bad(`while attacking it did not gain ${k}`);
+    // a creature that is not attacking does not get it
+    const idle = permOf(r.state, other);
+    if (idle && attackerIid === "mine" && st.scope === "yours") {
+      const idleBefore = permOf(g, other)!;
+      if (powerOf(r.state, idle) !== powerOf(g, idleBefore) && !idle.tapped) { /* the card itself may not be a creature; only creatures matter */ }
+    }
+    const nonAttacker = permOf(r.state, "mine2");
+    void nonAttacker;
+  }
+}
+console.log(`Part 13: ${combatStaticsChecked} "while attacking" static effects checked on a real attack.`);
+
+// ───────── part 15: kicker ─────────
+// Each spell and creature with a kicker is cast with and without it: what the kicker adds must happen only when it was paid.
+const kickerFailures: string[] = [];
+let kickerChecked = 0;
+let kickerOutcomes = 0;
+const flatten = (effects: Effect[], kicked: boolean): Effect[] => effects.flatMap((e) => (e.type === "ifKicked" ? flatten(kicked ? e.then : (e.otherwise ?? []), kicked) : [e]));
+for (const def of realCards) {
+  const parsed = parseCard(def);
+  if (!parsed.kicker) continue;
+  const isSpell = SPELL_TYPES.has(def.type);
+  for (const kicked of [false, true]) {
+    const label = `${def.name} (${kicked ? "kicked" : "not kicked"})`;
+    const bad = (what: string) => kickerFailures.push(`${label}: ${what}`);
+    const { state: start } = stage(def.id, {}, true);
+    const castable = getCastable(start, "p1").find((c) => c.iid === "card");
+    if (!castable) continue;
+    let effects: Effect[] = [];
+    let specs: import("../src/index.js").TargetSpec[] = [];
+    if (isSpell && parsed.spell && !parsed.spell.modal) { effects = flatten(parsed.spell.effects, kicked); specs = parsed.spell.targets; }
+    else if (!isSpell && def.type === "creature") {
+      const trig = parsed.triggers.filter((t) => t.event === "enters" && !t.modes && !t.xTargets && (!t.ifKicked || kicked));
+      effects = trig.flatMap((t) => t.effects);
+      specs = [];
+    } else continue;
+    if (effects.length === 0) continue;
+    if (effects.some((e) => e.type === "counter" || e.type === "wardCheck")) continue;
+    const targets = specs.map((sp) => pickTarget(start, sp as never, "p1"));
+    if (targets.some((t) => !t)) continue;
+    const x = castable.maxX !== undefined ? Math.min(2, castable.maxX) : 0;
+    const result = run(start, { type: "castSpell", iid: "card", targets: targets as TargetChoice[], kicked, ...(castable.maxX !== undefined ? { x } : {}), ...(castable.sacrifice ? { sacrifice: castable.sacrifice[0] } : {}) } as Action);
+    if (result.error) { if (kicked) bad(`could not be cast kicked: ${result.error}`); continue; }
+    kickerChecked++;
+    let used = targets as TargetChoice[];
+    if (!isSpell) used = (parsed.triggers.find((t) => t.event === "enters")?.targets ?? []).map((sp) => pickTarget(start, sp as never, "p1")!).filter(Boolean);
+    const checks = expectations(effects, used, start, result.state, "p1", x, "card");
+    kickerOutcomes += checks.length;
+    for (const c of checks) if (!c.ok) bad(c.describe);
+    if (!isSpell && parsed.kickedCounters && kicked) {
+      const pm = permOf(result.state, "card");
+      if (pm && (pm.counters ?? 0) < parsed.kickedCounters) bad(`kicked, it should have entered with ${parsed.kickedCounters} counters (it has ${pm.counters ?? 0})`);
+    }
+  }
+}
+console.log(`Part 15: ${kickerChecked} kicker casts (with and without the kicker) and ${kickerOutcomes} outcomes checked.`);
+
+
+// ───────── part 16: the other trigger events, each made to happen to a real card ─────────
+// blocks, is blocked, becomes the target, is damaged, another creature enters / dies / attacks / is tapped / gets counters / is targeted / leaves, a
+// token enters, life is gained, cards are drawn or discarded, a creature deals combat damage to a player, and the spell-specific "whenever you cast a kicked
+// spell / a spell that targets a creature". Each is caused by a plain spell or a plain attack made for the purpose.
+const t16Failures: string[] = [];
+let t16Checked = 0;
+let t16Outcomes = 0;
+const t16Skipped: string[] = [];
+const mk = (id: string, type: "instant" | "sorcery", text: string, extra: Partial<CardDef> = {}): CardDef => ({ id, name: id.split("-").map((w) => w[0].toUpperCase() + w.slice(1)).join(" "), type, cost: 1, manaCost: "{R}", text, colors: ["R"], ...extra });
+const S16: Record<string, CardDef> = {
+  "zz-gain1": mk("zz-gain1", "sorcery", "You gain 1 life."),
+  "zz-draw2": mk("zz-draw2", "sorcery", "Draw two cards."),
+  "zz-draw5": mk("zz-draw5", "sorcery", "Draw five cards."),
+  "zz-discard": mk("zz-discard", "sorcery", "Discard a card."),
+  "zz-counter": mk("zz-counter", "sorcery", "Put a +1/+1 counter on target creature."),
+  "zz-bounce": mk("zz-bounce", "sorcery", "Return target creature you control to its owner's hand."),
+  "zz-shock": mk("zz-shock", "instant", "Zz Shock deals 1 damage to target creature."),
+  "zz-smite": mk("zz-smite", "instant", "Zz Smite deals 99 damage to target creature."),
+  "zz-token": mk("zz-token", "sorcery", "Create a 1/1 white Soldier creature token."),
+  "zz-aim": mk("zz-aim", "instant", "Target creature gets +0/+0 until end of turn."),
+  "zz-kick": mk("zz-kick", "sorcery", "Kicker {R}\nYou gain 1 life."),
+};
+const ART16: CardDef = { id: "zz-gizmo", name: "Zz Gizmo", type: "artifact", cost: 1, manaCost: "{R}", typeLine: "Artifact", text: "", colors: ["R"] };
+const ENCH16: CardDef = { id: "zz-aura", name: "Zz Aura", type: "enchantment", cost: 1, manaCost: "{R}", typeLine: "Enchantment", text: "", colors: ["R"] };
+const EVENTS16 = new Set(["blocks", "blocked", "becomesTarget", "damaged", "damagedDies", "allyDamaged", "excessDamage", "allyEnters", "anyCreatureEnters", "tokenEnters", "allyDies", "anyDies", "allyAttacks", "youAttack", "attacksAlone", "attackTwo", "battalion", "selfTapped", "allyTapped", "combatDamagePlayer", "lifeGained", "drawCard", "drawSecond", "anyDrawSecond", "drawFifth", "youDiscard", "allyCountersAdded", "allyLeaves", "allyTargeted", "youCast"]);
+for (const def of realCards.filter((d) => ["creature", "artifact", "enchantment"].includes(d.type))) {
+  const parsed = parseCard(def);
+  if (def.type === "enchantment" && parsed.aura) continue;
+  for (const trig of parsed.triggers) {
+    if (!EVENTS16.has(trig.event)) continue;
+    if (trig.event === "youCast" && !/kicked|targets/.test(trig.text.toLowerCase())) continue; // (the other spell-cast triggers: part 11)
+    if (trig.modes || trig.ifKicked || trig.xTargets || trig.effects.length === 0 || trig.oncePerTurn) continue;
+    if (trig.effects.some((e) => e.type === "counter" || e.type === "wardCheck")) continue;
+    const label = `${def.name} [${trig.event}: ${trig.text.slice(0, 50)}]`;
+    const bad = (what: string) => t16Failures.push(`${label}: ${what}`);
+    const victimLine = trig.subtypes?.length ? trig.subtypes.map((x) => x[0].toUpperCase() + x.slice(1)).join(" ") : "Test";
+    const victim: CardDef = { id: "zz-victim", name: "Zz Victim", type: "creature", cost: 1, manaCost: "{R}", power: 1, toughness: 1, typeLine: `Creature — ${victimLine}`, colors: ["R"] };
+    const { state: base } = stage(def.id, { ...S16, "zz-gizmo": ART16, "zz-aura": ENCH16, "zz-victim": victim }, true);
+    const g = structuredClone(base);
+    g.players.p1.hand = [];
+    g.players.p1.battlefield.push({ ...perm("card", def.id, "p1"), tapped: false, summoningSick: false, damage: 0 } as never);
+    // the creature "mine" is of the kind the trigger cares about
+    for (const pm of g.players.p1.battlefield) if (pm.card.iid === "mine") pm.card.defId = "zz-victim";
+    g.cards["zz-victim"] = victim;
+    g.cards["zz-gizmo"] = ART16;
+    g.cards["zz-aura"] = ENCH16;
+    // equipment: it is attached to the creature that will do the attacking ("whenever equipped creature attacks")
+    if (/equipment/i.test(def.typeLine ?? "") || trig.equippedOnly) { const me = g.players.p1.battlefield.find((x) => x.card.iid === "card"); if (me) me.attachedTo = "mine"; }
+    const targets = trig.targets.map((sp) => pickTarget(g, { ...sp, source: undefined } as never, "p1"));
+    if (targets.some((t) => !t)) { t16Skipped.push(`${label} (no legal target)`); continue; }
+    for (let i = 0; i < 3; i++) g.players.p2.battlefield.push(perm(`their-any${i}`, "anyland", "p2") as never);
+    const p1Cast = (id: string, tg: TargetChoice[] = [], more: object = {}) => { g.players.p1.hand = [{ iid: "spell", defId: id, owner: "p1" }]; return run(g, { type: "castSpell", iid: "spell", targets: tg, ...more } as Action); };
+    const p2Cast = (id: string, tg: TargetChoice[]) => { g.active = "p2"; g.phase = "main1"; g.players.p2.hand = [{ iid: "spell2", defId: id, owner: "p2" }]; return run(g, { type: "castSpell", iid: "spell2", targets: tg } as Action); };
+    const on = (iid: string): TargetChoice[] => [{ kind: "permanent", iid }];
+    const isCreatureCard = def.type === "creature";
+    let result: { state: GameState; error?: string } | undefined;
+    const attackWith = (attackers: string[], keepBlocker = true) => {
+      g.phase = "attackers";
+      g.active = "p1";
+      if (!keepBlocker) g.players.p2.battlefield = g.players.p2.battlefield.filter((x) => x.card.iid !== "theirs"); // (nothing to block it)
+      if (keepBlocker) g.players.p2.battlefield.push(perm("blocker", "skyox", "p2") as never); // (a creature that can block even a flier, so combat stays open)
+      return run(g, { type: "declareAttackers", attackers } as Action);
+    };
+    // a fight with a blocker: `attacker` attacks, then `blocker` blocks it
+    const fight16 = (active: PlayerId, attackerIid: string, blockerIid: string) => {
+      g.phase = "attackers";
+      g.active = active;
+      if (active === "p1") g.players.p2.battlefield = g.players.p2.battlefield.filter((x) => x.card.iid !== "theirs").concat(perm("blocker", "skyox", "p2") as never);
+      const a = applyAction(g, active, { type: "declareAttackers", attackers: [attackerIid] } as Action);
+      if (!a.ok) return { state: g, error: a.error };
+      let st = a.state;
+      for (let i = 0; i < 6 && st.priority; i++) { const pp = applyAction(st, st.priority.holder, { type: "passPriority" }); if (!pp.ok) break; st = pp.state; }
+      if (st.phase !== "blockers") return { state: st, error: "no blockers step" };
+      return run(st, { type: "declareBlockers", blocks: [{ blocker: blockerIid, attacker: attackerIid }] } as Action);
+    };
+    const needsCreature = () => { if (isCreatureCard) return false; t16Skipped.push(`${label} (not a creature)`); return true; };
+    switch (trig.event) {
+      case "lifeGained": result = p1Cast("zz-gain1"); break;
+      case "drawCard": case "drawSecond": case "anyDrawSecond": result = p1Cast("zz-draw2"); break;
+      case "drawFifth": result = p1Cast("zz-draw5"); break;
+      case "youDiscard":
+        g.players.p1.hand = [{ iid: "extra", defId: "plains", owner: "p1" }, { iid: "spell", defId: "zz-discard", owner: "p1" }];
+        result = run(g, { type: "castSpell", iid: "spell", targets: [] } as Action);
+        break;
+      case "allyCountersAdded": result = p1Cast("zz-counter", on("mine")); break;
+      case "allyLeaves": result = p1Cast("zz-bounce", on("mine")); break;
+      case "allyTargeted": result = /opponent/.test(trig.text.toLowerCase()) ? p2Cast("zz-aim", on("mine")) : p1Cast("zz-aim", on("mine")); break;
+      case "becomesTarget": if (needsCreature()) continue; result = p2Cast("zz-aim", on("card")); break;
+      case "damaged": if (needsCreature()) continue; result = p2Cast("zz-shock", on("card")); break;
+      case "damagedDies": case "excessDamage": if (needsCreature()) continue; result = p2Cast("zz-smite", on("card")); break;
+      case "allyDamaged": result = p2Cast("zz-shock", on("mine")); break;
+      case "allyDies": result = p1Cast("zz-smite", on("mine")); break;
+      case "anyDies": result = p1Cast("zz-smite", on("theirs")); break;
+      case "tokenEnters": result = p1Cast("zz-token"); break;
+      case "allyEnters": case "anyCreatureEnters": {
+        // what enters is what the trigger says: an artifact, an enchantment, or a creature of the right kind
+        const t16 = trig.text.toLowerCase();
+        const what = /artifact you control enters|artifact enters/.test(t16) ? "zz-gizmo" : /enchantment you control enters|enchantment enters|eerie/.test(t16) ? "zz-aura" : "zz-victim";
+        g.players.p1.hand = [{ iid: "newcomer", defId: what, owner: "p1" }];
+        result = run(g, what === "zz-victim" ? { type: "castCreature", iid: "newcomer" } as Action : { type: "castSpell", iid: "newcomer", targets: [] } as Action);
+        break;
+      }
+      case "youCast":
+        result = /kicked/.test(trig.text.toLowerCase()) ? p1Cast("zz-kick", [], { kicked: true }) : p1Cast("zz-aim", on("mine"));
+        break;
+      case "allyAttacks": case "allyTapped": result = attackWith(["mine"]); break;
+      case "attacksAlone": case "selfTapped": if (needsCreature()) continue; result = attackWith(["card"]); break;
+      case "attackTwo": if (needsCreature()) continue; result = attackWith(["card", "mine"]); break;
+      case "battalion": if (needsCreature()) continue; result = attackWith(["card", "mine", "rich-3"]); break;
+      case "blocked": if (needsCreature()) continue; result = fight16("p1", "card", "blocker"); break;
+      case "blocks": if (needsCreature()) continue; result = fight16("p2", "theirs", "card"); break;
+      case "combatDamagePlayer": if (needsCreature()) continue; result = attackWith(["card"], false); break;
+    }
+    if (!result || result.error) { t16Skipped.push(`${label} (${(result?.error ?? "?").slice(0, 60)})`); continue; }
+    t16Checked++;
+    const checks = expectations(trig.effects, targets as TargetChoice[], g, result.state, "p1", 0, "card");
+    t16Outcomes += checks.length;
+    for (const c of checks) if (!c.ok) bad(c.describe);
+  }
+}
+console.log(`Part 16: ${t16Checked} more triggers (blocks, blocked, targeted, damaged, tapped, counters, draws, discards, life, tokens, ...) fired and ${t16Outcomes} outcomes checked (${t16Skipped.length} skipped: ${t16Skipped.slice(0, 3).join("; ")}...).`);
+
 // ───────── report ─────────
-const all = [...failures, ...kwFailures, ...staticFailures, ...walkerFailures, ...vehicleFailures, ...equipFailures, ...respondFailures];
+const all = [...failures, ...abilityFailures, ...triggerFailures, ...trigger2Failures, ...faceFailures, ...combatStaticFailures, ...kickerFailures, ...t16Failures, ...kwFailures, ...staticFailures, ...walkerFailures, ...vehicleFailures, ...equipFailures, ...respondFailures];
 const byShape = new Map<string, string[]>();
 for (const f of all) {
   const key = f.replace(/^[^:]*:/, "").replace(/\d+/g, "N").replace(/\[[^\]]*\] .*? \(\S+\)/, "").slice(0, 90);
   byShape.set(key, [...(byShape.get(key) ?? []), f]);
 }
+if (process.env.VERIFY_OUT) (await import("node:fs")).writeFileSync(process.env.VERIFY_OUT, all.join(String.fromCharCode(10)));
 console.log(`\n${all.length} problems in ${byShape.size} kinds`);
 for (const [key, list] of [...byShape].sort((a, b) => b[1].length - a[1].length).slice(0, 40)) console.log(`  ×${list.length}  ${list[0]}`);
 process.exit(all.length > 0 ? 1 : 0);

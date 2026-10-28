@@ -442,6 +442,8 @@ export interface TriggeredAbility {
   /** "Whenever you cast a red spell" / "a Lesson spell": for "youCast", only a spell of this color (W U B R G) or of this subtype counts. */
   spellColor?: string;
   spellSubtype?: string;
+  /** "Whenever you cast a kicked spell": only when the spell was cast with its kicker paid. */
+  spellKicked?: boolean;
   /** "Whenever you cast a spell during an opponent's turn" / "your first spell during each opponent's turn". */
   opponentTurnOnly?: boolean;
   firstOnly?: boolean;

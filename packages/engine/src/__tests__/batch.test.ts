@@ -44,6 +44,12 @@ const DEFS: Record<string, CardDef> = {
   swamp: { id: "swamp", name: "Swamp", type: "land", cost: 0, typeLine: "Basic Land — Swamp" },
   // protections and counters
   hexed: creature("hexed", 2, 2, "Hexproof", ["hexproof"]),
+  xdrawer: creature("xdrawer", 1, 1, "When this creature enters, draw X cards.", [], { cost: 1, manaCost: "{X}{R}" }),
+  revenant: creature("revenant", 1, 1, "When this creature dies, put it on top of its owner's library."),
+  gizmoWatcher: creature("gizmoWatcher", 1, 1, "Whenever another artifact you control enters, put a +1/+1 counter on this creature."),
+  gizmo: { id: "gizmo", name: "Gizmo", type: "artifact", cost: 1, manaCost: "{R}", typeLine: "Artifact", text: "" } as CardDef,
+  kickWatcher: creature("kickWatcher", 1, 1, "Whenever you cast a kicked spell, you gain 2 life."),
+  kickme: spell("kickme", "Kick Me", "sorcery", "Kicker {R}\nYou gain 1 life."),
   warden: creature("warden", 3, 3, "Other untapped creatures you control have hexproof.", ["hexproof"]),
   zap: spell("zap", "Zap", "instant", "Zap deals 3 damage to any target."),
   ward: spell("ward", "Counterspell", "instant", "Counter target spell."),
@@ -220,6 +226,42 @@ test("hexproof: \"other untapped creatures you control have hexproof\" protects 
   find(g, "t1").tapped = true;
   const ok = applyAction({ ...g }, "p1", { type: "castSpell", iid: "h0", targets: on("t1") }); // tapped: no longer protected
   assert.equal(ok.ok, true);
+});
+
+test("an enter trigger that says X uses the X that was paid: \"When this creature enters, draw X cards\"", () => {
+  let g = setup(["xdrawer"], [], [], [], 6);
+  g.players.p1.library = Array.from({ length: 6 }, (_, i) => ({ iid: `lib${i}`, defId: "mountain", owner: "p1" }));
+  g = act(g, "p1", { type: "castSpell", iid: "h0", targets: [], x: 3 });
+  while (g.priority) g = act(g, g.priority.holder, { type: "passPriority" });
+  assert.equal(g.players.p1.hand.length, 3);
+  assert.equal(g.players.p1.library.length, 3);
+});
+
+test("\"When this creature dies, put it on top of its owner's library\": it leaves the graveyard for the top of the library", () => {
+  let g = setup(["zap"], [], ["revenant"]);
+  g.players.p2.library = [{ iid: "lib0", defId: "mountain", owner: "p2" }];
+  g = act(g, "p1", { type: "castSpell", iid: "h0", targets: on("t0") });
+  while (g.priority) g = act(g, g.priority.holder, { type: "passPriority" });
+  assert.equal(g.players.p2.graveyard.some((c) => c.iid === "t0"), false);
+  assert.equal(g.players.p2.library[0].iid, "t0");
+});
+
+test("\"whenever another artifact you control enters\" fires when an artifact (not a creature) enters", () => {
+  let g = setup(["gizmo"], ["gizmoWatcher"]);
+  g = act(g, "p1", { type: "castSpell", iid: "h0", targets: [] });
+  while (g.priority) g = act(g, g.priority.holder, { type: "passPriority" });
+  assert.equal(find(g, "m0").counters, 1);
+});
+
+test("\"whenever you cast a kicked spell\" fires only when the kicker was paid", () => {
+  let g = setup(["kickme"], ["kickWatcher"]);
+  g = act(g, "p1", { type: "castSpell", iid: "h0", targets: [], kicked: true });
+  while (g.priority) g = act(g, g.priority.holder, { type: "passPriority" });
+  assert.equal(g.players.p1.life, 20 + 1 + 2);
+  let h = setup(["kickme"], ["kickWatcher"]);
+  h = act(h, "p1", { type: "castSpell", iid: "h0", targets: [] });
+  while (h.priority) h = act(h, h.priority.holder, { type: "passPriority" });
+  assert.equal(h.players.p1.life, 20 + 1);
 });
 
 // ───────── counterspells and prowess ─────────

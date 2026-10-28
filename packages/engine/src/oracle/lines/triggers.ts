@@ -187,7 +187,7 @@ export function readCastKindSpell(line: string, out: ParsedCard): boolean {
   const ctx = newCtx(true);
   const effects = parseEffectText(m[2].replace(/^it /, "~ ").replace(/ on it$/, " on ~"), ctx);
   if (effects && effects.length > 0) {
-    out.triggers.push({ event: "youCast", effects, targets: ctx.targets, text: line, ...(color ? { spellColor: color } : { spellSubtype: m[1] }) });
+    out.triggers.push({ event: "youCast", effects, targets: ctx.targets, text: line, ...(color ? { spellColor: color } : m[1] === "kicked" ? { spellKicked: true } : { spellSubtype: m[1] }) });
     return true;
   }
   out.unsupported.push(line);
