@@ -27,6 +27,8 @@ export interface ManaCost {
   hybrid?: [ManaColor, ManaColor][];
   /** Phyrexian symbols like {G/P}: each is paid with that color, or with 2 life. */
   phyrexian?: ManaColor[];
+  /** How many of the Phyrexian symbols the player chose to pay with life even where mana could pay them. */
+  phyrexianLife?: number;
   /** Symbols like {2/W}: each is paid with that color, or with 2 generic mana. */
   twoOrColor?: ManaColor[];
 }
@@ -48,6 +50,12 @@ export function addCosts(a: ManaCost, b: ManaCost): ManaCost {
 /** The cost with X filled in: every {X} becomes `x` generic mana. */
 export function withX(cost: ManaCost, x: number): ManaCost {
   return { ...cost, generic: cost.generic + (cost.x ?? 0) * x, x: 0 };
+}
+
+/** The cost with `n` of its Phyrexian symbols paid with life, as the player chose. Null when it has fewer than `n`. */
+export function withPhyrexianLife(cost: ManaCost, n: number): ManaCost | null {
+  if (!Number.isInteger(n) || n < 0 || n > (cost.phyrexian ?? []).length) return null;
+  return n > 0 ? { ...cost, phyrexianLife: n } : cost;
 }
 
 /**
@@ -462,15 +470,18 @@ function paySources(state: GameState, player: PlayerId, cost: ManaCost, sources:
   for (let need = 0; need < needs.length; need++) {
     if (!place(need, new Set())) return { ok: false, missing: needs[need][0] };
   }
-  // Phyrexian and {2/W} symbols: paid with mana when that is possible, otherwise with life or two generic mana.
+  // Phyrexian and {2/W} symbols: paid with mana when that is possible (and the player didn't choose life), otherwise with life or two generic mana.
   let life = 0;
   let extraGeneric = 0;
+  let byMana = (cost.phyrexian ?? []).length - (cost.phyrexianLife ?? 0);
   for (const color of cost.phyrexian ?? []) {
     needs.push([color]);
-    if (!place(needs.length - 1, new Set())) {
-      needs.pop();
-      life += 2;
+    if (byMana > 0 && place(needs.length - 1, new Set())) {
+      byMana -= 1;
+      continue;
     }
+    needs.pop();
+    life += 2;
   }
   for (const color of cost.twoOrColor ?? []) {
     needs.push([color]);

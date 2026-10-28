@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { cardNameAnywhere, paymentOf, preparedSpell } from "@/app/play/castInfo";
+import { cardNameAnywhere, paymentOf, phyrexianChoices, preparedSpell } from "@/app/play/castInfo";
 import { board, permanent } from "./fixtures";
 
 const castFirst = (g: ReturnType<typeof board>) => ({ type: "castCreature" as const, iid: g.players.p1.hand[0].iid });
@@ -25,6 +25,18 @@ test("keeping that creature untapped leaves the spell unpaid when nothing else m
 test("Phyrexian mana with no matching mana costs 2 life", () => {
   const g = board({ mine: [permanent("mountain", "p1")], hand: ["mutagen"] });
   assert.deepEqual(paymentOf(g, castFirst(g), "p1", []), { ok: true, life: 2, ask: [] });
+});
+
+test("Phyrexian mana with the mana to pay it: the player chooses mana or 2 life", () => {
+  const g = board({ mine: [permanent("forest", "p1")], hand: ["mutagen"] });
+  const cast = { type: "castSpell" as const, iid: g.players.p1.hand[0].iid, targets: [] };
+  const choices = phyrexianChoices(g, cast, "p1", []);
+  assert.deepEqual(choices.map((c) => [c.life, c.mana]), [[0, "{G}"], [2, ""]]);
+  assert.deepEqual(paymentOf(g, choices[1].action, "p1", []), { ok: true, life: 2, ask: [] });
+  assert.deepEqual(phyrexianChoices(g, choices[1].action, "p1", []), [], "already chosen");
+
+  const noGreen = board({ mine: [permanent("mountain", "p1")], hand: ["mutagen"] });
+  assert.deepEqual(phyrexianChoices(noGreen, { ...cast, iid: noGreen.players.p1.hand[0].iid }, "p1", []), [], "only life can pay it");
 });
 
 test("actions that cost nothing are always paid", () => {

@@ -25,7 +25,7 @@ import {
   tapPerm,
 } from "../core.js";
 import type { CardFilter, TargetChoice, TargetSpec } from "../effects.js";
-import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payForAbility, payMana, withX } from "../mana.js";
+import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payForAbility, payMana, withPhyrexianLife, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
@@ -76,7 +76,7 @@ export const liftedSpecs = (specs: TargetSpec[]): TargetSpec[] => specs.map((s) 
 /** Untapped creatures that could be tapped to pay teamwork (summoning-sick ones too: it is not a {T} cost). */
 export const teamworkers = (state: GameState, player: PlayerId) => state.players[player].battlefield.filter((p) => !p.tapped && isCreature(state, p));
 
-export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false, teamwork?: string[]): string | null {
+export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false, teamwork?: string[], phyrexianLife = 0): string | null {
   const me = state.players[player];
   // A prepared creature: a copy of its spell is cast (`iid` is the creature).
   const prepared = from === "prepared" ? me.battlefield.find((p) => p.card.iid === iid && p.prepared) : undefined;
@@ -172,8 +172,10 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   }
   const taxed = tax > 0 ? { ...cost, generic: cost.generic + tax } : cost;
   const extra = [kicked ? kickerCost : null, payInstead].filter((c): c is NonNullable<typeof c> => c !== null);
+  const full = withPhyrexianLife(withX(extra.reduce(addCosts, taxed), x), phyrexianLife);
+  if (!full) return `${def.name} doesn't have that many Phyrexian mana symbols to pay with life.`;
   for (const p of teamed) tapPerm(state, p, player); // paid as part of the cost, before the mana (they can't also be tapped for mana)
-  const paid = payMana(state, player, withX(extra.reduce(addCosts, taxed), x), def);
+  const paid = payMana(state, player, full, def);
   if (!paid.ok) {
     const price = warp ? `warp ${parsed.warp}` : from === "graveyard" && !fromYard ? `flashback ${parsed.flashback}` : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "") + (payInstead ? ` + ${parsed.extraSacrificeOrPay}` : "");
     return paid.missing === "life"
@@ -269,7 +271,7 @@ export function costChoices(state: GameState, player: PlayerId, ability: { costC
     .map((p) => p.card.iid);
 }
 
-export function activateAbility(state: GameState, player: PlayerId, iid: string, index: number, targets: TargetChoice[], events: GameEvent[], payWith?: string, chosenX?: number): string | null {
+export function activateAbility(state: GameState, player: PlayerId, iid: string, index: number, targets: TargetChoice[], events: GameEvent[], payWith?: string, chosenX?: number, phyrexianLife = 0): string | null {
   const onBoard = findPermanentOrNull(state, iid);
   // A card in the hand or graveyard can have an ability that works from there.
   const zoneCard = onBoard ? undefined : [...state.players[player].hand, ...state.players[player].graveyard].find((c) => c.iid === iid);
@@ -313,7 +315,9 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     if (!cost) return `${def.name}'s ability can't be used yet.`;
     // "{X}{R}, {T}, Sacrifice ~: It deals X damage": the player chooses X, and pays that much more.
     const x = cost.x ? Math.max(0, Math.floor(chosenX ?? 0)) : 0;
-    const paid = payForAbility(state, player, cost.x ? withX(cost, x) : cost, def, onBoard ? iid : undefined);
+    const full = withPhyrexianLife(cost.x ? withX(cost, x) : cost, phyrexianLife);
+    if (!full) return `${def.name}'s ability doesn't have that many Phyrexian mana symbols to pay with life.`;
+    const paid = payForAbility(state, player, full, def, onBoard ? iid : undefined);
     if (!paid.ok) return `Not enough mana for ${def.name}'s ability (${ability.mana}${cost.x ? ` with X = ${x}` : ""}).`;
     paidX = cost.x ? x : undefined;
     applyPayment(state, player, paid, events);

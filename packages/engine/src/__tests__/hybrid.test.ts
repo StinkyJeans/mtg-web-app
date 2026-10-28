@@ -76,6 +76,21 @@ test("three Phyrexian symbols cost 6 life with no black mana", () => {
   assert.ok(g.players.p1.battlefield.some((p) => p.card.iid === "h0"));
 });
 
+test("the player may pay life for Phyrexian mana even with the mana to pay it", () => {
+  const swamps = ["swamp", "swamp", "swamp"];
+  let g = setup(swamps, ["fiend"]);
+  g = act(g, "p1", { type: "castSpell", iid: "h0", targets: [], phyrexianLife: 2 });
+  assert.equal(g.players.p1.life, 16);
+  assert.equal(g.players.p1.battlefield.filter((p) => p.tapped).length, 1, "a Swamp pays the third symbol");
+
+  let h = setup(["swamp"], ["fiend"]);
+  h = act(h, "p1", { type: "castSpell", iid: "h0", targets: [], phyrexianLife: 1 });
+  assert.equal(h.players.p1.life, 16, "a symbol with no mana to pay it still costs life");
+
+  const r = applyAction(setup(swamps, ["fiend"]), "p1", { type: "castSpell", iid: "h0", targets: [], phyrexianLife: 4 });
+  assert.equal(r.ok, false, "it has only three");
+});
+
 test("{2/W} is paid with white mana or with two generic mana", () => {
   const g = setup(["plains", "mountain", "mountain", "mountain"], []);
   // {2/W}{2/W}: one paid with the Plains, the other with two Mountains

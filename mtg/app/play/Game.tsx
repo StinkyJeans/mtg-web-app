@@ -60,13 +60,14 @@ import { Battlefield, Side } from "./Board";
 import type { LaneContext } from "./Board";
 import CastPlanPanels from "./CastPlanPanels";
 import { splitAbility } from "./abilityText";
-import { cardNameAnywhere, paymentOf, preparedSpell } from "./castInfo";
+import { cardNameAnywhere, paymentOf, phyrexianChoices, preparedSpell } from "./castInfo";
 import type { CastPlan } from "./castInfo";
 import { AttackTargetsPanel, DamagePanel } from "./CombatPanels";
 import CommandBar, { primaryAction } from "./CommandBar";
 import HandRow from "./HandRow";
 import HotSeatSetup, { useHotSeatDecks } from "./HotSeatSetup";
 import type { DeckPair } from "./HotSeatSetup";
+import { ManaText } from "./ManaSymbols";
 import { KeepRandomDecks } from "./SaveDeck";
 import type { PlayedDeck } from "./SaveDeck";
 import StepBanner from "./StepBanner";
@@ -75,6 +76,13 @@ import { useBattleFullscreen, useFullscreen } from "./useBattleFullscreen";
 import { useOnlineMatch } from "./useOnlineMatch";
 
 const newSeed = () => Date.now() % 2_147_483_647;
+
+/** One way to pay Phyrexian mana: "Pay with mana: {B}{B}", "Pay 2 life and {B}", "Pay 4 life". */
+function phyrexianLabel(choice: { life: number; mana: string }): React.ReactNode {
+  if (choice.life === 0) return <>Pay with mana: <ManaText text={choice.mana} /></>;
+  if (!choice.mana) return `Pay ${choice.life} life`;
+  return <>Pay {choice.life} life and <ManaText text={choice.mana} /></>;
+}
 
 /** Width of the big card shown while the mouse is over a card in hand. */
 /** How long "Your turn" stays on screen; matches the turn-splash animation in globals.css. */
@@ -178,7 +186,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [history, setHistory] = useState<Announcement[]>([]); // everything cast or used, kept for the turn
   const [announcements, setAnnouncements] = useState<Announcement[]>([]); // "Player 1 cast ...", shown on the caster's side
   const [revealing, setRevealing] = useState<{ items: Announcement[]; cards: Record<string, CardDef> } | null>(null); // online: the opponent's play, shown before the board changes
-  const [lifeConfirm, setLifeConfirm] = useState<{ text: string; options: { label: string; go: () => void }[] } | null>(null); // "this costs life / taps a creature: do it?"
+  const [lifeConfirm, setLifeConfirm] = useState<{ text: string; options: { label: React.ReactNode; go: () => void }[] } | null>(null); // "this costs life / taps a creature: do it?"
   const [xValue, setXValue] = useState(0);
   const [abilityX, setAbilityX] = useState<{ a: Activatable; payWith?: string } | null>(null); // an ability with {X} in its cost, waiting for the player's X
   const [attackTargets, setAttackTargets] = useState<Record<string, string>>({}); // attacker iid -> planeswalker iid
@@ -336,7 +344,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
   /**
    * Applies an action for `as` (the player to act, unless someone resigns out of turn). Before it is applied the player is asked about
-   * anything they might not want: life paid for Phyrexian mana, and creatures tapped for mana (which could attack or block instead).
+   * anything they might not want: life paid for Phyrexian mana (or mana, when they could pay life instead), and creatures tapped for mana
+   * (which could attack or block instead).
    */
   async function act(action: Action, as: PlayerId = actor, opts: { life?: boolean; mana?: boolean; pointless?: boolean; spare?: string[] } = {}) {
     if (watching || isCombatPlaying() || isPileBusy() || isRevealing()) return; // a watcher can't act; and ignore clicks while something is being animated
@@ -345,6 +354,14 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     if (!pay.ok && spare.length > 0) {
       setLifeConfirm(null);
       setError("There is not enough mana without using that card.");
+      return;
+    }
+    const lifeOrMana = phyrexianChoices(state, action, as, spare);
+    if (lifeOrMana.length > 0 && (action.type === "castSpell" || action.type === "activateAbility")) {
+      setLifeConfirm({
+        text: `${cardNameAnywhere(state, action.iid)}: pay its Phyrexian mana with mana, or with 2 life for each symbol? You are at ${state.players[as].life} life.`,
+        options: lifeOrMana.map((c) => ({ label: phyrexianLabel(c), go: () => act(c.action, as, c.life > 0 ? { ...opts, life: true } : opts) })),
+      });
       return;
     }
     const nameOfIid = (iid: string) => {
