@@ -130,3 +130,22 @@ test("the bot doesn't respond when its only answer would hurt itself", () => {
   const { g } = zapped("zap"); // its own Zap could only hit its own Bear
   assert.deepEqual(bot(g, "p1"), { type: "passPriority" });
 });
+
+test("the bot keeps a pump spell for combat, and casts it once the blockers are known", () => {
+  const bear = perm("bear", "p1");
+  const theirs = perm("bear", "p2");
+  let g = setup([bear, ...lands("p1", 1)], [theirs]);
+  const brace = card("brace", "p1");
+  g.players.p1.hand = [brace];
+  assert.notEqual(bot(g, "p1")?.type, "castSpell", "not in the main phase");
+
+  g.phase = "attackers";
+  g = act(g, "p1", { type: "declareAttackers", attackers: [bear.card.iid] });
+  assert.equal(playerToAct(g), "p1");
+  assert.deepEqual(bot(g, "p1"), { type: "passPriority" }, "not before blocks");
+
+  g = settle(g);
+  g = act(g, "p2", { type: "declareBlockers", blocks: [{ blocker: theirs.card.iid, attacker: bear.card.iid }] });
+  assert.equal(playerToAct(g), "p1");
+  assert.deepEqual(bot(g, "p1"), { type: "castSpell", iid: brace.iid, targets: [{ kind: "permanent", iid: bear.card.iid }] }, "its Bear wins the fight");
+});

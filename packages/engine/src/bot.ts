@@ -5,7 +5,7 @@ import { legalTargets, playerToAct, powerOf, staticEffectsOn, toughnessOf } from
 import { hasKeyword } from "./keywords.js";
 import type { Keyword } from "./keywords.js";
 import { parseCard } from "./oracle.js";
-import type { TargetChoice, TargetSpec } from "./effects.js";
+import type { Effect, TargetChoice, TargetSpec } from "./effects.js";
 import type { GameState, Permanent, PlayerId } from "./types.js";
 
 /**
@@ -121,6 +121,52 @@ function exposure(s: GameState, me: PlayerId): number {
   const damage = theirs.slice(blockers).reduce((a, b) => a + b, 0);
   if (damage >= life) return 400;
   return Math.max(0, damage - life * 0.35) * 0.9;
+}
+
+/** The position once this turn's "until end of turn" effects have worn off: what a combat trick really changed. */
+function lasting(s: GameState): GameState {
+  const strip = (p: Permanent): Permanent => ({ ...p, powerBonus: 0, toughnessBonus: 0, tempKeywords: [], tempBase: undefined, crewed: false });
+  return { ...s, players: { p1: { ...s.players.p1, battlefield: s.players.p1.battlefield.map(strip) }, p2: { ...s.players.p2, battlefield: s.players.p2.battlefield.map(strip) } } };
+}
+
+// ───────── combat tricks ─────────
+const branches = (e: Effect): Effect[] => (e.type === "ifKicked" || e.type === "ifNow" ? [...e.then, ...(e.otherwise ?? [])] : [e]);
+
+/** Help for a creature that wears off at end of turn ("gets +2/+2 and gains hexproof", "becomes a 1/1 artifact creature"). */
+const boost = (e: Effect): boolean =>
+  e.type === "ifKicked" || e.type === "ifNow"
+    ? branches(e).every(boost)
+    : (e.type === "pump" && e.power >= 0 && e.toughness >= 0) || e.type === "grant" || e.type === "untargetable" || e.type === "becomeCreatureNow" || e.type === "setBase";
+
+/** A boost that has to come before combat to matter: haste to attack, or a land that becomes a creature to attack with. */
+const enablesAttack = (e: Effect): boolean => branches(e).some((b) => (b.type === "grant" && b.keyword === "haste") || b.type === "becomeCreatureNow");
+
+/** A spell or ability that only boosts a creature until end of turn, and whether it can be used at instant speed. */
+function boostOf(s: GameState, me: PlayerId, action: Action): { effects: Effect[]; instant: boolean } | null {
+  const pl = s.players[me];
+  if (action.type === "castSpell" && !action.modes) {
+    const card = [...pl.hand, ...pl.graveyard, ...pl.exile].find((c) => c.iid === action.iid);
+    const def = card ? s.cards[card.defId] : undefined;
+    const effects = def ? parseCard(def).spell?.effects : undefined;
+    return def && effects?.length && effects.every(boost) ? { effects, instant: def.type === "instant" || hasKeyword(def, "flash") } : null;
+  }
+  if (action.type === "activateAbility") {
+    const perm = find(s, action.iid);
+    const ability = perm ? parseCard(defOf(s, perm)).activated[action.index] : undefined;
+    return ability?.effects.length && ability.effects.every(boost) ? { effects: ability.effects, instant: !ability.sorceryOnly } : null;
+  }
+  return null;
+}
+
+/**
+ * Held for combat: a boost that can wait is cast once the blockers are known, so it isn't used in a main phase, nor before blocks.
+ * After combat (the second main phase) no boost is worth anything this turn.
+ */
+function heldForCombat(s: GameState, me: PlayerId, action: Action): boolean {
+  const b = boostOf(s, me, action);
+  if (!b) return false;
+  if (s.phase === "main2") return true;
+  return b.instant && !b.effects.some(enablesAttack);
 }
 
 // ───────── fights ─────────
@@ -483,6 +529,7 @@ function chooseMain(s: GameState, me: PlayerId): Action {
   let best: { action: Action; gain: number } | null = null;
   for (const action of candidates(s, me)) {
     if (best && timeUp()) break;
+    if (heldForCombat(s, me, action)) continue;
     const end = after(s, me, action);
     if (!end) continue;
     const gain = evaluate(end, me) - base - (action.type === "loyalty" ? -0.5 : 0);
@@ -544,14 +591,19 @@ function chooseResponse(s: GameState, me: PlayerId): Action {
   const t0 = s.turn;
   // play the rest of this combat (or just the stack) out
   const stop = (st: GameState) => st.turn !== t0 || (quiet(st) && !st.combat) || (quiet(st) && !["blockers", "damage"].includes(st.phase) && st.phase !== "attackers");
+  // Scored once the boosts have worn off: a trick is worth the damage it added, the creature it saved or the one it killed.
+  const score = (st: GameState) => evaluate(lasting(st), me);
   const baseAfter = applyAction(s, me, pass);
-  const base = baseAfter.ok ? evaluate(rollout(baseAfter.state, stop), me) : evaluate(s, me);
+  const base = baseAfter.ok ? score(rollout(baseAfter.state, stop)) : score(s);
+  // The attackers are declared but not the blockers yet: a trick waits until it is known who blocks whom, unless it answers the opponent (a removal spell).
+  const beforeBlocks = s.priority?.then === "afterAttackers" && s.stack.every((item) => item.controller === me);
   let best: { action: Action; gain: number } | null = null;
   for (const action of cands) {
     if (best && timeUp()) break;
+    if (beforeBlocks && boostOf(s, me, action)?.instant) continue;
     const r = applyAction(s, me, action);
     if (!r.ok) continue;
-    const gain = evaluate(rollout(r.state, stop), me) - base;
+    const gain = score(rollout(r.state, stop)) - base;
     if (!best || gain > best.gain) best = { action, gain };
   }
   return best && best.gain > 0.8 ? best.action : pass;
