@@ -220,6 +220,7 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
   const text = rawText
     .replace(/you may draw a card for each artifact you control\. if you do, each opponent draws a card/g, "@@armorwars@@")
     .replace(/(you may put an? [a-z]+ creature card with mana value \d+ or less from your hand onto the battlefield)\. if you don't, draw a card/g, "$1, else draw a card")
+    .replace(/remove a -1\/-1 counter from target creature\. if you do, you gain (\d+) life/g, "@@removeminus $1@@")
     .replace(/target player loses all poison counters\. ~ deals that much damage to that player/g, "@@poisonburn@@")
     .replace(/you may discard a card\. if you do, draw a card/g, "@@rummage@@")
     .replace(/you may discard a card\. if you do, draw two cards/g, "@@rummagedraw 2@@")

@@ -8,12 +8,33 @@ import type { TriggerCond } from "../abilities.js";
 // Triggered abilities. Each reader takes one line of a permanent's text and says whether it read it.
 
 // "Whenever you gain life, put a +1/+1 counter on this creature."
+/**
+ * "Whenever an Island an opponent controls becomes tapped, you may gain 1 life." (Thoughtleech)
+ * "Whenever an artifact an opponent controls becomes tapped or an opponent activates an artifact's ability without {T} in its activation cost, you gain 1 life." (Powerleech)
+ */
+export function readOpponentTapped(line: string, out: ParsedCard): boolean {
+  const both = /^whenever an artifact an opponent controls becomes tapped or an opponent activates an artifact's ability without \{t\} in its activation cost,? (.+)$/i.exec(line);
+  const one = /^whenever an? ([a-z]+) an opponent controls becomes tapped,? (.+)$/.exec(line);
+  const m = both ?? one;
+  if (!m) return false;
+  const ctx = newCtx(true);
+  const effects = parseEffectText((both ? m[1] : m[2]).replace(/^you may /, "you "), ctx);
+  if (!effects || effects.length === 0) {
+    out.unsupported.push(line);
+    return true;
+  }
+  const subtype = both ? "artifact" : m[1];
+  out.triggers.push({ event: "oppPermTapped", subtypes: [subtype], effects, targets: ctx.targets, text: line });
+  if (both) out.triggers.push({ event: "oppArtifactAbility", effects, targets: ctx.targets, text: line });
+  return true;
+}
+
 export function readLifeGainedTrigger(line: string, out: ParsedCard): boolean {
-  const gain = /^whenever you gain life,? (.+)$/.exec(line);
+  const gain = /^whenever you gain life( for the first time each turn)?,? (.+)$/.exec(line);
   if (gain) {
     const ctx = newCtx(true);
-    const effects = parseEffectText(gain[1].replace(/^it /, "~ ").replace(/ on it$/, " on ~"), ctx);
-    if (effects && effects.length > 0) out.triggers.push({ event: "lifeGained", effects, targets: ctx.targets, text: line });
+    const effects = parseEffectText(gain[2].replace(/^it /, "~ ").replace(/ on it$/, " on ~"), ctx);
+    if (effects && effects.length > 0) out.triggers.push({ event: "lifeGained", effects, targets: ctx.targets, text: line, ...(gain[1] ? { oncePerTurn: true } : {}) });
     else out.unsupported.push(line);
     return true;
   }
@@ -483,7 +504,7 @@ export function readSelfTrigger(line: string, out: ParsedCard): boolean {
 }
 
 export function readTrigger(line: string, out: ParsedCard): boolean {
-  const trigger = /^when(?:ever)? ~ (enters(?: the battlefield)?|dies|is put into a graveyard from the battlefield|attacks|blocks|becomes blocked|deals combat damage to a player),? (.+)$/.exec(line);
+  const trigger = /^(?:when(?:ever)?|as) ~ (enters(?: the battlefield)?|dies|is put into a graveyard from the battlefield|attacks|blocks|becomes blocked|deals combat damage to a player),? (.+)$/.exec(line);
   if (trigger) {
     const ctx = newCtx(true);
     const head = trigger[1];

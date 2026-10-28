@@ -1,6 +1,6 @@
 import type { ActivatedAbility, ParsedCard } from "../../effects.js";
 import { filterAbility, manaAbilityColors, manaAbilityUsesChosenColor, parseManaCost, restrictedMana } from "../../mana.js";
-import { toNumber } from "../words.js";
+import { COLOR_OF, toNumber } from "../words.js";
 import { newCtx } from "../targets.js";
 import { parseSacrificeFilter } from "../sentences.js";
 import { parseEffectText } from "../effectText.js";
@@ -153,6 +153,8 @@ export function readActivatedAbility(line: string, out: ParsedCard): boolean {
       body = body.replace(/\.?\s*activate only if there are (two|three|\d+) or more creature cards in your graveyard\.?$/, (_, n: string) => ((needYardCreatures = toNumber(n) ?? 2), ""));
       let needToughness = 0;
       body = body.replace(/\.?\s*activate only if you control a creature with toughness (\d+) or greater\.?$/, (_, n: string) => ((needToughness = Number(n)), ""));
+      let needColored: { color: string; n: number } | undefined;
+      body = body.replace(/\.?\s*activate only if you control (two|three|four|\d+) or more (white|blue|black|red|green) permanents\.?$/, (_, n: string, c: string) => ((needColored = { color: COLOR_OF[c], n: toNumber(n) ?? 2 }), ""));
       let yourTurnOnly = false;
       let lessPerLegendary = 0;
       body = body.replace(/\.?\s*this ability costs \{(\d+)\} less to activate for each legendary creature you control\.?$/, (_, n: string) => ((lessPerLegendary = Number(n)), ""));
@@ -162,7 +164,7 @@ export function readActivatedAbility(line: string, out: ParsedCard): boolean {
       // "{1}{B}: Return this card from your graveyard to the battlefield tapped.": the ability works from the graveyard.
       if (!zone && effects?.some((e) => e.type === "returnSelfToBattlefield" || e.type === "returnFromYard")) zone = "graveyard";
       if (effects && effects.length > 0) {
-        const ability: ActivatedAbility = { tap, mana, effects, targets: ctx.targets, text: line, ...(sorceryOnly ? { sorceryOnly } : {}), ...(oncePerTurn ? { oncePerTurn } : {}), ...(onceOnly ? { onceOnly } : {}), ...(yourTurnOnly ? { yourTurnOnly } : {}), ...(needYardCreatures ? { needYardCreatures } : {}), ...(needToughness ? { needToughness } : {}), ...(minLife !== undefined ? { minLife } : {}), ...(sacrifice ? { sacrifice } : {}), ...(zone ? { zone } : {}), ...(discardSelf ? { discardSelf } : {}), ...(exileSelf ? { exileSelf } : {}), ...(payLife ? { payLife } : {}), ...(costCard ? { costCard } : {}), ...(exileFromYard ? { exileFromYard } : {}), ...(tapTwoSharing ? { tapTwoSharing } : {}), ...(lessPerLegendary ? { lessPerLegendary } : {}) };
+        const ability: ActivatedAbility = { tap, mana, effects, targets: ctx.targets, text: line, ...(sorceryOnly ? { sorceryOnly } : {}), ...(needColored ? { needColored } : {}), ...(oncePerTurn ? { oncePerTurn } : {}), ...(onceOnly ? { onceOnly } : {}), ...(yourTurnOnly ? { yourTurnOnly } : {}), ...(needYardCreatures ? { needYardCreatures } : {}), ...(needToughness ? { needToughness } : {}), ...(minLife !== undefined ? { minLife } : {}), ...(sacrifice ? { sacrifice } : {}), ...(zone ? { zone } : {}), ...(discardSelf ? { discardSelf } : {}), ...(exileSelf ? { exileSelf } : {}), ...(payLife ? { payLife } : {}), ...(costCard ? { costCard } : {}), ...(exileFromYard ? { exileFromYard } : {}), ...(tapTwoSharing ? { tapTwoSharing } : {}), ...(lessPerLegendary ? { lessPerLegendary } : {}) };
         out.activated.push(ability);
         return true;
       }

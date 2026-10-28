@@ -1,8 +1,9 @@
-import { getCard } from "../../cards.js";
+import { CONJURED, getCard } from "../../cards.js";
+import { parseCard } from "../../oracle.js";
 import { OPPONENT } from "../../types.js";
 import type { Permanent, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isCreature, nameOf, playerLabel, powerOf, subtypesOf } from "../permanents.js";
-import { makeTokenCopy, putCounters, tapPerm } from "../zones.js";
+import { changeLife, makeTokenCopy, putCounters, tapPerm } from "../zones.js";
 import { subjectsOf } from "../targets.js";
 import { cardAnywhere, plural, noteTempSource, type EffectHandlers, type EffectOf, type EffectRun } from "./shared.js";
 
@@ -16,6 +17,44 @@ function tapOrUntapAll({ state, ctx }: EffectRun, effect: EffectOf<"tap" | "unta
 
 /** Changes to permanents: counters, power and toughness, keywords, tapping, control and what they are. */
 export const PERMANENT_EFFECTS = {
+  /** Woeleecher: takes a -1/-1 counter off, and only if one was there, the controller gains life. */
+  removeMinusCounter({ state, ctx, events, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm" || !(s.perm.minusCounters ?? 0)) continue;
+      s.perm.minusCounters = (s.perm.minusCounters ?? 0) - 1;
+      say(`A -1/-1 counter is removed from ${nameOf(state, s.perm)}.`);
+      if (effect.gain) changeLife(state, ctx.controller, effect.gain, events);
+    }
+  },
+  /** Leech Medic: a card that is not in any deck is made and put into the controller's hand. */
+  conjureCard({ state, ctx, say }, effect) {
+    const def = CONJURED[effect.card];
+    state.cards[def.id] ??= def;
+    state.players[ctx.controller].hand.push({ iid: `gen${state.nextId++}`, defId: def.id, owner: ctx.controller });
+    say(`${playerLabel(ctx.controller)} puts ${def.name} into their hand.`);
+  },
+  /** A creature with a spell beside it becomes prepared: a copy of the spell can be cast from it. */
+  becomePrepared({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      const prepare = parseCard(getCard(state, s.perm.card.defId)).prepare;
+      if (!prepare || s.perm.prepared) continue;
+      state.cards[prepare.id] ??= prepare;
+      s.perm.prepared = prepare.id;
+      say(`${nameOf(state, s.perm)} becomes prepared.`);
+    }
+  },
+  /** Blitz Leech: every counter on the creature goes. */
+  removeAllCounters({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm") continue;
+      s.perm.counters = 0;
+      s.perm.minusCounters = 0;
+      s.perm.kwCounters = undefined;
+      s.perm.stun = undefined;
+      say(`All counters are removed from ${nameOf(state, s.perm)}.`);
+    }
+  },
   putSavedCounters({ state, ctx, say }, effect) {
     const died = ctx.died;
     if (!died || (died.counters === 0 && died.minusCounters === 0)) return;

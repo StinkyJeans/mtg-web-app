@@ -51,6 +51,8 @@ const DEFS: Record<string, CardDef> = {
   kickWatcher: creature("kickWatcher", 1, 1, "Whenever you cast a kicked spell, you gain 2 life."),
   kickme: spell("kickme", "Kick Me", "sorcery", "Kicker {R}\nYou gain 1 life."),
   leeches: spell("leeches", "Leeches", "sorcery", "Target player loses all poison counters. Leeches deals that much damage to that player."),
+  rubyLeech: creature("rubyLeech", 1, 1, "Red spells you cast cost {R} more to cast."),
+  redBolt: spell("redBolt", "Red Bolt", "instant", "Red Bolt deals 3 damage to any target.", []),
   warden: creature("warden", 3, 3, "Other untapped creatures you control have hexproof.", ["hexproof"]),
   zap: spell("zap", "Zap", "instant", "Zap deals 3 damage to any target."),
   ward: spell("ward", "Counterspell", "instant", "Counter target spell."),
@@ -278,6 +280,14 @@ test("Leeches: the player loses all poison counters and takes that much damage",
   h = act(h, "p1", { type: "castSpell", iid: "h0", targets: [{ kind: "player", id: "p2" }] });
   while (h.priority) h = act(h, h.priority.holder, { type: "passPriority" });
   assert.equal(h.players.p2.life, 20);
+});
+
+test("\"Red spells you cast cost {R} more to cast\": a red spell needs one more red mana while the Leech is out", () => {
+  DEFS.redBolt.colors = ["R"];
+  const cast = (lands: number, leech: boolean) => applyAction(setup(["redBolt"], leech ? ["rubyLeech"] : [], [], [], lands), "p1", { type: "castSpell", iid: "h0", targets: [{ kind: "player", id: "p2" }] });
+  assert.equal(cast(1, false).ok, true); // {R}
+  assert.equal(cast(1, true).ok, false); // {R}{R}: one land is not enough
+  assert.equal(cast(2, true).ok, true);
 });
 
 // ───────── counterspells and prowess ─────────

@@ -3,7 +3,7 @@ import type { GameEvent } from "../actions.js";
 import type { StackItem, TokenSpec } from "../effects.js";
 import { parseCard } from "../oracle.js";
 import type { CardDef, CardInstance, GameState, Permanent, PlayerId } from "../types.js";
-import { findPermanentOrNull, isCreature, nameOf, newId, powerOf, subtypesOf } from "./permanents.js";
+import { findPermanentOrNull, isArtifactDef, isCreature, nameOf, newId, powerOf, subtypesOf } from "./permanents.js";
 import { creatureEntered, creatureMoved, queueTriggers } from "./triggers.js";
 
 // Life, drawing, counters, and cards leaving the battlefield or the stack.
@@ -312,6 +312,10 @@ export function tapPerm(state: GameState, perm: Permanent, controller: PlayerId)
   const first = !perm.tappedThisTurn;
   perm.tappedThisTurn = true;
   queueTriggers(state, perm.card, controller, "selfTapped");
+  // "Whenever an Island an opponent controls becomes tapped" (Thoughtleech), "an artifact an opponent controls" (Powerleech): the other player's permanents notice
+  const kinds = [...subtypesOf(state, perm), ...(isArtifactDef(getCard(state, perm.card.defId)) ? ["artifact"] : [])];
+  const against = controller === "p1" ? "p2" : "p1";
+  for (const watcher of state.players[against].battlefield) queueTriggers(state, watcher.card, against, "oppPermTapped", { subtypes: kinds });
   for (const host of state.players[controller].battlefield) if (host.attachedTo === perm.card.iid) queueTriggers(state, host.card, controller, "hostTapped", { other: perm.card.iid });
   if (isCreature(state, perm)) for (const other of state.players[controller].battlefield) queueTriggers(state, other.card, controller, "allyTapped", { other: perm.card.iid, firstTap: first, self: other === perm });
 }

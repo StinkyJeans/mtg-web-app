@@ -120,6 +120,10 @@ export type Effect =
   | { type: "exileGraveyard"; who: Ref } // "exile target player's graveyard"
   | { type: "upkeepDraw" } // "draw a card at the beginning of the next turn's upkeep"
   | { type: "poison"; who: Ref; amount: Amount } // "each opponent gets a poison counter"
+  | { type: "removeMinusCounter"; what: Ref; gain?: number } // Woeleecher: "remove a -1/-1 counter from target creature. If you do, you gain 2 life"
+  | { type: "conjureCard"; card: "leeches" } // Leech Medic: "create a Leeches token card and put it into your hand"
+  | { type: "becomePrepared"; what: Ref } // Leech Collector: "~ becomes prepared"
+  | { type: "removeAllCounters"; what: Ref } // Blitz Leech: "remove all counters from that creature"
   | { type: "poisonBurn"; who: Ref } // Leeches: "target player loses all poison counters. ~ deals that much damage to that player"
   | { type: "powerFromHand" } // until end of turn: this creature's base power is the number of cards in your hand
   | { type: "mayCost"; cost: "artifactOrCard" | "artifactOrNonland" | "otherCreature" | "otherCreatureOrArtifact" | "threeOtherNonland"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may sacrifice an artifact or discard a card. If you do, ..."
@@ -373,6 +377,8 @@ export type CountSpec =
   | { kind: "selfCounters" } // counters on it
   | { kind: "excessDamage" } // the excess of the damage the same spell or ability just dealt
   | { kind: "greatestMV"; what: "artifact" | "subtype"; subtype?: string } // the greatest mana value among the artifacts (or Elementals) you control
+  | { kind: "greatestMVYard" } // the greatest mana value among the cards in your graveyard
+  | { kind: "cavesAndYard" } // the Caves you control and the Cave cards in your graveyard
   | { kind: "discardedThisTurn" } // cards you've discarded this turn
   | { kind: "selfToughness" } // the toughness of the permanent the ability belongs to
   | { kind: "equipmentOnSelf" } // the Equipment attached to the permanent the ability belongs to
@@ -404,7 +410,7 @@ export interface TriggeredAbility {
   modes?: ModeSpec[];
   /** "When this enters, if it was kicked, ...": only triggers when it was cast kicked. */
   ifKicked?: boolean;
-  event: "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
+  event: "oppPermTapped" | "oppArtifactAbility" | "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
     | "youSacrifice" | "anySacrifice"
     | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
     | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted" | "youDiscard" | "excessDamage" | "damaged" | "anyDies" | "teamworkTap" | "attacksAlone" | "selfTapped" | "hostTapped" | "allyTapped" | "tokenEnters" | "yourAbilityTargets" | "anyDrawSecond" | "allyDamaged" | "hostUpkeep";
@@ -524,6 +530,8 @@ export interface ActivatedAbility {
   needYardCreatures?: number;
   /** "Activate only if you control a creature with toughness 4 or greater." */
   needToughness?: number;
+  /** "Activate only if you control two or more black permanents." */
+  needColored?: { color: string; n: number };
   /** "Activate only during your turn." */
   yourTurnOnly?: boolean;
   /** The ability works from the hand or the graveyard ("{1}{U}, discard this card: ..."), not from the battlefield. */
@@ -680,6 +688,8 @@ export interface ParsedCard {
   /** `ifTargetsColor`: "if it targets a blue spell" (the color's letter). */
   costReduction?: { n: number; ifYardCreatures?: number; ifTargetsAttacking?: boolean; ifControl?: string; ifFlyer?: boolean; perOpponentSpell?: boolean; per?: CountSpec; ifTargetsTapped?: boolean; ifTargetsColor?: string };
   /** Permanents that make your spells cost less: "Goblin spells you cast cost {1} less", "during turns other than yours...". */
+  /** "White spells you cast cost {W} more to cast" (the Leech cycle): one more mana of that color for each spell of that color the controller casts. */
+  spellTax?: { color: string; extra: string }[];
   costMods?: { n: number; subtype?: string; minMV?: number; otherTurn?: boolean; /** "...cost {X} less to cast, where X is ~'s power" */ nFromPower?: boolean; instantSorceryOnly?: boolean }[];
   /** "Spells you cast with mana value 5 or greater can't be countered." */
   uncounterableMinMV?: number;

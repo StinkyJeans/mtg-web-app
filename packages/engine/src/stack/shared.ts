@@ -142,13 +142,16 @@ export function levelLock(perm: { classLevel?: number }, ability: { levelUp?: nu
   return null;
 }
 
-export function abilityNeed(state: GameState, player: PlayerId, ability: { needYardCreatures?: number; needToughness?: number }): string | null {
+export function abilityNeed(state: GameState, player: PlayerId, ability: { needYardCreatures?: number; needToughness?: number; needColored?: { color: string; n: number } }): string | null {
   const me = state.players[player];
   if (ability.needYardCreatures !== undefined && me.graveyard.filter((c) => getCard(state, c.defId).type === "creature").length < ability.needYardCreatures) {
     return `it needs ${ability.needYardCreatures} creature cards in your graveyard`;
   }
   if (ability.needToughness !== undefined && !me.battlefield.some((p) => getCard(state, p.card.defId).type === "creature" && toughnessOf(state, p) >= ability.needToughness!)) {
     return `it needs a creature with toughness ${ability.needToughness} or greater`;
+  }
+  if (ability.needColored && me.battlefield.filter((p) => (getCard(state, p.card.defId).colors ?? []).includes(ability.needColored!.color)).length < ability.needColored.n) {
+    return `it needs ${ability.needColored.n} permanents of that color`;
   }
   return null;
 }

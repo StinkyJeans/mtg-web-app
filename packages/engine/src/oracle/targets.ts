@@ -164,6 +164,7 @@ export function refFor(phrase: string, ctx: Ctx): Ref | null {
       return { t: "self" };
     case "each opponent":
     case "your opponents":
+    case "defending player": // (a two-player game: the defender is the opponent)
       return { t: "opp" };
     case "each player":
       return { t: "eachPlayer" };

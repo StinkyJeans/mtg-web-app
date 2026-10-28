@@ -1,3 +1,4 @@
+import { liteMode } from "./perfTier";
 import { powerOf, toughnessOf } from "@mtg/engine";
 import type { CardDef, GameEvent, GameState, Permanent, PlayerId, TargetChoice } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
@@ -11,6 +12,7 @@ import { animationsEnabled } from "@/lib/motion";
 // never makes more than MAX_PIECES of them.
 
 const MAX_PIECES = 16; // per action
+const maxPieces = () => (liteMode() ? 10 : MAX_PIECES); // (a computer with little memory and a small graphics chip gets fewer)
 const MAX_ALIVE = 36; // on screen at once, over all actions
 const BEAM_MS = 420; // how long a beam takes from its source to its target
 
@@ -136,6 +138,7 @@ export function slash(b: Box, color: string, delay = 0) {
 
 /** Specks that fly out from a point and fade (a handful of small dots: a spark, not a particle system). */
 export function sparkBurst(c: { x: number; y: number }, color: string, n = 6, delay = 0, far = 46) {
+  if (liteMode()) n = Math.max(3, Math.ceil(n * 0.6));
   const turn = Math.random() * Math.PI;
   for (let i = 0; i < n; i++) {
     const a = turn + (i / n) * Math.PI * 2;
@@ -152,6 +155,7 @@ export function sparkBurst(c: { x: number; y: number }, color: string, n = 6, de
 
 /** Glints that drift up from a card or a life total and fade: something good happening to it. */
 export function riseSparkles(b: Box, color: string, n = 5, delay = 0) {
+  if (liteMode()) n = Math.max(2, Math.ceil(n * 0.6));
   for (let i = 0; i < n; i++) {
     const x = b.x + b.w * (0.15 + (0.7 * i) / Math.max(1, n - 1));
     const y = b.y + b.h * (0.55 + 0.25 * ((i * 3) % 2));
@@ -306,7 +310,7 @@ export async function playCasts(events: GameEvent[], after: GameState): Promise<
     for (const t of e.targets ?? []) {
       const id = aim(t);
       const to = id ? where(id) : null;
-      if (!to || jobs.length >= MAX_PIECES) continue;
+      if (!to || jobs.length >= maxPieces()) continue;
       jobs.push(() => beam(from, to, color, 0));
       if (landed++ < 3) jobs.push(() => (ring(to, color, BEAM_MS * 0.8, 1.3), sparkBurst(center(to), color, 6, BEAM_MS * 0.8))); // and breaks on what it hits
     }
@@ -323,7 +327,7 @@ export async function playCasts(events: GameEvent[], after: GameState): Promise<
 export function playEffects(before: GameState | null | undefined, after: GameState, events: GameEvent[]): void {
   if (typeof document === "undefined" || document.hidden || !animationsEnabled()) return;
   const jobs: (() => void)[] = []; // drawn after all the reading is done
-  const add = (job: () => void) => jobs.length < MAX_PIECES && jobs.push(job);
+  const add = (job: () => void) => jobs.length < maxPieces() && jobs.push(job);
   const hadCombat = events.some((e) => e.type === "combatDamage"); // the attack animation already shows combat hits and their numbers
 
   // Damage and life: the numbers (combat hits are the attack animation's job).

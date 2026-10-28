@@ -171,6 +171,11 @@ export function parseCard(def: CardDef): ParsedCard {
         result.costReduction = { n: Number(perCard[1]), per: parseCount(perCard[2].replace("card", "cards"))! };
         return false;
       }
+      const caves = /^~ costs \{(\d+)\} less to cast for each cave you control and each cave card in your graveyard\.?$/.exec(line);
+      if (caves) {
+        result.costReduction = { n: Number(caves[1]), per: { kind: "cavesAndYard" } };
+        return false;
+      }
       const yardDiscount = /^~ costs \{(\d+)\} less to cast if there are (two|three|\d+) or more creature cards in your graveyard\.?$/.exec(line);
       if (yardDiscount) {
         result.costReduction = { n: Number(yardDiscount[1]), ifYardCreatures: toNumber(yardDiscount[2]) ?? 2 };

@@ -42,6 +42,7 @@ import type { Announcement } from "./log";
 import { PassReminder, PlayedThisTurn, TurnSplash, WelcomeSplash } from "./Announcements";
 import ResolveZone, { holdReveal, isRevealing } from "./ResolveZone";
 import { lifeSettling } from "./lifeCount";
+import { applyPerfClass } from "./perfTier";
 import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
 import { manaNotes } from "./manaInfo";
 import type { ManaNote } from "./manaInfo";
@@ -132,6 +133,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   /** The game on screen: hot-seat, the one this screen has been updating, or (right after joining) the server's first view. */
   const game = localGame ?? (online ? (net.game?.view ?? null) : null);
   // The result screen comes up once the life totals have counted all the way down (even below zero), and a moment after, so the last hit is seen.
+  useEffect(() => applyPerfClass(), []); // (cheaper effects and result screen on a weak computer)
   const won = !!game?.winner;
   const [endShown, setEndShown] = useState(false); // the result screen waits for the last life points to count down
   useEffect(() => {

@@ -72,7 +72,18 @@ export function castCostOf(state: GameState, player: PlayerId, def: CardDef, tar
       less += mod.nFromPower ? Math.max(0, powerOf(state, perm)) : mod.n;
     }
   }
-  return less > 0 ? { ...base, generic: Math.max(0, base.generic - less) } : base;
+  const cost = less > 0 ? { ...base, generic: Math.max(0, base.generic - less) } : base;
+  // "White spells you cast cost {W} more to cast": one more colored mana for each such permanent you control.
+  let taxed = cost;
+  for (const perm of me.battlefield) {
+    for (const tax of parseCard(getCard(state, perm.card.defId)).spellTax ?? []) {
+      if (!(def.colors ?? []).includes(tax.color)) continue;
+      const colored = { ...taxed.colored } as Record<string, number>;
+      colored[tax.extra] = (colored[tax.extra] ?? 0) + 1;
+      taxed = { ...taxed, colored };
+    }
+  }
+  return taxed;
 }
 
 const targetedSpellColors = (state: GameState, id: string): string[] => {
@@ -460,6 +471,11 @@ export function activateAbility(state: GameState, player: PlayerId, iid: string,
     state.players[player].exile.push(yard.splice(yard.findIndex((c) => c.iid === iid), 1)[0]);
   }
   if (ability.tap) tapPerm(state, found.perm, player);
+  // "...or an opponent activates an artifact's ability without {T} in its activation cost" (Powerleech)
+  if (!ability.tap && onBoard && isArtifactDef(def)) {
+    const against = player === "p1" ? "p2" : "p1";
+    for (const watcher of state.players[against].battlefield) queueTriggers(state, watcher.card, against, "oppArtifactAbility");
+  }
   if (ability.oncePerTurn) found.perm.usedAbilities = [...(found.perm.usedAbilities ?? []), index];
   if (ability.onceOnly) found.perm.usedOnce = [...(found.perm.usedOnce ?? []), index];
   // "Sacrifice this permanent" is part of the cost: it is gone before the ability goes on the stack.

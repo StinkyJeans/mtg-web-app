@@ -14,6 +14,22 @@ export const CARDS: Record<string, CardDef> = Object.fromEntries(
   defs.map((d) => [d.id, d]),
 );
 
+/** Cards that a card creates in a hand ("create a Leeches token card and put it into your hand"): not part of any deck, so the game brings their definitions with it. */
+export const CONJURED: Record<string, CardDef> = {
+  leeches: {
+    id: "leeches",
+    name: "Leeches",
+    type: "sorcery",
+    cost: 3,
+    manaCost: "{1}{W}{W}",
+    typeLine: "Sorcery",
+    text: "Target player loses all poison counters. Leeches deals that much damage to that player.",
+    colors: ["W"],
+    keywords: [],
+    image: "small/leeches.jpg",
+  },
+};
+
 /** Look up a card definition in the game's own registry. */
 export function getCard(state: Pick<GameState, "cards">, defId: string): CardDef {
   const def = state.cards[defId];

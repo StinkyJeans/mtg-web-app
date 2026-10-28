@@ -5,6 +5,10 @@ import { AURA_TARGETS, parseStatic, selfStatic } from "../abilities.js";
 // Static abilities: power and toughness, costs, conditions and lords. Each reader takes one line of a permanent's text and says whether it read it.
 
 export function readStatsEqualToCount(line: string, out: ParsedCard): boolean {
+  if (line === "~'s power and toughness are each equal to the greatest mana value among cards in your graveyard") {
+    out.dynamicStats = { kind: "greatestMVYard" };
+    return true;
+  }
   const cda = /^~'s power and toughness are each equal to the number of (.+)$/.exec(line);
   const count = cda ? parseCount(cda[1]) : null;
   if (count) {
@@ -84,6 +88,14 @@ export function readTypedSpellsCostLess(line: string, out: ParsedCard): boolean 
     return true;
   }
   return false;
+}
+
+/** "White spells you cast cost {W} more to cast." */
+export function readSpellTax(line: string, out: ParsedCard): boolean {
+  const m = /^(white|blue|black|red|green) spells you cast cost \{([wubrgWUBRG])\} more to cast$/.exec(line);
+  if (!m) return false;
+  (out.spellTax ??= []).push({ color: m[2].toUpperCase(), extra: m[2].toUpperCase() });
+  return true;
 }
 
 export function readCheaperOnOtherTurns(line: string, out: ParsedCard): boolean {

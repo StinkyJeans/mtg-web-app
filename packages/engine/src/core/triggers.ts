@@ -206,7 +206,7 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
     if (trigger.batch && state.triggerQueue.some((q) => q.item.source === card.iid && q.item.text === trigger.text)) continue;
     if (trigger.equippedOnly && !(extra?.other && state.players[controller].battlefield.some((p) => p.attachedTo === extra.other && subtypesOf(state, p).includes("equipment")))) continue;
     if (trigger.hostOnly && (!extra?.other || findPermanentOrNull(state, card.iid)?.perm.attachedTo !== extra.other)) continue;
-    if ((event === "allyDies" || event === "allyAttacks") && trigger.subtypes && !trigger.subtypes.some((t) => extra?.subtypes?.includes(t))) continue;
+    if ((event === "allyDies" || event === "allyAttacks" || event === "oppPermTapped") && trigger.subtypes && !trigger.subtypes.some((t) => extra?.subtypes?.includes(t))) continue;
     if (trigger.notSubtype && extra?.subtypes?.includes(trigger.notSubtype)) continue;
     if (trigger.ifKicked && !findPermanentOrNull(state, card.iid)?.perm.kicked) continue;
     if (trigger.cond?.wasCreature && def.type !== "creature") continue; // "if it was a creature": as it last was on the battlefield

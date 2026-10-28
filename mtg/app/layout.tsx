@@ -52,6 +52,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
+      data-theme="dark"
       suppressHydrationWarning
       className={`${inter.variable} ${atkinson.variable} ${rajdhani.variable} ${cinzel.variable} ${geistMono.variable} h-full antialiased`}
     >

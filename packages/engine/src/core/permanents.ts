@@ -213,6 +213,11 @@ export function countFor(s: GameState, me: PlayerId, spec: CountSpec, sourceIid?
   if (spec.kind === "opponents") return 1;
   if (spec.kind === "discardedThisTurn") return s.players[me].discardedThisTurn ?? 0;
   if (spec.kind === "handDeficit") return Math.max(0, spec.to - s.players[me].hand.length);
+  if (spec.kind === "greatestMVYard") return Math.max(0, ...s.players[me].graveyard.map((c) => getCard(s, c.defId).cost));
+  if (spec.kind === "cavesAndYard") {
+    const isCave = (defId: string) => new RegExp(String.fromCharCode(92)+"bCave"+String.fromCharCode(92)+"b").test(getCard(s, defId).typeLine ?? "");
+    return s.players[me].battlefield.filter((p) => isCave(p.card.defId)).length + s.players[me].graveyard.filter((c) => isCave(c.defId)).length;
+  }
   if (spec.kind === "greatestMV") {
     const counted = s.players[me].battlefield.filter((p) => (spec.what === "subtype" ? subtypesOf(s, p).includes(spec.subtype ?? "?") : isArtifactDef(getCard(s, p.card.defId))));
     return Math.max(0, ...counted.map((p) => getCard(s, p.card.defId).cost));

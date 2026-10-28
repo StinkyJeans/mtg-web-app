@@ -2,6 +2,7 @@ import type { GameEvent, GameState } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
 import { playSound } from "@/lib/sound";
 import { dropLife } from "./lifeCount";
+import { liteMode, strain } from "./perfTier";
 import { TINT, reticle, ring, slash, sparkBurst } from "./effectFx";
 
 // Combat animation. Attackers lunge at what they are hitting: a blocking creature (it recoils) or the
@@ -92,7 +93,7 @@ function recoil(el: HTMLElement, ux: number, uy: number) {
   const px = ux * 28;
   const py = uy * 28;
   // A brightness flash means repainting the card every frame, so with several attackers at once the shove alone is shown.
-  const flash = crowd <= 2;
+  const flash = crowd <= 2 && !liteMode();
   el.animate(
     [
       { transform: "translate(0, 0) rotate(0deg)", ...(flash ? { filter: "none" } : {}) },
@@ -117,7 +118,7 @@ function impactBurst(x: number, y: number, power = 1, tint = TINT.C) {
     marginTop: "-11px",
     borderRadius: "50%",
     border: `4px solid ${tint}`,
-    ...(crowd > 2 ? { background: `radial-gradient(circle, ${tint}8c, transparent)` } : { boxShadow: `0 0 26px 10px ${tint}d9` }), // (a big blurred glow, five times over, is what slows the screen)
+    ...(crowd > 2 || liteMode() ? { background: `radial-gradient(circle, ${tint}8c, transparent)` } : { boxShadow: `0 0 26px 10px ${tint}d9` }), // (a big blurred glow, five times over, is what slows the screen)
     willChange: "transform, opacity",
     zIndex: "65",
     pointerEvents: "none",
@@ -127,7 +128,7 @@ function impactBurst(x: number, y: number, power = 1, tint = TINT.C) {
     ring.remove(),
   );
 
-  const sparks = crowd > 2 ? 3 : 7 + Math.round(power * 5);
+  const sparks = crowd > 2 ? 3 : liteMode() ? 5 : 7 + Math.round(power * 5);
   for (let i = 0; i < sparks; i++) {
     const angle = (i / sparks) * Math.PI * 2 + Math.random() * 0.4;
     const spark = document.createElement("div");
@@ -188,8 +189,9 @@ function screenFlash(rgb: string, strength: number) {
  */
 function shockwave(x: number, y: number, power: number, tint = TINT.C) {
   const need = 2 * Math.hypot(Math.max(x, window.innerWidth - x), Math.max(y, window.innerHeight - y)); // across to the farthest corner
-  const base = 512; // drawn size: small on purpose, the ring is soft so it can be enlarged without showing
-  const grow = need / (base * 0.9); // (the leading ring sits at 90% of the radius and ends at the farthest corner)
+  const weak = liteMode(); // a weaker computer gets a smaller picture that is enlarged less far (it covers most of the screen, and costs less to draw)
+  const base = weak ? 256 : 512; // drawn size: small on purpose, the ring is soft so it can be enlarged without showing
+  const grow = Math.min(weak ? 4.5 : Infinity, need / (base * 0.9)); // (the leading ring sits at 90% of the radius and ends at the farthest corner)
   const peak = Math.min(1, 0.7 + power * 0.08);
   // both rings are in one gradient (a weaker one trailing the strong one), so there is one layer to move, not two
   const el = document.createElement("div");
@@ -214,7 +216,7 @@ function shockwave(x: number, y: number, power: number, tint = TINT.C) {
       { transform: `scale(${(0.6 * grow).toFixed(3)})`, opacity: peak * 0.55, offset: 0.55 },
       { transform: `scale(${grow.toFixed(3)})`, opacity: 0 },
     ],
-    { duration: 950 + power * 25, easing: "cubic-bezier(0.2, 0.6, 0.35, 1)", fill: "both" },
+    { duration: (weak ? 800 : 950) + power * 25, easing: "cubic-bezier(0.2, 0.6, 0.35, 1)", fill: "both" },
   ).finished.then(() => el.remove(), () => el.remove());
 }
 
@@ -250,11 +252,11 @@ function screenShake(dealt: number, ux: number, uy: number) {
 const lifePulsing = new Set<HTMLElement>(); // life numbers that are pulsing right now
 
 /** A player's life total pulses red when it is hit. */
-function flashLife(el: HTMLElement) {
+function flashLife(el: HTMLElement, at?: { r: DOMRect; look: { fontFamily: string; fontSize: string; fontWeight: string } }) {
   if (lifePulsing.has(el)) return; // already pulsing from another hit
   // A copy of the number does the pulsing, on a layer of its own over the page: scaling the real one would repaint the panel it sits in.
-  const r = el.getBoundingClientRect();
-  const look = getComputedStyle(el);
+  const r = at?.r ?? el.getBoundingClientRect();
+  const look = at?.look ?? getComputedStyle(el);
   const copy = document.createElement("div");
   copy.textContent = el.textContent;
   Object.assign(copy.style, {
@@ -382,6 +384,8 @@ function flare(x: number, y: number, power: number, tint = TINT.C) {
   el.animate([{ transform: "scale(0.2)", opacity: 1 }, { transform: "scale(1.5)", opacity: 0.8, offset: 0.35 }, { transform: "scale(1.9)", opacity: 0 }], { duration: 380, easing: "ease-out" }).finished.then(() => el.remove());
 }
 
+const nextFrame = () => new Promise<void>((r) => requestAnimationFrame(() => r()));
+
 /** Sends one attacker at `target`, runs the hit effects at the moment of impact, and brings it home. */
 async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer: boolean, hits: Hit[], attackerId: string) {
   const from = attacker.getBoundingClientRect();
@@ -391,6 +395,16 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
   const tint = TINT[attacker.dataset.tint ?? "C"] ?? TINT.C; // an attack takes the colour of the creature making it
   const width = attacker.offsetWidth; // size of the moving card, ignoring any tilt
   const height = attacker.offsetHeight;
+  // Everything that will be struck is measured now, before the page is changed for the charge: measuring it at the moment of impact
+  // (after the moving card was added and the real one hidden) made the browser lay the whole page out again right at the hit.
+  const struck = new Map<HTMLElement, { r: DOMRect; look: { fontFamily: string; fontSize: string; fontWeight: string } | null }>();
+  for (const h of hits) {
+    if (h.source !== attackerId) continue;
+    const el = isPlayer(h.target) ? lifeEl(h.target) : cardEl(h.target);
+    if (!el || struck.has(el)) continue;
+    const look = isPlayer(h.target) ? getComputedStyle(el) : null;
+    struck.set(el, { r: el.getBoundingClientRect(), look: look ? { fontFamily: look.fontFamily, fontSize: look.fontSize, fontWeight: look.fontWeight } : null });
+  }
 
   const ms = wave >= 3 ? CROWD_LUNGE_MS : LUNGE_MS;
   let mx = b.x - a.x; // how far the attacker travels
@@ -443,7 +457,7 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
     scale: "none",
     rotate: "none",
     transition: "none",
-    ...(crowd > 2 ? {} : { boxShadow: "0 26px 30px rgba(0, 0, 0, 0.4)" }),
+    ...(crowd > 2 || liteMode() ? {} : { boxShadow: "0 26px 30px rgba(0, 0, 0, 0.4)" }),
     willChange: "transform",
   });
   document.body.appendChild(ghost);
@@ -474,38 +488,42 @@ async function lunge(attacker: HTMLElement, target: HTMLElement, targetIsPlayer:
   await waitUntil(motion, ms * IMPACT_AT);
   playSound(targetIsPlayer ? "hit" : "clash");
   const dealt = hits.filter((h) => h.source === attackerId).reduce((n, h) => n + h.amount, 0);
+  // The hit's effects are started over a few frames, the flash and burst first: creating all of them in one frame was one long frame, right at the hit.
   if (crowd <= 2 || bursts++ < 2) {
     // (with a crowd, only the first two hits get the full flash)
     impactBurst(contact.x, contact.y, Math.min(1.6, 0.6 + dealt * 0.12), tint);
     flare(contact.x, contact.y, Math.min(1.6, 0.6 + dealt * 0.12), tint);
-    // a heavy hit rings out twice and throws more sparks
-    if (dealt >= 3) {
-      ring({ x: contact.x - 40, y: contact.y - 40, w: 80, h: 80 }, tint, 90, dealt >= 5 ? 2.4 : 1.8);
-      sparkBurst(contact, tint, 8, 0, 70);
-    }
   }
+  await nextFrame();
   if (targetIsPlayer && hits.some((h) => h.source === attackerId && isPlayer(h.target))) {
     screenShake(dealt, ux, uy);
     shockwave(contact.x, contact.y, dealt, tint);
   }
+  // a heavy hit rings out twice and throws more sparks
+  if (dealt >= 3 && (crowd <= 2 || bursts <= 2)) {
+    ring({ x: contact.x - 40, y: contact.y - 40, w: 80, h: 80 }, tint, 90, dealt >= 5 ? 2.4 : 1.8);
+    sparkBurst(contact, tint, 8, 0, 70);
+  }
+  await nextFrame();
   screenFlash(targetIsPlayer ? "239, 68, 68" : "251, 191, 36", Math.min(0.34, 0.08 + dealt * 0.03));
   const attackerNow = new DOMRect(end.x - width / 2, end.y - height / 2, width, height);
   for (const hit of hits) {
     if (hit.source === attackerId) {
       const el = isPlayer(hit.target) ? lifeEl(hit.target) : cardEl(hit.target);
       if (!el) continue;
+      const seen = struck.get(el);
+      const box = seen?.r ?? el.getBoundingClientRect();
       if (isPlayer(hit.target)) {
         if (!hit.infect) dropLife(hit.target, hit.amount); // the life total starts counting down now, as the hit lands
-        flashLife(el);
+        flashLife(el, seen?.look ? { r: box, look: seen.look } : undefined);
       } else {
         // Every creature the attacker hit is shoved away from it.
-        const c = centerOf(el.getBoundingClientRect());
+        const c = centerOf(box);
         const d = Math.hypot(c.x - end.x, c.y - end.y) || 1;
         recoil(el, (c.x - end.x) / d, (c.y - end.y) / d);
       }
-      const struck = el.getBoundingClientRect();
-      if (crowd <= 3 || slashes++ < 3) slash({ x: struck.left, y: struck.top, w: struck.width, h: struck.height }, tint); // (with a crowd, the first three hits get the blade)
-      floatNumber(struck, hit.amount, hit.infect ? (isPlayer(hit.target) ? "player" : "creature") : undefined);
+      if (crowd <= 3 || slashes++ < 3) slash({ x: box.left, y: box.top, w: box.width, h: box.height }, tint); // (with a crowd, the first three hits get the blade)
+      floatNumber(box, hit.amount, hit.infect ? (isPlayer(hit.target) ? "player" : "creature") : undefined);
     } else if (hit.target === attackerId) {
       floatNumber(attackerNow, hit.amount, hit.infect ? "creature" : undefined); // the blocker hit back
     }
@@ -583,6 +601,16 @@ export async function playCombat(events: GameEvent[], attackerIds: string[], opt
     }
   };
 
+  // Frames that took far too long during this attack: a computer that does that gets the cheaper effects from now on.
+  let slowFrames = 0;
+  let lastFrame = performance.now();
+  let watching = true;
+  const watchFrames = (t: number) => {
+    if (t - lastFrame > 45) slowFrames++;
+    lastFrame = t;
+    if (watching) requestAnimationFrame(watchFrames);
+  };
+  requestAnimationFrame(watchFrames);
   playing = true;
   // The playmat gets its own layer now, while the attackers are still lining up, so the first shake does not have to make one at the moment of impact.
   const mat = document.querySelector<HTMLElement>("main > section");
@@ -596,6 +624,8 @@ export async function playCombat(events: GameEvent[], attackerIds: string[], opt
     await playAll(unblocked);
   } finally {
     playing = false;
+    watching = false;
+    if (slowFrames >= 6) strain();
     if (mat) setTimeout(() => (mat.style.willChange = ""), 900); // (after the last shake has settled)
   }
 }
