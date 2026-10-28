@@ -1,11 +1,12 @@
 "use client";
 
 import { MatTear } from "./MatTear";
-import { gainedKeywords, powerOf, toughnessOf } from "@mtg/engine";
+import { gainedKeywords } from "@mtg/engine";
 import type { CardDef, GameState, Permanent, PlayerId } from "@mtg/engine";
 import type { Inspected } from "./CardDetail";
 import CardView from "./CardView";
 import FitToHeight from "./FitToHeight";
+import { isCreatureNow, liveCardProps, ptText } from "./stats";
 import { PLAYER_STYLE } from "./theme";
 
 export type Interaction = (p: Permanent) => { onClick?: () => void; ring: string; note?: string; combat?: { tone: string; label: string; why?: string }; dim?: boolean };
@@ -66,8 +67,9 @@ export function LandsDivider({ landsBelow, onMat }: { landsBelow: boolean; onMat
 }
 
 // A land played this turn is summoning sick too, which only matters once it becomes a creature.
-const statusOf = (p: Permanent, creature: boolean) =>
+const statusOf = (state: GameState, p: Permanent, creature: boolean) =>
   [
+    creature && `Power/toughness now: ${ptText(state, p)}`,
     p.tapped && "Tapped",
     p.summoningSick && creature && "Summoning sick",
     p.damage > 0 && `${p.damage} damage`,
@@ -132,24 +134,20 @@ export function Lane({
       ...(p.loyalty !== undefined ? [`Loyalty ${p.loyalty}`] : []),
       ...(p.crewed ? ["Crewed"] : []),
     ];
-    const creature = def.type === "creature" || p.crewed === true;
+    const creature = isCreatureNow(state, p);
     return (
       <div key={p.card.iid} className="shrink-0" onMouseEnter={(e) => onPreview(def, e.currentTarget)} onMouseLeave={onUnpreview}>
       <CardView
         iid={p.card.iid}
         tags={tags}
-        counters={{ plus: p.counters, minus: p.minusCounters, infected: p.infected }}
-        power={creature ? powerOf(state, p) : undefined}
-        toughness={creature ? toughnessOf(state, p) : undefined}
+        {...liveCardProps(state, p)}
         attacking={attackingIds.includes(p.card.iid)}
         def={def}
         size={attachment ? "sm" : size}
-        tapped={p.tapped}
         summoningSick={p.summoningSick && creature}
-        damage={p.damage}
         {...interaction(p)}
         {...(attachment ? { ring: "ring-2 ring-violet-400" } : {})}
-        onHover={() => onInspect(def, statusOf(p, creature))}
+        onHover={() => onInspect(def, statusOf(state, p, creature))}
         onZoom={() => onZoom(def)}
       />
       </div>

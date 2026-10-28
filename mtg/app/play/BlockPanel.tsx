@@ -1,10 +1,11 @@
 "use client";
 
-import { gainedKeywords, getPossibleBlockers, powerOf, toughnessOf } from "@mtg/engine";
+import { gainedKeywords, getPossibleBlockers, powerOf } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { COMBAT_BADGE } from "./CardView";
 import { blockOutcome, canBlock } from "./combatHints";
 import { playerName } from "./log";
+import { nameWithStats, ptText } from "./stats";
 
 /**
  * The blocking step, spelled out: what to click next, every attacker with whoever is blocking it, and what that block
@@ -33,7 +34,7 @@ export default function BlockPanel({
   const find = (iid: string) => Object.values(state.players).flatMap((p) => p.battlefield).find((x) => x.card.iid === iid);
   const nameOf = (iid: string) => {
     const p = find(iid);
-    return p ? state.cards[p.card.defId].name : iid;
+    return p ? nameWithStats(state, p) : iid;
   };
   const mine = getPossibleBlockers(state);
 
@@ -98,8 +99,8 @@ export default function BlockPanel({
             <li key={a.attacker} className={`flex flex-col gap-1 rounded-lg border px-2 py-1.5 ${legal?.ok ? "border-sky-500 bg-white ring-2 ring-sky-400" : assigned.length ? "border-emerald-400 bg-white" : "border-red-300 bg-white"}`}>
               <div className="flex flex-wrap items-center gap-1.5 text-xs">
                 <span className="text-sm font-semibold">{def.name}</span>
-                <span className="rounded bg-zinc-200 px-1.5 text-xs font-bold">
-                  {powerOf(state, perm)}/{toughnessOf(state, perm)}
+                <span className="rounded bg-zinc-900 px-1.5 text-xs font-bold text-white" title="Power / toughness now">
+                  {ptText(state, perm)}
                 </span>
                 {[...(def.keywords ?? []), ...gainedKeywords(state, perm), ...(perm.tempKeywords ?? [])].map((k, i) => (
                   <span key={`${i}-${k}`} className="rounded bg-amber-100 px-1.5 text-xs capitalize text-amber-900">

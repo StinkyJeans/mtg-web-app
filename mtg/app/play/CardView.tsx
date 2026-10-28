@@ -33,7 +33,7 @@ interface Props {
   tapped?: boolean;
   summoningSick?: boolean;
   damage?: number;
-  /** Power and toughness right now (auras, anthems and pumps change them). Defaults to the printed ones. */
+  /** Power and toughness right now (auras, anthems and pumps change them). Defaults to the printed ones. Given for a creature on the battlefield, they are always shown. */
   power?: number;
   toughness?: number;
   /** In hand: you can play this right now with the mana you have. Gets a green glow and a badge. */
@@ -93,10 +93,14 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
   const imageUrl = def.image ? cardImageUrl(def.image) : tokenArt?.small || null;
   const tokenFrame = !imageUrl && isTokenDef(def); // a token Scryfall has no picture of: we draw the card ourselves
   const nowPower = power ?? def.power ?? 0;
-  const toughnessLeft = (toughness ?? def.toughness ?? 0) - damage;
-  const changed = def.type === "creature" && (nowPower !== (def.power ?? 0) || (toughness ?? def.toughness ?? 0) !== (def.toughness ?? 0));
+  const nowToughness = toughness ?? def.toughness ?? 0;
+  const toughnessLeft = nowToughness - damage;
+  const changed = def.type === "creature" && (nowPower !== (def.power ?? 0) || nowToughness !== (def.toughness ?? 0));
+  const weakened = nowPower < (def.power ?? 0) || nowToughness < (def.toughness ?? 0);
   const infected = counters?.infected === true && (counters.minus ?? 0) > 0;
-  const statsTone = damage > 0 ? "bg-red-700 text-white" : (counters?.minus ?? 0) > 0 ? "bg-lime-900 text-lime-200 ring-1 ring-lime-400" : "bg-emerald-700 text-white";
+  const statsTone =
+    damage > 0 ? "bg-red-700 text-white ring-red-300" : (counters?.minus ?? 0) > 0 ? "bg-lime-900 text-lime-200 ring-lime-400" : weakened ? "bg-orange-700 text-white ring-orange-300" : changed ? "bg-emerald-700 text-white ring-emerald-300" : "bg-zinc-900/85 text-white ring-white/40";
+  const statsWhy = `Power ${nowPower}, toughness ${toughnessLeft}${damage > 0 ? ` (${nowToughness} minus ${damage} damage)` : ""}${changed ? `. Printed: ${def.power ?? 0}/${def.toughness ?? 0}` : ""}`;
   const base = `relative shrink-0 overflow-hidden rounded-lg border border-zinc-600 text-left text-xs transition ${
     tapped && !attacking ? `rotate-90 brightness-[.72] ${TAP_MARGIN[size]}` : ""
   } ${attacking ? "-translate-y-3 scale-105 shadow-xl shadow-red-500/50 ring-2 ring-red-500" : ""} ${
@@ -143,8 +147,8 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
           )}
           {summoningSick && <span className="rounded bg-black/80 px-1 text-zinc-200">Summoning sick</span>}
         </div>
-        {!tokenFrame && (damage > 0 || changed) && (
-          <span className={`absolute right-1 top-1 rounded px-1.5 py-0.5 text-xs font-bold ${statsTone}`} title="Power / toughness now">
+        {!tokenFrame && (power !== undefined || damage > 0 || changed) && (
+          <span className={`absolute right-1 top-1 z-20 rounded-md px-1.5 py-0.5 font-extrabold leading-none shadow ring-1 ${size === "sm" ? "text-xs" : "text-sm"} ${statsTone}`} title={statsWhy}>
             {nowPower}/{toughnessLeft}
           </span>
         )}
@@ -188,7 +192,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
         {summoningSick && <div>Summoning sick</div>}
       </div>
       {def.type === "creature" && (
-        <div className="self-end rounded bg-black/70 px-1.5 py-0.5 font-bold">
+        <div className="self-end rounded bg-black/70 px-1.5 py-0.5 font-bold" title={statsWhy}>
           {nowPower}/{damage ? <span className="text-red-400">{toughnessLeft}</span> : toughnessLeft}
         </div>
       )}
@@ -208,7 +212,7 @@ export default function CardView(props: Props) {
         onClick={props.onZoom}
         aria-label={`Enlarge ${props.def.name}`}
         title="Enlarge (or right-click the card)"
-        className="absolute right-1 top-1 flex h-6 w-6 items-center justify-center rounded-full bg-black/75 text-white opacity-0 shadow transition hover:bg-black group-hover:opacity-100 focus-visible:opacity-100"
+        className={`absolute right-1 ${props.power !== undefined ? "top-8" : "top-1"} flex h-6 w-6 items-center justify-center rounded-full bg-black/75 text-white opacity-0 shadow transition hover:bg-black group-hover:opacity-100 focus-visible:opacity-100`}
       >
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <circle cx="10.5" cy="10.5" r="6.5" />

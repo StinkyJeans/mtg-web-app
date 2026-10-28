@@ -1,11 +1,12 @@
 "use client";
 
-import { powerOf, toughnessOf } from "@mtg/engine";
+import { powerOf } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { useState } from "react";
 import type { CastPlan } from "./castInfo";
 import { ManaText } from "./ManaSymbols";
 import { ChoicePanel, XPanel } from "./ChoicePanels";
+import { nameWithStats } from "./stats";
 
 interface Props {
   state: GameState;
@@ -187,7 +188,7 @@ export default function CastPlanPanels({ state, actor, plan, modePick, onModePic
         title={`${plan.name}: choose a creature to blight`}
         options={c.blight.options.map((iid) => {
           const perm = state.players[actor].battlefield.find((p) => p.card.iid === iid)!;
-          return { label: `${state.cards[perm.card.defId].name} (${powerOf(state, perm)}/${toughnessOf(state, perm)})`, onPick: () => onAdvance({ ...plan, sacrifice: iid }) };
+          return { label: nameWithStats(state, perm), onPick: () => onAdvance({ ...plan, sacrifice: iid }) };
         })}
         onCancel={onCancel}
       />
@@ -232,7 +233,7 @@ export default function CastPlanPanels({ state, actor, plan, modePick, onModePic
         options={[
           ...c.sacrifice.map((iid) => {
             const perm = state.players[actor].battlefield.find((p) => p.card.iid === iid)!;
-            return { label: `${state.cards[perm.card.defId].name} (${powerOf(state, perm)}/${toughnessOf(state, perm)})`, onPick: () => onAdvance({ ...plan, sacrifice: iid }) };
+            return { label: nameWithStats(state, perm), onPick: () => onAdvance({ ...plan, sacrifice: iid }) };
           }),
           ...(c.orPay ? [{ label: <>Pay <ManaText text={c.orPay} /> instead</>, onPick: () => onAdvance({ ...plan, sacrifice: "pay" }) }] : []),
         ]}

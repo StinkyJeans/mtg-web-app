@@ -3,6 +3,7 @@
 import type { GameState, StackItem, TargetChoice } from "@mtg/engine";
 import { helpFor } from "./glossary";
 import { playerName } from "./log";
+import { nameWithStats } from "./stats";
 
 /** A short plain-English explanation of what some rules text does (see glossary.ts). */
 export function Help({ text, max = 3, large }: { text: string; max?: number; large?: boolean }) {
@@ -31,7 +32,7 @@ export function targetName(state: GameState, t: TargetChoice): string {
   }
   for (const p of Object.values(state.players)) {
     const perm = p.battlefield.find((x) => x.card.iid === t.iid);
-    if (perm) return `${state.cards[perm.card.defId].name} (${playerName(p.id)})`;
+    if (perm) return `${nameWithStats(state, perm)} (${playerName(p.id)})`;
     const dead = p.graveyard.find((x) => x.iid === t.iid);
     if (dead) return `${state.cards[dead.defId].name} (in ${playerName(p.id)}'s graveyard)`;
   }

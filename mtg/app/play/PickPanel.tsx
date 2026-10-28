@@ -5,6 +5,7 @@ import type { CardDef, GameState } from "@mtg/engine";
 import CardView from "./CardView";
 import { ManaText } from "./ManaSymbols";
 import { playerName } from "./log";
+import { liveCardProps } from "./stats";
 
 /** A choice among cards (which to discard, which to keep, which land to fetch, the order of the library). */
 type PickKind = NonNullable<GameState["pendingPick"]>["kind"];
@@ -81,6 +82,8 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
     const card = [...owner.hand, ...owner.library, ...owner.battlefield.map((p) => p.card)].find((c) => c.iid === iid);
     return card ? [card] : [];
   });
+  // A permanent to choose (to tap, return, keep...) is shown as it is now: power, toughness, counters, damage.
+  const onField = (iid: string) => owner.battlefield.find((p) => p.card.iid === iid);
   if (pick.kind === "color") {
     const names: Record<string, string> = { W: "White", U: "Blue", B: "Black", R: "Red", G: "Green" };
     return (
@@ -149,6 +152,7 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
           <div key={c.iid} className="shrink-0" {...preview(state.cards[c.defId])}>
             <CardView
               def={state.cards[c.defId]}
+              {...(onField(c.iid) ? liveCardProps(state, onField(c.iid)!) : {})}
               size="md"
               ring={c === chosen ? "ring-4 ring-amber-400" : "ring-2 ring-rose-400"}
               onClick={() => setSelected(c === chosen ? null : c.iid)}

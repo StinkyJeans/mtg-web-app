@@ -1,8 +1,16 @@
 "use client";
 
-import { OPPONENT } from "@mtg/engine";
-import type { GameState, getDamageAssignments, PlayerId } from "@mtg/engine";
+import { hasKeywordNow, OPPONENT, parseCard, toughnessOf } from "@mtg/engine";
+import type { GameState, getDamageAssignments, Permanent, PlayerId } from "@mtg/engine";
 import { playerName } from "./log";
+import { nameWithStats, ptText } from "./stats";
+
+/** How its damage lands: as poison with infect, plus poison counters with toxic. */
+function damageKind(state: GameState, attacker: Permanent): string {
+  const toxic = parseCard(state.cards[attacker.card.defId]).toxic ?? 0;
+  if (hasKeywordNow(state, attacker, "infect")) return " (infect: -1/-1 counters on creatures, poison counters on a player)";
+  return toxic > 0 ? ` (toxic ${toxic}: a player it damages also gets ${toxic === 1 ? "a poison counter" : `${toxic} poison counters`})` : "";
+}
 
 /** Which player or planeswalker each attacker attacks, asked only while the opponent has a planeswalker. */
 export function AttackTargetsPanel({
@@ -61,19 +69,21 @@ export function DamagePanel({
   onShift: (attacker: string, from: string, to: string) => void;
 }) {
   const perm = (iid: string) => Object.values(state.players).flatMap((p) => p.battlefield).find((x) => x.card.iid === iid)!;
-  const name = (iid: string) => state.cards[perm(iid).card.defId].name;
+  const name = (iid: string) => nameWithStats(state, perm(iid));
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-amber-500/40 bg-zinc-100 p-3">
       <h2 className="text-xs font-semibold uppercase font-display tracking-wide text-amber-600">Assign combat damage</h2>
       {needed.map(({ attacker, blockers, power, trampleTo }) => {
         const amounts = effective(attacker);
+        const attackerPerm = perm(attacker);
+        const deathtouch = hasKeywordNow(state, attackerPerm, "deathtouch");
         // A trampler may also put damage on the defending player (after lethal damage on every blocker).
         const targets = trampleTo ? [...blockers, trampleTo] : blockers;
         return (
           <div key={attacker} className="flex flex-col gap-1">
             <div className="text-sm">
-              <span className="font-semibold">{name(attacker)}</span> deals {power} damage, divided among its blockers
+              <span className="font-semibold">{name(attacker)}</span> deals {power} damage{damageKind(state, attackerPerm)}, divided among its blockers
               {trampleTo ? ` and (trample) ${playerName(trampleTo)}` : ""}:
             </div>
             {targets.map((id) => {
@@ -82,12 +92,14 @@ export function DamagePanel({
               const take = others[0]; // "-" gives one to another target
               const isPlayerRow = id === trampleTo;
               const b = isPlayerRow ? null : perm(id);
-              const toughnessLeft = b ? (state.cards[b.card.defId].toughness ?? 0) - b.damage : null;
-              const label = isPlayerRow ? `${playerName(trampleTo)} (trample)` : name(id);
+              // Lethal damage: what is left of its toughness, or 1 from a deathtouch attacker.
+              const lethal = b ? (deathtouch ? 1 : Math.max(0, toughnessOf(state, b) - b.damage)) : null;
+              const label = b ? state.cards[b.card.defId].name : `${playerName(trampleTo!)} (trample)`;
               return (
                 <div key={id} className="flex items-center gap-2 text-sm">
                   <span className="w-40 truncate">{label}</span>
-                  {toughnessLeft !== null && <span className="text-xs text-zinc-500">toughness {toughnessLeft}</span>}
+                  {b && <span className="rounded bg-zinc-900 px-1.5 text-xs font-bold text-white" title="Power / toughness now">{ptText(state, b)}</span>}
+                  {lethal !== null && <span className="text-xs text-zinc-500">{lethal} kills it</span>}
                   <button
                     disabled={!(amounts[id] > 0) || !take}
                     onClick={() => onShift(attacker, id, take)}
