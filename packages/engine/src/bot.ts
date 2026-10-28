@@ -515,6 +515,13 @@ function candidates(s: GameState, me: PlayerId): Action[] {
         }
       }
     }
+    // Replicate: a copy for each further target worth hitting (copies on the same target do nothing); the lookahead judges each count.
+    if (c.replicate && c.replicate.max > 0 && !c.modal && c.specs.length > 0) {
+      const combos = targetCombos(s, c.specs, me, cardText(c.iid));
+      for (let n = 1; n <= Math.min(c.replicate.max, combos.length - 1); n++) {
+        out.push({ type: "castSpell", iid: c.iid, targets: combos.slice(0, n + 1).flat(), replicate: n, ...(c.zone ? { from: c.zone } : {}) });
+      }
+    }
   }
   for (const a of getActivatable(s, me)) {
     const text = (() => {

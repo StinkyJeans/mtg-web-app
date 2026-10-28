@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyAction, CARDS, createGame, getCastable, getPlottable, isSupportedCard } from "../index.js";
+import { applyAction, botAction, CARDS, createGame, getCastable, getPlottable, isSupportedCard, playerToAct, viewFor } from "../index.js";
 import { exilePlayable, kw, powerOf, toughnessOf } from "../core.js";
 import type { Action, CardDef, CardInstance, GameState, PlayerId } from "../index.js";
 
@@ -316,4 +316,17 @@ test("Consign to Memory's replicate: pay {1} more for a copy with a target of it
   g = settle(r.state);
   assert.deepEqual([powerOf(g, find(g, "m0")!), powerOf(g, find(g, "m1")!), g.players.p2.life], [1, 1, 17], "both triggers countered");
   assert.equal(g.players.p2.graveyard.filter((c) => c.defId === "consign").length, 1, "the copy goes nowhere");
+});
+
+test("the bot replicates Consign to Memory to counter both pump triggers of an attack", () => {
+  let g = setup(["bolt"], ["swiftspear", "slickshot"], ["island", "island"]);
+  g.players.p2.hand = cards("p2", "o", ["consign"]);
+  g.phase = "attackers";
+  g = act(g, "p1", { type: "declareAttackers", attackers: ["m0", "m1"] });
+  g = act(g, "p1", { type: "castSpell", iid: "h0", targets: [{ kind: "player", id: "p2" }] });
+  assert.equal(playerToAct(g), "p2");
+  const triggers = g.stack.filter((i) => i.kind === "ability").map((i) => i.id);
+  const choice = botAction(viewFor(g, "p2"), "p2");
+  assert.equal(choice?.type === "castSpell" && choice.replicate, 1);
+  assert.deepEqual(choice?.type === "castSpell" ? choice.targets?.map((t) => (t.kind === "stack" ? t.id : "")).sort() : [], [...triggers].sort());
 });
