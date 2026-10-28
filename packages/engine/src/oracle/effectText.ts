@@ -255,6 +255,15 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       effects.splice(lastGroup, previous.length, { type: "ifNow", cond: nowIf[1].startsWith("you cast") ? "yourMainPhase" : "landEntered", then, otherwise: previous });
       continue;
     }
+    // Ferocious: "That creature also gains trample until end of turn if you control a creature with power 4 or greater." (or the condition first)
+    const ferocious = /^(?:ferocious — )?(?:if you control a creature with power 4 or greater, (.+)|(.+) if you control a creature with power 4 or greater)$/.exec(sentence);
+    if (ferocious) {
+      const then = parseClause((ferocious[1] ?? ferocious[2]).replace(/^(it|that creature) also /, "$1 "), ctx);
+      if (!then) return null;
+      lastGroup = effects.length;
+      effects.push({ type: "ifNow", cond: "ferocious", then });
+      continue;
+    }
     // "Put a +1/+1 counter on target creature. If that creature is another Hero, put two +1/+1 counters on it instead."
     const insteadSub = /^if that creature is another ([a-z]+), put (two|three|four) \+1\/\+1 counters on it instead$/.exec(sentence);
     if (insteadSub) {

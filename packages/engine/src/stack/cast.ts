@@ -25,10 +25,10 @@ import {
   tapPerm,
 } from "../core.js";
 import type { CardFilter, TargetChoice, TargetSpec } from "../effects.js";
-import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payForAbility, payMana, withPhyrexianLife, withX } from "../mana.js";
+import { addCosts, COLOR_NAMES, hasteFrom, manaCostOf, parseManaCost, payForAbility, payMana, withDelve, withPhyrexianLife, withX } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
-import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
+import type { CardDef, CardInstance, GameState, Permanent, PlayerId } from "../types.js";
 import { abilityHaste, abilityManaCost, abilityNeed, applyPayment, canCastNow, checkTargets, holdsPriority, openRound, sorceryTiming, timingError } from "./shared.js";
 
 // Casting spells and activating abilities: each puts something on the stack and opens a round of priority.
@@ -73,10 +73,19 @@ export function castCostOf(state: GameState, player: PlayerId, def: CardDef, tar
 /** Targets with the limit that teamwork waives taken off ("exile target creature with mana value 3 or less. If cast using teamwork, instead exile target creature"). */
 export const liftedSpecs = (specs: TargetSpec[]): TargetSpec[] => specs.map((s) => (s.liftedWhenKicked ? { ...s, mv: undefined, power: undefined, toughness: undefined, liftedWhenKicked: undefined } : s));
 
+/**
+ * Delve when the player didn't choose: as many graveyard cards as can pay for the generic mana (`generic`), saving the mana.
+ * Lands go first, then other spells, creatures last.
+ */
+export function delveChoice(state: GameState, player: PlayerId, spellIid: string, generic: number): string[] {
+  const rank = (c: CardInstance) => ({ land: 0, creature: 2 })[getCard(state, c.defId).type as string] ?? 1;
+  return state.players[player].graveyard.filter((c) => c.iid !== spellIid).sort((a, b) => rank(a) - rank(b)).slice(0, generic).map((c) => c.iid);
+}
+
 /** Untapped creatures that could be tapped to pay teamwork (summoning-sick ones too: it is not a {T} cost). */
 export const teamworkers = (state: GameState, player: PlayerId) => state.players[player].battlefield.filter((p) => !p.tapped && isCreature(state, p));
 
-export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false, teamwork?: string[], phyrexianLife = 0): string | null {
+export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false, teamwork?: string[], phyrexianLife = 0, delve?: string[]): string | null {
   const me = state.players[player];
   // A prepared creature: a copy of its spell is cast (`iid` is the creature).
   const prepared = from === "prepared" ? me.battlefield.find((p) => p.card.iid === iid && p.prepared) : undefined;
@@ -174,8 +183,12 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   const extra = [kicked ? kickerCost : null, payInstead].filter((c): c is NonNullable<typeof c> => c !== null);
   const full = withPhyrexianLife(withX(extra.reduce(addCosts, taxed), x), phyrexianLife);
   if (!full) return `${def.name} doesn't have that many Phyrexian mana symbols to pay with life.`;
+  const delved = parsed.delve ? (delve ? [...new Set(delve)] : delveChoice(state, player, iid, full.generic)) : [];
+  if (delve && delve.length > 0 && !parsed.delve) return `${def.name} doesn't have delve.`;
+  if (delved.length > full.generic) return `${def.name}: delve can only pay for the generic mana in its cost ({${full.generic}}).`;
+  if (delved.some((id) => id === iid || !me.graveyard.some((c) => c.iid === id))) return `${def.name}: delve exiles cards from your graveyard.`;
   for (const p of teamed) tapPerm(state, p, player); // paid as part of the cost, before the mana (they can't also be tapped for mana)
-  const paid = payMana(state, player, full, def);
+  const paid = payMana(state, player, withDelve(full, delved.length), def);
   if (!paid.ok) {
     const price = warp ? `warp ${parsed.warp}` : from === "graveyard" && !fromYard ? `flashback ${parsed.flashback}` : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "") + (payInstead ? ` + ${parsed.extraSacrificeOrPay}` : "");
     return paid.missing === "life"
@@ -200,6 +213,11 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   if (fromYard) me.yardCastable = me.yardCastable!.filter((id) => id !== iid);
   if (me.freeNext && def.type === "creature" && (def.colors ?? []).some((c) => me.freeNext!.colors.includes(c))) me.freeNext = undefined; // used up
   const [taken] = zone.splice(idx, 1);
+  if (delved.length > 0) {
+    me.exile.push(...me.graveyard.filter((c) => delved.includes(c.iid)));
+    me.graveyard = me.graveyard.filter((c) => !delved.includes(c.iid));
+    events.push({ type: "effect", text: `${def.name}: delve exiled ${delved.length} card${delved.length === 1 ? "" : "s"} from the graveyard to pay for it.` });
+  }
   if (parsed.extraDiscard && sacrifice) {
     me.graveyard.push(me.hand.splice(me.hand.findIndex((c) => c.iid === sacrifice), 1)[0]);
     cardsDiscarded(state, player, [sacrifice], events);

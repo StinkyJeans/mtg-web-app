@@ -560,6 +560,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       setXValue(c.maxX);
       return;
     }
+    if (c.delve && p.delve === undefined) return; // the delve panel is shown
     if ((c.sacrifice || c.discard) && p.sacrifice === undefined) return; // the sacrifice (or discard) panel is shown
     const baseSpecs = c.modal ? (p.modes ?? []).flatMap((m) => c.modal!.modes[m].specs) : c.specs;
     const specs = (p.teamwork?.length ?? 0) > 0 ? liftedSpecs(baseSpecs) : baseSpecs; // teamwork can waive a limit on the target
@@ -574,6 +575,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       ...(p.x !== undefined ? { x: p.x } : {}),
       ...(p.sacrifice ? { sacrifice: p.sacrifice } : {}),
       ...(p.warp ? { warp: true } : {}),
+      ...(p.delve ? { delve: p.delve } : {}),
     });
     const title = p.name + (p.x !== undefined && c.maxX !== undefined ? ` (X = ${p.x})` : "") + (p.kicked ? (c.blight ? " (blighted)" : c.kickerName === "offspring" ? " (with offspring)" : " (kicked)") : "") + (p.teamwork?.length ? " (teamwork)" : "") + (p.warp ? " (warp)" : "");
     setPlan(null);

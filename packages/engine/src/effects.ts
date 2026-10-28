@@ -113,7 +113,7 @@ export type Effect =
   | { type: "airbend"; what: Ref } // exile it; its owner may cast it for {2} (rather than its mana cost) for as long as it stays exiled
   | { type: "becomeCreatureNow"; what: Ref; subtypes?: string[] } // until end of turn it is an artifact creature (of these creature types)
   | { type: "untargetable"; what: Ref } // "can't be the target of spells or abilities your opponents control this turn"
-  | { type: "ifNow"; cond: "yourMainPhase" | "landEntered"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead"
+  | { type: "ifNow"; cond: "yourMainPhase" | "landEntered" | "ferocious"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead", ferocious "... if you control a creature with power 4 or greater"
   | { type: "poison"; who: Ref; amount: Amount } // "each opponent gets a poison counter"
   | { type: "powerFromHand" } // until end of turn: this creature's base power is the number of cards in your hand
   | { type: "mayCost"; cost: "artifactOrCard" | "artifactOrNonland" | "otherCreature"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may sacrifice an artifact or discard a card. If you do, ..."
@@ -540,6 +540,8 @@ export interface ParsedCard {
   plan?: { threshold: number; effects: Effect[]; targets: TargetSpec[]; text: string };
   /** "Teamwork 3": as an additional cost the caster may tap creatures with total power 3 or more. Doing so counts as kicking the spell. */
   teamwork?: number;
+  /** Delve: each card exiled from the graveyard while casting it pays for {1}. */
+  delve?: true;
   /** "Kicker {2}": the extra mana that may be paid when casting. Offspring is a kicker by another name (`kickerName`). */
   kicker?: string;
   kickerName?: "offspring";

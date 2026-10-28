@@ -2,7 +2,7 @@ import { getCard } from "../../cards.js";
 import { parseManaCost, payMana } from "../../mana.js";
 import { parseCard } from "../../oracle.js";
 import type { CardInstance } from "../../types.js";
-import { defSubtypes, findPermanentOrNull, playerLabel, powerOf } from "../permanents.js";
+import { defSubtypes, findPermanentOrNull, isCreature, playerLabel, powerOf } from "../permanents.js";
 import { counterStackItem, spellLeavesStack } from "../zones.js";
 import { subjectsOf } from "../targets.js";
 import { cardAnywhere, type EffectHandlers } from "./shared.js";
@@ -103,8 +103,14 @@ export const STACK_EFFECTS = {
     nested(ctx.kicked ? effect.then : (effect.otherwise ?? []));
   },
   ifNow({ state, ctx, nested }, effect) {
+    const me = state.players[ctx.controller];
     // A spell resolves in the phase it was cast in: the stack has to be empty for the game to move on.
-    const holds = effect.cond === "yourMainPhase" ? state.active === ctx.controller && (state.phase === "main1" || state.phase === "main2") : (state.players[ctx.controller].landsEnteredThisTurn ?? 0) > 0;
+    const holds =
+      effect.cond === "yourMainPhase"
+        ? state.active === ctx.controller && (state.phase === "main1" || state.phase === "main2")
+        : effect.cond === "landEntered"
+          ? (me.landsEnteredThisTurn ?? 0) > 0
+          : me.battlefield.some((p) => isCreature(state, p) && powerOf(state, p) >= 4);
     nested(holds ? effect.then : (effect.otherwise ?? []));
   },
   ifLifeGained({ state, ctx, nested }, effect) {

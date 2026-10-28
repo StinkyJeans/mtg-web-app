@@ -53,7 +53,27 @@ function TeamworkPanel({ state, actor, plan, onAdvance, onCancel }: Pick<Props, 
   );
 }
 
-/** The question a spell being cast still needs answered, in order: modes, warp, the kicker (or offspring, or blight), X, then a creature to sacrifice or a card to discard. */
+/** Delve: graveyard cards to exile, each paying one generic mana. The cards best given up start out chosen. */
+function DelvePanel({ state, actor, plan, onAdvance, onCancel }: Pick<Props, "state" | "actor" | "plan" | "onAdvance" | "onCancel">) {
+  const delve = plan.castable.delve!;
+  const [picked, setPicked] = useState<number[]>(() => delve.options.slice(0, delve.max).map((_, i) => i));
+  const cards = delve.options.map((iid) => state.players[actor].graveyard.find((c) => c.iid === iid)!);
+  return (
+    <ChoicePanel
+      title={`${plan.name} has delve: each card you exile from your graveyard pays one generic mana (${picked.length} chosen, ${delve.min > 0 ? `at least ${delve.min}, ` : ""}at most ${delve.max})`}
+      options={cards.map((c) => ({ label: state.cards[c.defId].name, onPick: () => undefined }))}
+      multi={{
+        selected: picked,
+        onToggle: (i) => setPicked(picked.includes(i) ? picked.filter((x) => x !== i) : picked.length < delve.max ? [...picked, i] : picked),
+        onDone: () => onAdvance({ ...plan, delve: picked.map((i) => cards[i].iid) }),
+        canDone: picked.length >= delve.min,
+      }}
+      onCancel={onCancel}
+    />
+  );
+}
+
+/** The question a spell being cast still needs answered, in order: modes, warp, the kicker (or offspring, or blight), X, delve, then a creature to sacrifice or a card to discard. */
 export default function CastPlanPanels({ state, actor, plan, modePick, onModePick, xValue, onX, onAdvance, onCancel }: Props) {
   const c = plan.castable;
   const teamworkDone = c.teamwork === undefined || plan.teamwork !== undefined;
@@ -141,6 +161,7 @@ export default function CastPlanPanels({ state, actor, plan, modePick, onModePic
   if (!xDone) {
     return <XPanel name={plan.name} max={c.maxX ?? 0} x={xValue} onChange={(x) => onX(Math.min(c.maxX ?? 0, Math.max(0, x)))} onCast={() => onAdvance({ ...plan, x: xValue })} onCancel={onCancel} />;
   }
+  if (c.delve && plan.delve === undefined) return <DelvePanel state={state} actor={actor} plan={plan} onAdvance={onAdvance} onCancel={onCancel} />;
   if (plan.sacrifice !== undefined) return null;
   if (c.sacrifice) {
     return (

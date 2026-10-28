@@ -1,11 +1,12 @@
 import { getCard } from "../cards.js";
 import { bindSpecs, exilePlayable, exilePlayTerms, forbidden, isCreature, isPermanentCard, kw, legalTargets, powerOf, subtypesOf } from "../core.js";
 import type { TargetSpec } from "../effects.js";
-import { addCosts, parseManaCost, payMana, withX } from "../mana.js";
+import { addCosts, parseManaCost, payMana, withDelve, withX } from "../mana.js";
+import type { ManaCost } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
 import { abilityHaste, abilityManaCost, abilityNeed, canCastNow, holdsPriority, sorceryTiming } from "./shared.js";
-import { castCostOf, costChoices, crewers, liftedSpecs, tapPair, teamworkers } from "./cast.js";
+import { castCostOf, costChoices, crewers, delveChoice, liftedSpecs, tapPair, teamworkers } from "./cast.js";
 
 // What a player could do right now (for the screen and for auto-passing).
 
@@ -34,6 +35,8 @@ export interface Castable {
   warpOnly?: boolean;
   /** Teamwork: the player may tap creatures with total power `n` or more (any of `options`) as an additional cost; the spell then counts as kicked. */
   teamwork?: { n: number; options: string[] };
+  /** Delve: graveyard cards that may be exiled to pay {1} each (best ones to give up first), at least `min` of them for the rest to be payable, at most `max`. */
+  delve?: { min: number; max: number; options: string[] };
 }
 
 /** Cards in hand the player could cast right now: right timing, enough mana, and a legal target for each need. */
@@ -48,10 +51,13 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
   if (!parsed.ok || !cost || !canCastNow(state, player, def)) return null;
   const warpCost = parsed.warp && zone === undefined ? parseManaCost(parsed.warp) : null;
   const canWarp = warpCost !== null && payMana(state, player, warpCost, def).ok;
-  const canNormal = payMana(state, player, withX(cost, 0), def).ok;
+  // Delve: cards in the graveyard can pay for the generic mana.
+  const yard = parsed.delve ? delveChoice(state, player, iid, Infinity) : [];
+  const afford = (c: ManaCost) => payMana(state, player, withDelve(c, yard.length), def).ok;
+  const canNormal = afford(withX(cost, 0));
   // "Costs {3} less to cast if it targets a tapped permanent": when only that price can be paid, only tapped targets are offered.
   const discount = parsed.costReduction?.ifTargetsTapped ? parsed.costReduction.n : 0;
-  const tappedOnly = !canNormal && discount > 0 && payMana(state, player, withX({ ...cost, generic: Math.max(0, cost.generic - discount) }, 0), def).ok;
+  const tappedOnly = !canNormal && discount > 0 && afford(withX({ ...cost, generic: Math.max(0, cost.generic - discount) }, 0));
   if (!canNormal && !canWarp && !tappedOnly) return null;
   const warpPart = canWarp ? { warp: parsed.warp, ...(canNormal ? {} : { warpOnly: true }) } : {};
   const specs = (parsed.spell?.targets ?? []).map((spec) => (tappedOnly && !canWarp ? { ...spec, filter: "tapped" as const } : spec));
@@ -64,7 +70,7 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
   if (modeInfo ? !modeInfo.some((m) => m.available) : reachable.some((spec) => legalTargets(state, spec, player).length === 0)) return null;
   const teamPart = canTeam ? { teamwork: { n: parsed.teamwork!, options: teamOptions.map((p) => p.card.iid) } } : {};
   const kickerCost = parsed.kicker ? parseManaCost(parsed.kicker) : null;
-  const kickable = kickerCost !== null && payMana(state, player, addCosts(cost, kickerCost), def).ok ? { kicker: parsed.kicker, ...(parsed.kickerName ? { kickerName: parsed.kickerName } : {}) } : {};
+  const kickable = kickerCost !== null && afford(addCosts(cost, kickerCost)) ? { kicker: parsed.kicker, ...(parsed.kickerName ? { kickerName: parsed.kickerName } : {}) } : {};
   const blightOptions = parsed.blight ? state.players[player].battlefield.filter((p) => isCreature(state, p)).map((p) => p.card.iid) : [];
   const blightPart = blightOptions.length > 0 ? { blight: { n: parsed.blight!, options: blightOptions } } : {};
   const modalPart = modal && modeInfo ? { modal: { min: modal.min, max: modal.max, ...(modal.bothIfKicked ? { bothIfKicked: true } : {}), modes: modeInfo } } : {};
@@ -72,7 +78,7 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
     const typed = parsed.extraSacrificeType;
     const options = state.players[player].battlefield.filter((p) => isCreature(state, p) && (!typed || subtypesOf(state, p).includes(typed))).map((p) => p.card.iid);
     const instead = parsed.extraSacrificeOrPay !== undefined ? parseManaCost(parsed.extraSacrificeOrPay) : null;
-    const canPay = instead !== null && payMana(state, player, addCosts(withX(cost, 0), instead), def).ok;
+    const canPay = instead !== null && afford(addCosts(withX(cost, 0), instead));
     if (options.length === 0 && !canPay) return null;
     Object.assign(modalPart, { sacrifice: options, ...(canPay ? { orPay: parsed.extraSacrificeOrPay } : {}) });
   }
@@ -81,11 +87,20 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
     if (options.length === 0) return null;
     Object.assign(modalPart, { discard: options });
   }
-  const zonePart = zone ? { zone } : {};
+  const zonePart = zone ? { zone, ...delveOf(state, player, def, withX(cost, 0), yard) } : delveOf(state, player, def, withX(cost, 0), yard);
   if (!cost.x) return { iid, specs, ...kickable, ...blightPart, ...teamPart, ...warpPart, ...modalPart, ...zonePart };
   let maxX = 0;
-  while (maxX < 30 && payMana(state, player, withX(cost, maxX + 1), def).ok) maxX++;
+  while (maxX < 30 && afford(withX(cost, maxX + 1))) maxX++;
   return { iid, specs, maxX, ...kickable, ...blightPart, ...teamPart, ...warpPart, ...modalPart, ...zonePart };
+}
+
+/** Delve's part of a Castable: how many of the graveyard cards (`yard`) must and may be exiled to pay for `cost`. */
+function delveOf(state: GameState, player: PlayerId, def: CardDef, cost: ManaCost, yard: string[]): Pick<Castable, "delve"> {
+  const max = Math.min(yard.length, cost.generic);
+  if (max === 0) return {};
+  let min = 0;
+  while (min < max && !payMana(state, player, withDelve(cost, min), def).ok) min++;
+  return { delve: { min, max, options: yard } };
 }
 
 export function getCastable(state: GameState, player: PlayerId): Castable[] {

@@ -109,6 +109,10 @@ export function parseCard(def: CardDef): ParsedCard {
         result.triggers.push({ event: "enters", ifKicked: true, effects: [{ type: "offspringCopy" }], targets: [], text: "Offspring: when this creature enters, create a 1/1 token copy of it." });
         return false;
       }
+      if (line === "delve") {
+        result.delve = true;
+        return false;
+      }
       const teamwork = /^teamwork (\d+)$/.exec(line);
       if (teamwork && (def.type === "instant" || def.type === "sorcery")) {
         result.teamwork = Number(teamwork[1]);

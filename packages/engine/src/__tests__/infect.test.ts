@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { applyAction, CARDS, createGame, isSupportedCard, legalTargets, parseCard } from "../index.js";
+import { applyAction, CARDS, createGame, getCastable, isSupportedCard, legalTargets, parseCard } from "../index.js";
 import { bindSpecs, entersTappedNow, kw, powerOf, subtypesOf, toughnessOf } from "../core.js";
 import type { Action, CardDef, CardInstance, GameState, PlayerId } from "../index.js";
 
@@ -27,6 +27,8 @@ const DEFS: Record<string, CardDef> = {
   inkmoth: card("inkmoth", "Inkmoth Nexus", "land", "", "Land", "{T}: Add {C}.\n{1}: This land becomes a 1/1 Phyrexian Blinkmoth artifact creature with flying and infect until end of turn. It's still a land. (It deals damage to creatures in the form of -1/-1 counters and to players in the form of poison counters.)"),
   pendelhaven: card("pendelhaven", "Pendelhaven", "land", "", "Legendary Land", "{T}: Add {G}.\n{T}: Target 1/1 creature gets +1/+2 until end of turn."),
   harbor: card("harbor", "Hinterland Harbor", "land", "", "Land", "This land enters tapped unless you control a Forest or an Island.\n{T}: Add {G} or {U}."),
+  immense: card("immense", "Become Immense", "instant", "{5}{G}", "Instant", "Delve (Each card you exile from your graveyard while casting this spell pays for {1}.)\nTarget creature gets +6/+6 until end of turn.", ["delve"]),
+  rage: card("rage", "Temur Battle Rage", "instant", "{1}{R}", "Instant", "Target creature gains double strike until end of turn.\nFerocious — That creature also gains trample until end of turn if you control a creature with power 4 or greater.", ["ferocious"]),
 };
 
 const perm = (iid: string, defId: string, owner: PlayerId = "p1") => ({ card: { iid, defId, owner } as CardInstance, tapped: false, summoningSick: false, damage: 0 });
@@ -66,7 +68,7 @@ function endTurn(g: GameState): GameState {
 }
 
 test("every card of the Infect deck that needed new rules is understood", () => {
-  for (const id of ["elf", "agent", "hierarch", "rotpriest", "krosa", "vines", "groundswell", "pierce", "inkmoth", "pendelhaven", "harbor"]) assert.equal(isSupportedCard(DEFS[id]), true, id);
+  for (const id of ["elf", "agent", "hierarch", "rotpriest", "krosa", "vines", "groundswell", "pierce", "inkmoth", "pendelhaven", "harbor", "immense", "rage"]) assert.equal(isSupportedCard(DEFS[id]), true, id);
 });
 
 test("infect: combat damage to a player is poison counters, and to a creature -1/-1 counters", () => {
@@ -205,4 +207,62 @@ test("Hinterland Harbor enters tapped unless you control a Forest or an Island",
   assert.equal(entersTappedNow(g, "p1", DEFS.harbor), false);
   g.players.p1.battlefield = [perm("x", "inkmoth")];
   assert.equal(entersTappedNow(g, "p1", DEFS.harbor), true);
+});
+
+/** p1's graveyard: `n` cards, a creature first and then lands. */
+const fillYard = (g: GameState, n: number) => {
+  g.players.p1.graveyard = Array.from({ length: n }, (_, i) => ({ iid: `y${i}`, defId: i === 0 ? "elf" : "forest", owner: "p1" }));
+};
+const tapped = (g: GameState) => g.players.p1.battlefield.filter((p) => p.tapped).length;
+
+test("Become Immense: delve exiles graveyard cards to pay {1} each, lands before creatures", () => {
+  let g = setup(["immense"], ["elf"]);
+  fillYard(g, 5);
+  g = cast(g, "h0", [on("m0")]);
+  assert.equal(powerOf(g, find(g, "m0")!), 7);
+  assert.equal(g.players.p1.exile.length, 5, "the whole graveyard paid for the {5}");
+  assert.equal(tapped(g), 1, "only the {G} came from a land");
+
+  const chosen = setup(["immense"], ["elf"]);
+  fillYard(chosen, 5);
+  const r = settle(act(chosen, "p1", { type: "castSpell", iid: "h0", targets: [on("m0")], delve: ["y1", "y2"] }));
+  assert.equal(r.players.p1.exile.length, 2);
+  assert.equal(tapped(r), 4, "{G} and the {3} left");
+  assert.deepEqual(r.players.p1.graveyard.map((c) => c.iid).sort(), ["h0", "y0", "y3", "y4"]);
+
+  const auto = setup(["immense"], ["elf"]);
+  fillYard(auto, 6);
+  const picked = settle(act(auto, "p1", { type: "castSpell", iid: "h0", targets: [on("m0")] }));
+  assert.deepEqual(picked.players.p1.graveyard.map((c) => c.iid).sort(), ["h0", "y0"], "the five lands pay, the creature stays");
+});
+
+test("Become Immense can be cast with the graveyard paying what the lands can't, and delve is checked", () => {
+  const g = setup(["immense"], ["elf"]);
+  g.players.p1.battlefield.forEach((p) => p.card.defId !== "forest" && p.card.defId !== "elf" && (p.tapped = true));
+  g.players.p1.battlefield.filter((p) => p.card.defId === "forest").slice(1).forEach((p) => (p.tapped = true));
+  fillYard(g, 4);
+  assert.equal(getCastable(g, "p1").length, 0, "one Forest and four cards can't pay {5}{G}");
+  fillYard(g, 6);
+  assert.deepEqual(getCastable(g, "p1")[0]?.delve, { min: 5, max: 5, options: ["y1", "y2", "y3", "y4", "y5", "y0"] });
+
+  const all = setup(["immense"], ["elf"]);
+  fillYard(all, 6);
+  const tooMany = applyAction(all, "p1", { type: "castSpell", iid: "h0", targets: [on("m0")], delve: ["y0", "y1", "y2", "y3", "y4", "y5"] });
+  assert.equal(tooMany.ok, false, "delve pays only the generic {5}");
+  const notThere = applyAction(all, "p1", { type: "castSpell", iid: "h0", targets: [on("m0")], delve: ["l0"] });
+  assert.equal(notThere.ok, false, "only cards in the graveyard");
+});
+
+test("Temur Battle Rage: double strike doubles an infect creature's poison; ferocious adds trample", () => {
+  let g = setup(["rage"], ["elf", "mountain"]);
+  g = cast(g, "h0", [on("m0")]);
+  assert.equal(kw(g, find(g, "m0")!, "double strike"), true);
+  assert.equal(kw(g, find(g, "m0")!, "trample"), false, "no creature with power 4 or greater");
+  g = attack(g, ["m0"]);
+  assert.equal(g.players.p2.poison, 2);
+
+  let h = setup(["krosa", "rage"], ["elf", "mountain"]);
+  h = cast(h, "h0", [on("m0")]); // +4/+4 in the main phase: a 5/5
+  h = cast(h, "h1", [on("m0")]);
+  assert.equal(kw(h, find(h, "m0")!, "trample"), true);
 });

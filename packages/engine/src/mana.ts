@@ -52,6 +52,11 @@ export function withX(cost: ManaCost, x: number): ManaCost {
   return { ...cost, generic: cost.generic + (cost.x ?? 0) * x, x: 0 };
 }
 
+/** Delve: the cost with `n` of its generic mana paid by cards exiled from the graveyard. */
+export function withDelve(cost: ManaCost, n: number): ManaCost {
+  return n > 0 ? { ...cost, generic: Math.max(0, cost.generic - n) } : cost;
+}
+
 /** The cost with `n` of its Phyrexian symbols paid with life, as the player chose. Null when it has fewer than `n`. */
 export function withPhyrexianLife(cost: ManaCost, n: number): ManaCost | null {
   if (!Number.isInteger(n) || n < 0 || n > (cost.phyrexian ?? []).length) return null;
