@@ -67,7 +67,13 @@ export function LandsDivider({ landsBelow, onMat }: { landsBelow: boolean; onMat
 
 // A land played this turn is summoning sick too, which only matters once it becomes a creature.
 const statusOf = (p: Permanent, creature: boolean) =>
-  [p.tapped && "Tapped", p.summoningSick && creature && "Summoning sick", p.damage > 0 && `${p.damage} damage`].filter(Boolean) as string[];
+  [
+    p.tapped && "Tapped",
+    p.summoningSick && creature && "Summoning sick",
+    p.damage > 0 && `${p.damage} damage`,
+    p.counters && `${p.counters} +1/+1 counter${p.counters === 1 ? "" : "s"}`,
+    p.minusCounters && `${p.infected ? "Infected: " : ""}${p.minusCounters} -1/-1 counter${p.minusCounters === 1 ? "" : "s"}`,
+  ].filter(Boolean) as string[];
 
 /** One row of permanents (lands or creatures). */
 export function Lane({
@@ -105,8 +111,6 @@ export function Lane({
     const tags = [
       ...(host ? [`On: ${state.cards[host.card.defId].name}`] : []),
       ...attached.map((a) => `+ ${state.cards[a.card.defId].name}`),
-      ...(p.counters ? [`${p.counters}× +1/+1`] : []),
-      ...(p.minusCounters ? [`${p.minusCounters}× -1/-1`] : []),
       ...(p.stun ? [`${p.stun}× stun`] : []),
       ...(p.prepared ? ["Prepared"] : []),
       ...(p.solved ? ["Solved"] : []),
@@ -132,6 +136,7 @@ export function Lane({
       <CardView
         iid={p.card.iid}
         tags={tags}
+        counters={{ plus: p.counters, minus: p.minusCounters, infected: p.infected }}
         power={creature ? powerOf(state, p) : undefined}
         toughness={creature ? toughnessOf(state, p) : undefined}
         attacking={attackingIds.includes(p.card.iid)}

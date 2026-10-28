@@ -80,6 +80,7 @@ test("infect: combat damage to a player is poison counters, and to a creature -1
   h = settle(act(h, "p2", { type: "declareBlockers", blocks: [{ blocker: "t0", attacker: "m0" }] }));
   const bear = find(h, "t0")!;
   assert.equal(bear.minusCounters, 1);
+  assert.equal(bear.infected, true, "marked as infected");
   assert.equal(bear.damage, 0);
   assert.equal(toughnessOf(h, bear), 1, "the counter stays after the turn");
   assert.equal(find(h, "m0"), undefined, "the Bear's normal damage kills the Elf");

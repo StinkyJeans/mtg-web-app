@@ -45,6 +45,8 @@ interface Props {
   hint?: string;
   /** Small labels on the card, e.g. "On: Grizzly Bears" for an Aura, or the Auras attached to a creature. */
   tags?: string[];
+  /** Counters on it. -1/-1 counters that infect put there make the card look infected. */
+  counters?: { plus?: number; minus?: number; infected?: boolean };
   /** Tailwind ring classes, e.g. "ring-2 ring-amber-400" */
   ring?: string;
   note?: string;
@@ -63,13 +65,38 @@ interface Props {
   onZoom?: () => void;
 }
 
-function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness, tags, castable, castLabel, dim, hint, ring = "", note, size = "sm", iid, attacking, onClick, onHover, onZoom }: Props) {
+/** "+1/+1 ×2", and "☣ Infected −1/−1 ×1" in poison green. */
+function CounterChips({ plus = 0, minus = 0, infected = false }: NonNullable<Props["counters"]>) {
+  if (plus <= 0 && minus <= 0) return null;
+  return (
+    <div className="absolute left-1 top-1/2 z-10 flex -translate-y-1/2 flex-col items-start gap-1 text-[10px] font-bold leading-tight">
+      {minus > 0 && (
+        <span
+          title={`${infected ? "Infected: " : ""}${minus} -1/-1 counter${minus === 1 ? "" : "s"}. ${minus === 1 ? "It stays" : "They stay"} on the creature.`}
+          className="flex flex-col rounded-md bg-lime-950/90 px-1.5 py-0.5 text-lime-300 shadow ring-1 ring-lime-400/80"
+        >
+          {infected && <span>☣ Infected</span>}
+          <span>−1/−1 ×{minus}</span>
+        </span>
+      )}
+      {plus > 0 && (
+        <span title={`${plus} +1/+1 counter${plus === 1 ? "" : "s"}`} className="rounded-md bg-emerald-700/90 px-1.5 py-0.5 text-white shadow ring-1 ring-emerald-300/80">
+          +1/+1 ×{plus}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness, tags, counters, castable, castLabel, dim, hint, ring = "", note, size = "sm", iid, attacking, onClick, onHover, onZoom }: Props) {
   const tokenArt = useTokenArt(def); // tokens have no stored art: it comes from Scryfall
   const imageUrl = def.image ? cardImageUrl(def.image) : tokenArt?.small || null;
   const tokenFrame = !imageUrl && isTokenDef(def); // a token Scryfall has no picture of: we draw the card ourselves
   const nowPower = power ?? def.power ?? 0;
   const toughnessLeft = (toughness ?? def.toughness ?? 0) - damage;
   const changed = def.type === "creature" && (nowPower !== (def.power ?? 0) || (toughness ?? def.toughness ?? 0) !== (def.toughness ?? 0));
+  const infected = counters?.infected === true && (counters.minus ?? 0) > 0;
+  const statsTone = damage > 0 ? "bg-red-700 text-white" : (counters?.minus ?? 0) > 0 ? "bg-lime-900 text-lime-200 ring-1 ring-lime-400" : "bg-emerald-700 text-white";
   const base = `relative shrink-0 overflow-hidden rounded-lg border border-zinc-600 text-left text-xs transition ${
     tapped && !attacking ? `rotate-90 brightness-[.72] ${TAP_MARGIN[size]}` : ""
   } ${attacking ? "-translate-y-3 scale-105 shadow-xl shadow-red-500/50 ring-2 ring-red-500" : ""} ${
@@ -99,7 +126,9 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
       >
         <span className="sr-only">{def.name}</span>
         {tokenFrame && <TokenFrame def={def} art={tokenArt?.crop} power={nowPower} toughness={toughnessLeft} damaged={damage > 0} />}
+        {infected && <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-lime-500/45 via-lime-900/15 to-transparent" />}
         {badge}
+        {counters && <CounterChips {...counters} />}
         <div className="absolute inset-x-0 bottom-0 flex flex-wrap gap-1 p-1 text-[10px] font-semibold">
           {note && <span className="rounded bg-sky-600 px-1 text-white">{note}</span>}
           {tags?.map((t, i) => (
@@ -115,7 +144,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
           {summoningSick && <span className="rounded bg-black/80 px-1 text-zinc-200">Summoning sick</span>}
         </div>
         {!tokenFrame && (damage > 0 || changed) && (
-          <span className={`absolute right-1 top-1 rounded px-1.5 py-0.5 text-xs font-bold text-white ${damage > 0 ? "bg-red-700" : "bg-emerald-700"}`} title="Power / toughness now">
+          <span className={`absolute right-1 top-1 rounded px-1.5 py-0.5 text-xs font-bold ${statsTone}`} title="Power / toughness now">
             {nowPower}/{toughnessLeft}
           </span>
         )}
@@ -138,6 +167,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
       className={`${base} ${tint} flex flex-col justify-between p-2 text-white ${FRAME_SIZE[size]}`}
     >
       {badge}
+      {counters && <CounterChips {...counters} />}
       <div className="flex justify-between gap-1 rounded bg-black/40 px-1">
         <span className="font-semibold leading-tight">{def.name}</span>
         {def.type === "creature" && <span className="text-amber-300">{def.cost}</span>}

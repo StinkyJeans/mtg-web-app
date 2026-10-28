@@ -78,8 +78,10 @@ export function dealDamage(
     const needed = source.deathtouch ? Math.min(1, lethal) : lethal;
     state.lastExcess = Math.max(0, amount - needed); // "you gain life equal to the excess damage dealt this way"
     if (amount > needed && victim) excessDamageDealt(state, victim);
-    if (source.infect) target.perm.minusCounters = (target.perm.minusCounters ?? 0) + amount;
-    else target.perm.damage += amount;
+    if (source.infect) {
+      target.perm.minusCounters = (target.perm.minusCounters ?? 0) + amount;
+      target.perm.infected = true;
+    } else target.perm.damage += amount;
     if (source.deathtouch) target.perm.deathtouched = true;
     if (victim) creatureDamaged(state, target.perm, victim, amount); // "Whenever ~ is dealt damage"
   }

@@ -105,6 +105,8 @@ export interface Permanent {
   counters?: number;
   /** -1/-1 counters. A +1/+1 and a -1/-1 counter on the same permanent cancel each other out. */
   minusCounters?: number;
+  /** Dealt damage by a source with infect: some of its -1/-1 counters came from infect. */
+  infected?: boolean;
   /** It was cast with its kicker paid. */
   kicked?: boolean;
   /** A Vehicle that has been crewed this turn: it is an artifact creature until end of turn. */

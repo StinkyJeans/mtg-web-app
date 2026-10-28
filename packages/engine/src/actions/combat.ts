@@ -176,8 +176,10 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
       } else if (getCard(state, target.card.defId).type === "planeswalker") {
         target.loyalty = (target.loyalty ?? 0) - amount; // damage to a planeswalker removes loyalty
       } else {
-        if (infect) target.minusCounters = (target.minusCounters ?? 0) + amount;
-        else target.damage += amount;
+        if (infect) {
+          target.minusCounters = (target.minusCounters ?? 0) + amount;
+          target.infected = true;
+        } else target.damage += amount;
         creatureDamaged(state, target, target.card.owner, amount); // "Whenever ~ is dealt damage"
         (target.damagedBy ??= []).push(source.card.iid);
         if (kw(state, source, "deathtouch")) target.deathtouched = true;
