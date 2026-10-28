@@ -4,6 +4,12 @@ import { ManaText } from "./ManaSymbols";
 import { CostChips, splitAbility } from "./abilityText";
 import { preparedSpell } from "./castInfo";
 
+/** Why an exiled card may be played: warp, Lightstall Inquisitor ("exiled" from hand), airbend, or exiled from the library for a while or in turns its source attacked. */
+export type ExileReason = "warp" | "exiled" | "airbend" | "untilEndStep" | "untilNextTurn" | "attacked";
+type MayPlay = NonNullable<GameState["players"]["p1"]["mayPlay"]>[number];
+const exileReason = (entry: MayPlay): ExileReason =>
+  entry.source === "warp" || entry.source === "exiled" || entry.source === "airbend" ? entry.source : entry.untilTurn !== undefined ? "untilEndStep" : entry.throughTurn !== undefined ? "untilNextTurn" : "attacked";
+
 const COMBAT_KEYWORDS = ["trample", "flying", "menace", "first strike", "double strike", "deathtouch", "lifelink", "vigilance", "indestructible", "reach"];
 
 /** Everything that can be done with abilities right now. It lives in a pop-up (the button is in the command bar) so it doesn't take board space. */
@@ -23,10 +29,10 @@ export function abilityList(state: GameState, actor: PlayerId) {
         const card = [...me.graveyard, ...me.exile].find((x) => x.iid === c.iid)!;
         const def = state.cards[card.defId];
         // A creature card cast from the graveyard (Case of the Uneaten Feast), or a warped card cast from exile, costs its mana cost.
-        // One exiled from the hand by Lightstall Inquisitor costs more (`tax`).
+        // One exiled from the hand by Lightstall Inquisitor costs more (`tax`); an airbent one costs {2} instead.
         const entry = c.zone === "exile" ? me.mayPlay?.find((e) => e.iid === c.iid) : undefined;
-        const why = c.zone === "graveyard" && def.type === "creature" ? ("yard" as const) : entry?.source === "warp" ? ("warp" as const) : entry?.source === "exiled" ? ("exiled" as const) : undefined;
-        const cost = c.zone === "exile" || why === "yard" ? (def.manaCost ?? "") : (parseCard(def).flashback ?? "");
+        const why = c.zone === "graveyard" && def.type === "creature" ? ("yard" as const) : entry ? exileReason(entry) : undefined;
+        const cost = entry?.payGeneric !== undefined ? `{${entry.payGeneric}}` : c.zone === "exile" || why === "yard" ? (def.manaCost ?? "") : (parseCard(def).flashback ?? "");
         return { iid: c.iid, name: def.name, cost, zone: c.zone as "graveyard" | "exile", ...(why ? { why } : {}), ...(entry?.tax ? { tax: entry.tax } : {}) };
       }),
     exileLands: getLegalActions(state, actor).flatMap((a) =>

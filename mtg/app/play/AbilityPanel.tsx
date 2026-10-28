@@ -4,6 +4,7 @@ import type { Activatable, Crewable, Cyclable, GameState, LoyaltyOption } from "
 import { ManaText } from "./ManaSymbols";
 import { Help, readable } from "./cardText";
 import { CostChips, lockHint, splitAbility } from "./abilityText";
+import type { ExileReason } from "./abilityInfo";
 
 /** The name of a card in either player's hand. */
 const cardName = (state: GameState, iid: string) => {
@@ -40,7 +41,7 @@ export function AbilityPanel({
   loyalty?: LoyaltyOption[];
   onLoyalty?: (a: LoyaltyOption) => void;
   /** `source`: for a copy cast from a prepared creature, that creature's name. */
-  flashbacks?: { iid: string; name: string; cost: string; zone?: "graveyard" | "exile" | "prepared"; source?: string; why?: "yard" | "warp" | "exiled"; tax?: number }[];
+  flashbacks?: { iid: string; name: string; cost: string; zone?: "graveyard" | "exile" | "prepared"; source?: string; why?: "yard" | ExileReason; tax?: number }[];
   /** Lands in exile that may be played ("you may play that card"). */
   exileLands?: { iid: string; name: string; tapped?: boolean }[];
   onPlayLand?: (iid: string) => void;
@@ -101,9 +102,17 @@ export function AbilityPanel({
               <>
                 <span className="font-semibold">Cast {f.name}</span>: <ManaText text={f.cost} /> plus <ManaText text={`{${f.tax ?? 0}}`} /> — it was exiled from your hand, so it costs more
               </>
+            ) : f.why === "airbend" ? (
+              <>
+                <span className="font-semibold">Cast {f.name}</span>: <ManaText text={f.cost} /> — it was airbent: while it is exiled you may cast it for <ManaText text="{2}" /> instead of its mana cost
+              </>
+            ) : f.why === "untilEndStep" || f.why === "untilNextTurn" ? (
+              <>
+                <span className="font-semibold">Play {f.name}</span>: <ManaText text={f.cost} /> — exiled from your library; you may play it {f.why === "untilEndStep" ? "until your next end step" : "until the end of your next turn"}
+              </>
             ) : f.zone === "exile" ? (
               <>
-                <span className="font-semibold">Play {f.name}</span>: <ManaText text={f.cost} /> — it was exiled and you attacked this turn
+                <span className="font-semibold">Play {f.name}</span>: <ManaText text={f.cost} /> — exiled from your library; you may play it during a turn you attacked with the creature that exiled it
               </>
             ) : f.why === "yard" ? (
               <>
