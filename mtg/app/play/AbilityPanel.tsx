@@ -23,6 +23,8 @@ export function AbilityPanel({
   onCrew,
   loyalty = [],
   onLoyalty,
+  plots = [],
+  onPlot,
   flashbacks = [],
   exileLands = [],
   onPlayLand,
@@ -40,8 +42,11 @@ export function AbilityPanel({
   onCrew?: (iid: string) => void;
   loyalty?: LoyaltyOption[];
   onLoyalty?: (a: LoyaltyOption) => void;
+  /** Cards in hand that can be plotted now. */
+  plots?: { iid: string; name: string; cost: string }[];
+  onPlot?: (iid: string) => void;
   /** `source`: for a copy cast from a prepared creature, that creature's name. */
-  flashbacks?: { iid: string; name: string; cost: string; zone?: "graveyard" | "exile" | "prepared"; source?: string; why?: "yard" | ExileReason; tax?: number }[];
+  flashbacks?: { iid: string; name: string; cost: string; zone?: "graveyard" | "exile" | "prepared"; source?: string; why?: "yard" | ExileReason; tax?: number; sacrifice?: string }[];
   /** Lands in exile that may be played ("you may play that card"). */
   exileLands?: { iid: string; name: string; tapped?: boolean }[];
   onPlayLand?: (iid: string) => void;
@@ -58,11 +63,12 @@ export function AbilityPanel({
     cycles = cycles.filter((c) => c.iid === only);
     crews = crews.filter((c) => c.iid === only);
     loyalty = loyalty.filter((l) => l.iid === only);
+    plots = [];
     flashbacks = [];
     exileLands = [];
     locked = locked.filter((l) => l.key.includes(only));
   }
-  if (abilities.length === 0 && cycles.length === 0 && crews.length === 0 && loyalty.length === 0 && flashbacks.length === 0 && exileLands.length === 0 && locked.length === 0) return null;
+  if (abilities.length === 0 && cycles.length === 0 && crews.length === 0 && loyalty.length === 0 && plots.length === 0 && flashbacks.length === 0 && exileLands.length === 0 && locked.length === 0) return null;
   const nameOfPerm = (iid: string) => {
     for (const p of Object.values(state.players)) {
       const card = [...p.battlefield.map((x) => x.card), ...p.hand, ...p.graveyard].find((c) => c.iid === iid);
@@ -106,6 +112,15 @@ export function AbilityPanel({
               <>
                 <span className="font-semibold">Cast {f.name}</span>: <ManaText text={f.cost} /> — it was airbent: while it is exiled you may cast it for <ManaText text="{2}" /> instead of its mana cost
               </>
+            ) : f.why === "plot" ? (
+              <>
+                <span className="font-semibold">Cast {f.name}</span> for free — you plotted it; cast it as a sorcery, without paying its mana cost
+                <Help text="plot" large />
+              </>
+            ) : f.why === "thisTurn" ? (
+              <>
+                <span className="font-semibold">Play {f.name}</span>: <ManaText text={f.cost} /> — exiled from your library; you may play it this turn
+              </>
             ) : f.why === "untilEndStep" || f.why === "untilNextTurn" ? (
               <>
                 <span className="font-semibold">Play {f.name}</span>: <ManaText text={f.cost} /> — exiled from your library; you may play it {f.why === "untilEndStep" ? "until your next end step" : "until the end of your next turn"}
@@ -118,6 +133,11 @@ export function AbilityPanel({
               <>
                 <span className="font-semibold">Cast {f.name}</span>: <ManaText text={f.cost} /> — from your graveyard, this turn only
               </>
+            ) : f.sacrifice ? (
+              <>
+                <span className="font-semibold">Flashback {f.name}</span>: sacrifice a {f.sacrifice} — cast it from your graveyard
+                <Help text="flashback" large />
+              </>
             ) : (
               <>
                 <span className="font-semibold">Flashback {f.name}</span>: <ManaText text={f.cost} /> — cast it from your graveyard
@@ -129,6 +149,13 @@ export function AbilityPanel({
         {exileLands.map((l) => (
           <button key={`exile-land-${l.iid}`} onClick={() => onPlayLand?.(l.iid)} className="rounded-lg border border-emerald-400 bg-white px-3 py-2 text-left text-base leading-snug hover:bg-emerald-100">
             <span className="font-semibold">Play {l.name}</span> as your land for the turn — {l.tapped ? "it was exiled from your hand, and enters tapped" : "it was exiled and you attacked this turn"}
+          </button>
+        ))}
+        {plots.map((p) => (
+          <button key={`plot-${p.iid}`} onClick={() => onPlot?.(p.iid)} className="rounded-lg border border-emerald-400 bg-white px-3 py-2 text-left text-base leading-snug hover:bg-emerald-100">
+            <span className="font-semibold">Plot {p.name}</span>
+            : <ManaText text={p.cost} /> — exile it face up; on a later turn you may cast it as a sorcery without paying its mana cost <span className="rounded bg-emerald-100 px-1.5 text-sm text-emerald-800">works from your hand</span>
+            <Help text="plot" large />
           </button>
         ))}
         {cycles.map((c) => (

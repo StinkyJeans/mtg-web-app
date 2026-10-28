@@ -64,6 +64,8 @@ export default function AbilitiesDialog({ state, actor, list, onClose, onAct, on
           onCrew={closing((iid: string) => onAct({ type: "crew", iid }))}
           loyalty={list.loyalty}
           onLoyalty={closing(onLoyalty)}
+          plots={list.plots}
+          onPlot={closing((iid: string) => onAct({ type: "plot", iid }))}
           locked={lockedAbilities(state, actor)}
           warnings={abilityWarnings(state, actor)}
           only={only}

@@ -158,7 +158,10 @@ export const grantsTwoOfOneColor = (def: CardDef): boolean => /^enchanted land h
 /** "Activate only if this land entered this turn or if you control a basic land." (the Marvel dual lands) */
 const GATE = /\.? ?activate only if (?:this land|~) entered this turn or if you control a basic land\.?/gi;
 
-function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chosen: boolean; gated: ManaColor[] } | undefined {
+/** "{T}, Pay 1 life: Add {U} or {R}.": the life each tap costs. */
+export const manaAbilityLife = (def: CardDef): number => manaAbility(def)?.life ?? 0;
+
+function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chosen: boolean; gated: ManaColor[]; life: number } | undefined {
   const text = (def.text ?? "")
     .replace(/\([^)]*\)/g, "")
     .replace(/\.? ?spend this mana only to cast an instant or sorcery spell\.?/gi, "")
@@ -169,10 +172,13 @@ function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chose
   const gated = new Set<ManaColor>();
   let amount = 1;
   let chosen = false;
+  let life = 0;
   for (const rawLine of text.split("\n")) {
     const isGated = rawLine.search(GATE) >= 0;
     const raw = rawLine.replace(GATE, "");
-    const m = /^\{t\}(?:, sacrifice (?:~|this [a-z]+))?: add (.+?)\.?$/.exec(raw.trim());
+    const pain = /^(\{t\}), pay (\d+) life(: add .+)$/.exec(raw.trim());
+    if (pain) life = Number(pain[2]);
+    const m = /^\{t\}(?:, sacrifice (?:~|this [a-z]+))?: add (.+?)\.?$/.exec(pain ? `${pain[1]}${pain[3]}` : raw.trim());
     if (!m) continue;
     if (isGated) {
       // "{T}: Add {G} or {W}. Activate only if ...": the colors only count while the condition holds
@@ -209,7 +215,7 @@ function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chose
     if (fixed.every(Boolean) && (fixed.length > 0 || chosen)) fixed.forEach((p) => found.add(p![1].toUpperCase() as ManaColor));
     else if (pieces.includes("one mana of the chosen color")) chosen = false;
   }
-  return found.size > 0 || gated.size > 0 || chosen ? { colors: [...new Set([...found, ...gated])], amount, chosen, gated: [...gated].filter((c) => !found.has(c)) } : undefined;
+  return found.size > 0 || gated.size > 0 || chosen ? { colors: [...new Set([...found, ...gated])], amount, chosen, gated: [...gated].filter((c) => !found.has(c)), life } : undefined;
 }
 
 /** "{T}: Add X mana of any one color": how many mana one tap makes (2, or the permanent's power), if the card has such a line. */
@@ -276,6 +282,8 @@ interface Source {
   colors: ManaColor[];
   /** A filter land's slot: it costs this many other sources when used. */
   filter?: number;
+  /** "{T}, Pay 1 life: Add ...": the life it costs to use. */
+  life?: number;
 }
 
 /** One tap makes several mana of ONE color, chosen as they are spent: an enchanted land ("two mana of any one color"), Shang-Chi, Doc Samson. */
@@ -329,9 +337,14 @@ export function payForAbility(state: GameState, player: PlayerId, cost: ManaCost
 function payFrom(state: GameState, player: PlayerId, cost: ManaCost, forSpell: CardDef | undefined, forAbility: CardDef | undefined, useFilters: boolean): PayResult {
   const sources: Source[] = [];
   const spare = state.players[player].spareMana ?? [];
-  // Lands come first, so a creature or artifact that makes mana is only used when the lands can't pay.
+  // Lands come first, so a creature or artifact that makes mana is only used when the lands can't pay; a land that costs life comes after the others.
   // Mana that gives the spell haste (Carnelian Orb of Dragonkind on a Dragon) goes before everything.
-  const rank = (p: Permanent) => (forSpell && hasteFrom(state, p.card.iid, forSpell) ? -1 : getCard(state, p.card.defId).type === "land" ? 0 : 1);
+  const rank = (p: Permanent) => {
+    const def = getCard(state, p.card.defId);
+    if (forSpell && hasteFrom(state, p.card.iid, forSpell)) return -1;
+    if (def.type !== "land") return 1;
+    return manaAbilityLife(def) > 0 ? 0.5 : 0;
+  };
   const order = [...state.players[player].battlefield].sort((a, b) => rank(a) - rank(b));
   const oneColor: string[] = [];
   for (const perm of order) {
@@ -346,7 +359,8 @@ function payFrom(state: GameState, player: PlayerId, cost: ManaCost, forSpell: C
     // A source that makes two mana counts twice; tapping it once pays for both.
     const amount = colors.length > 0 ? manaAmountOf(state, player, perm) : 0;
     if (amount > 0 && makesOneColorMana(state, perm)) oneColor.push(perm.card.iid);
-    for (let i = 0; i < amount; i++) sources.push({ iid: perm.card.iid, colors: oneColor.includes(perm.card.iid) ? ALL_FIVE : colors });
+    const life = manaAbilityLife(getCard(state, perm.card.defId));
+    for (let i = 0; i < amount; i++) sources.push({ iid: perm.card.iid, colors: oneColor.includes(perm.card.iid) ? ALL_FIVE : colors, ...(life > 0 ? { life } : {}) });
   }
   if (oneColor.length === 0) return paySources(state, player, cost, sources, forSpell);
   // "Two mana of any one color": try each color for each such land, keeping the payment that taps the fewest permanents.
@@ -495,8 +509,6 @@ function paySources(state: GameState, player: PlayerId, cost: ManaCost, sources:
       extraGeneric += 2;
     }
   }
-  if (life > state.players[player].life) return { ok: false, missing: "life" };
-
   const tap = [...new Set(sources.filter((_, s) => owner[s] !== undefined).map((src) => src.iid))];
   // A filter land that was used pays its {n} with n other sources (it makes n mana in return, so it adds nothing to the generic pool).
   const filterUsed = new Map<string, number>();
@@ -506,12 +518,15 @@ function paySources(state: GameState, player: PlayerId, cost: ManaCost, sources:
   const plenty = new Map<ManaColor, number>();
   for (const src of rest) if (src.colors.length === 1) plenty.set(src.colors[0], (plenty.get(src.colors[0]) ?? 0) + 1);
   rest.sort((a, b) => {
-    const rank = (src: Source) => (forSpell && hasteFrom(state, src.iid, forSpell) ? -Infinity : src.colors.length === 1 ? -(plenty.get(src.colors[0]) ?? 0) : 1000 + src.colors.length);
+    const rank = (src: Source) => (forSpell && hasteFrom(state, src.iid, forSpell) ? -Infinity : (src.life ? 5000 : 0) + (src.colors.length === 1 ? -(plenty.get(src.colors[0]) ?? 0) : 1000 + src.colors.length));
     return rank(a) - rank(b);
   });
   if (rest.length < cost.generic + extraGeneric + filterCost) return { ok: false, missing: "generic" };
   const generic = rest.slice(0, cost.generic + extraGeneric + filterCost);
   for (const src of generic) if (!tap.includes(src.iid)) tap.push(src.iid);
+  // A land that costs life to tap ("{T}, Pay 1 life: Add {U} or {R}")
+  life += tap.reduce((n, iid) => n + (sources.find((src) => src.iid === iid)?.life ?? 0), 0);
+  if (life > state.players[player].life) return { ok: false, missing: "life" };
   const made = [
     ...sources.flatMap((src, s) => (owner[s] === undefined ? [] : [{ iid: src.iid, color: src.colors.find((c) => needs[owner[s]!].includes(c)) ?? src.colors[0] }])),
     ...generic.map((src) => ({ iid: src.iid, color: src.colors[0] ?? ("C" as const) })),

@@ -1,14 +1,14 @@
-import { abilityLockReason, getActivatable, getCastable, getCrewable, getCyclable, getLegalActions, getLoyaltyAbilities, parseCard, parseManaCost, payMana } from "@mtg/engine";
+import { abilityLockReason, getActivatable, getCastable, getCrewable, getCyclable, getLegalActions, getLoyaltyAbilities, getPlottable, parseCard, parseManaCost, payMana } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { ManaText } from "./ManaSymbols";
 import { CostChips, splitAbility } from "./abilityText";
 import { preparedSpell } from "./castInfo";
 
-/** Why an exiled card may be played: warp, Lightstall Inquisitor ("exiled" from hand), airbend, or exiled from the library for a while or in turns its source attacked. */
-export type ExileReason = "warp" | "exiled" | "airbend" | "untilEndStep" | "untilNextTurn" | "attacked";
+/** Why an exiled card may be played: warp, Lightstall Inquisitor ("exiled" from hand), airbend, plot, or exiled from the library for a while or in turns its source attacked. */
+export type ExileReason = "warp" | "exiled" | "airbend" | "plot" | "thisTurn" | "untilEndStep" | "untilNextTurn" | "attacked";
 type MayPlay = NonNullable<GameState["players"]["p1"]["mayPlay"]>[number];
 const exileReason = (entry: MayPlay): ExileReason =>
-  entry.source === "warp" || entry.source === "exiled" || entry.source === "airbend" ? entry.source : entry.untilTurn !== undefined ? "untilEndStep" : entry.throughTurn !== undefined ? "untilNextTurn" : "attacked";
+  entry.source === "warp" || entry.source === "exiled" || entry.source === "airbend" || entry.source === "plot" || entry.source === "thisTurn" ? entry.source : entry.untilTurn !== undefined ? "untilEndStep" : entry.throughTurn !== undefined ? "untilNextTurn" : "attacked";
 
 const COMBAT_KEYWORDS = ["trample", "flying", "menace", "first strike", "double strike", "deathtouch", "lifelink", "vigilance", "indestructible", "reach"];
 
@@ -20,6 +20,7 @@ export function abilityList(state: GameState, actor: PlayerId) {
     cycles: getCyclable(state, actor),
     crews: getCrewable(state, actor),
     loyalty: getLoyaltyAbilities(state, actor),
+    plots: getPlottable(state, actor).map((p) => ({ ...p, name: state.cards[me.hand.find((c) => c.iid === p.iid)!.defId].name })),
     // Spells that can be cast from the graveyard (flashback), from exile ("you may play that card") or as a copy from a prepared creature, and lands that can be played from exile.
     flashbacks: getCastable(state, actor)
       .filter((c) => c.zone === "graveyard" || c.zone === "exile" || c.zone === "prepared")
@@ -33,7 +34,8 @@ export function abilityList(state: GameState, actor: PlayerId) {
         const entry = c.zone === "exile" ? me.mayPlay?.find((e) => e.iid === c.iid) : undefined;
         const why = c.zone === "graveyard" && def.type === "creature" ? ("yard" as const) : entry ? exileReason(entry) : undefined;
         const cost = entry?.payGeneric !== undefined ? `{${entry.payGeneric}}` : c.zone === "exile" || why === "yard" ? (def.manaCost ?? "") : (parseCard(def).flashback ?? "");
-        return { iid: c.iid, name: def.name, cost, zone: c.zone as "graveyard" | "exile", ...(why ? { why } : {}), ...(entry?.tax ? { tax: entry.tax } : {}) };
+        const sacrifice = c.zone === "graveyard" ? parseCard(def).flashbackSacrifice : undefined;
+        return { iid: c.iid, name: def.name, cost, zone: c.zone as "graveyard" | "exile", ...(why ? { why } : {}), ...(entry?.tax ? { tax: entry.tax } : {}), ...(sacrifice ? { sacrifice: sacrifice[0].toUpperCase() + sacrifice.slice(1) } : {}) };
       }),
     exileLands: getLegalActions(state, actor).flatMap((a) =>
       a.type === "playLand" && me.exile.some((c) => c.iid === a.iid)
@@ -44,7 +46,7 @@ export function abilityList(state: GameState, actor: PlayerId) {
 }
 
 export const countAbilities = (list: ReturnType<typeof abilityList>) =>
-  list.abilities.length + list.cycles.length + list.crews.length + list.loyalty.length + list.flashbacks.length + list.exileLands.length;
+  list.abilities.length + list.cycles.length + list.crews.length + list.loyalty.length + list.plots.length + list.flashbacks.length + list.exileLands.length;
 
 /** Abilities that exist but can't be used right now, each with the reason, so they can be shown greyed out. */
 export function lockedAbilities(state: GameState, actor: PlayerId) {

@@ -16,6 +16,7 @@ import {
   isPermanentCard,
   kw,
   newId,
+  playerLabel,
   powerOf,
   putIntoGraveyard,
   queueTriggers,
@@ -113,6 +114,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   if (!parsed.ok || !cost) return `${def.name} can't be played yet.`;
   if (from === "exile") {
     const terms = exilePlayTerms(state, player, iid);
+    if (terms.sorcery && !sorceryTiming(state, player)) return `${def.name} was plotted: it can only be cast as a sorcery, in your main phase with nothing on the stack.`;
     // airbend: {2} rather than the mana cost; otherwise "each spell cast this way costs {1} more"
     cost = terms.payGeneric !== undefined ? (parseManaCost(`{${terms.payGeneric}}`) ?? cost) : { ...cost, generic: cost.generic + terms.tax };
   }
@@ -163,7 +165,12 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   // "As an additional cost to cast this, sacrifice a creature." / "...sacrifice a creature or pay {3}{B}" ("pay") / "...discard a card" (`sacrifice` is the card)
   let sacrificed: ReturnType<typeof findPermanentOrNull> = null;
   const payInstead = parsed.extraSacrificeOrPay !== undefined && sacrifice === "pay" ? parseManaCost(parsed.extraSacrificeOrPay) : null;
-  if (parsed.extraDiscard) {
+  // "Flashback—Sacrifice a Mountain"
+  const flashbackSac = from === "graveyard" && !fromYard ? parsed.flashbackSacrifice : undefined;
+  if (flashbackSac) {
+    sacrificed = sacrifice ? findPermanentOrNull(state, sacrifice) : null;
+    if (!sacrificed || sacrificed.owner.id !== player || !subtypesOf(state, sacrificed.perm).includes(flashbackSac)) return `${def.name}: choose a ${flashbackSac} you control to sacrifice (its flashback cost).`;
+  } else if (parsed.extraDiscard) {
     if (!sacrifice || sacrifice === iid || !me.hand.some((c) => c.iid === sacrifice)) return `${def.name}: choose a card to discard (an additional cost).`;
   } else if (parsed.extraSacrifice || (parsed.extraSacrificeOrPay !== undefined && !payInstead)) {
     sacrificed = sacrifice ? findPermanentOrNull(state, sacrifice) : null;
@@ -190,7 +197,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   for (const p of teamed) tapPerm(state, p, player); // paid as part of the cost, before the mana (they can't also be tapped for mana)
   const paid = payMana(state, player, withDelve(full, delved.length), def);
   if (!paid.ok) {
-    const price = warp ? `warp ${parsed.warp}` : from === "graveyard" && !fromYard ? `flashback ${parsed.flashback}` : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "") + (payInstead ? ` + ${parsed.extraSacrificeOrPay}` : "");
+    const price = warp ? `warp ${parsed.warp}` : from === "graveyard" && !fromYard ? `flashback ${flashbackSac ? `(sacrifice a ${flashbackSac})` : parsed.flashback}` : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "") + (payInstead ? ` + ${parsed.extraSacrificeOrPay}` : "");
     return paid.missing === "life"
       ? `Not enough life to pay for ${def.name} (${price}).`
       : paid.missing === "generic"
@@ -199,7 +206,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   }
   applyPayment(state, player, paid, events);
   // "Deals damage equal to the sacrificed creature's power": its power is remembered as the spell's X.
-  const sacrificedPower = sacrificed ? Math.max(0, powerOf(state, sacrificed.perm)) : undefined;
+  const sacrificedPower = sacrificed && !flashbackSac ? Math.max(0, powerOf(state, sacrificed.perm)) : undefined;
   if (sacrificed) {
     putIntoGraveyard(state, sacrificed.perm, player, events); // paid as part of the cost
     checkStateBasedActions(state, events); // an Aura on the sacrificed creature falls off right away
@@ -454,6 +461,26 @@ export function crewVehicle(state: GameState, player: PlayerId, iid: string): st
     vehicle: iid,
     source: { iid, name: def.name, defId: perm.card.defId },
   };
+  return null;
+}
+
+/** Plot: pay the plot cost and exile the card from your hand. It may be cast without paying its mana cost, as a sorcery, on a later turn. */
+export function plotCard(state: GameState, player: PlayerId, iid: string, events: GameEvent[]): string | null {
+  if (!sorceryTiming(state, player)) return "You can only plot a card in your main phase with nothing on the stack.";
+  const me = state.players[player];
+  const idx = me.hand.findIndex((c) => c.iid === iid);
+  if (idx < 0) return "That card is not in your hand.";
+  const def = getCard(state, me.hand[idx].defId);
+  const plot = parseCard(def).plot;
+  const cost = plot ? parseManaCost(plot) : null;
+  if (!plot || !cost) return `${def.name} can't be plotted.`;
+  const paid = payMana(state, player, cost, def);
+  if (!paid.ok) return `Not enough mana to plot ${def.name} (${plot}).`;
+  applyPayment(state, player, paid, events);
+  const [card] = me.hand.splice(idx, 1);
+  me.exile.push(card);
+  me.mayPlay = [...(me.mayPlay ?? []), { iid, source: "plot", fromTurn: state.turn + 1, payGeneric: 0, sorcery: true }];
+  events.push({ type: "effect", text: `${playerLabel(player)} plots ${def.name}: it is exiled face up, and they may cast it without paying its mana cost on a later turn.` });
   return null;
 }
 

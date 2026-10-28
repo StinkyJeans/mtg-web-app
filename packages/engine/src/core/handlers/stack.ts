@@ -2,7 +2,7 @@ import { getCard } from "../../cards.js";
 import { parseManaCost, payMana } from "../../mana.js";
 import { parseCard } from "../../oracle.js";
 import type { CardInstance } from "../../types.js";
-import { defSubtypes, findPermanentOrNull, isCreature, playerLabel, powerOf } from "../permanents.js";
+import { defSubtypes, findPermanentOrNull, hasDelirium, isCreature, playerLabel, powerOf } from "../permanents.js";
 import { counterStackItem, spellLeavesStack } from "../zones.js";
 import { subjectsOf } from "../targets.js";
 import { cardAnywhere, type EffectHandlers } from "./shared.js";
@@ -110,8 +110,15 @@ export const STACK_EFFECTS = {
         ? state.active === ctx.controller && (state.phase === "main1" || state.phase === "main2")
         : effect.cond === "landEntered"
           ? (me.landsEnteredThisTurn ?? 0) > 0
-          : me.battlefield.some((p) => isCreature(state, p) && powerOf(state, p) >= 4);
+          : effect.cond === "delirium"
+            ? hasDelirium(state, ctx.controller)
+            : me.battlefield.some((p) => isCreature(state, p) && powerOf(state, p) >= 4);
     nested(holds ? effect.then : (effect.otherwise ?? []));
+  },
+  ifControlledTarget({ ctx, nested }, effect) {
+    // Who controlled it as the spell began to resolve: a bounced permanent has no controller any more.
+    const t = ctx.targets[effect.i];
+    if (t?.kind === "permanent" && ctx.lki?.[t.iid] === ctx.controller) nested(effect.then);
   },
   ifLifeGained({ state, ctx, nested }, effect) {
     if ((state.players[ctx.controller].lifeGainedThisTurn ?? 0) >= effect.atLeast) nested(effect.then);

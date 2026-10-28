@@ -235,16 +235,19 @@ export const LIBRARY_EFFECTS = {
       toHand: "Choose the card to put into your hand. The other goes to the bottom of your library.",
       toGraveyard: `Put the top card of ${playerLabel(owner)}'s library into their graveyard?`,
       arrange: `Choose the card to put on top of your library (${plural(top.length, "card")} to arrange).`,
+      iterate: "Choose the card to put into your hand. Next you choose one of the others to exile (you may play it this turn); the last goes to the bottom of your library.",
+      look: `The top card of ${playerLabel(owner)}'s library. It stays there.`,
     };
     startPick({
       player: ctx.controller,
       prompt: prompts[effect.mode],
-      kind: effect.mode,
+      kind: effect.mode === "iterate" ? "toHand" : effect.mode,
       options: top.map((c) => c.iid),
-      optional: effect.mode === "toGraveyard",
+      optional: effect.mode === "toGraveyard" || effect.mode === "look",
       owner,
       remaining: 1,
       ordered: [],
+      ...(effect.mode === "iterate" ? { thenExile: true } : {}),
     });
   },
   revealToHand({ state, ctx, say, startPick }, effect) {
@@ -299,7 +302,7 @@ export const LIBRARY_EFFECTS = {
     const toHand = effect.to === "hand";
     startPick({
       player: searcher,
-      prompt: toHand ? `Search your library: choose a ${effect.label ?? (any ? "card" : "basic land")} to put into your hand` : `Search your library: choose a basic land to put onto the battlefield${effect.tapped === false ? "" : " tapped"}`,
+      prompt: toHand ? `Search your library: choose a ${effect.label ?? (any ? "card" : "basic land")} to put into your hand` : `Search your library: choose a ${effect.label ?? "basic land"} to put onto the battlefield${effect.tapped === false ? "" : " tapped"}`,
       kind: toHand ? "searchAny" : "searchLand",
       entersTapped: effect.tapped !== false,
       reveal: effect.reveal,

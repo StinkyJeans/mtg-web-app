@@ -127,6 +127,13 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
     for (const perm of owner.battlefield) queueTriggers(state, perm.card, owner.id, owner.id === state.active ? "upkeep" : "upkeepEach");
   }
   for (const perm of p.battlefield) queueTriggers(state, perm.card, state.active, "upkeepEach");
+  // "Draw a card at the beginning of the next turn's upkeep."
+  for (const owner of Object.values(state.players)) {
+    for (const d of owner.upkeepDraws ?? []) {
+      state.triggerQueue.push({ specs: [], item: { kind: "ability", id: newId(state), controller: owner.id, source: d.source, sourceName: d.name, effects: [{ type: "draw", amount: 1, who: { t: "you" } }], targets: [], specs: [], text: "At the beginning of the next turn's upkeep, draw a card." } });
+    }
+    owner.upkeepDraws = undefined;
+  }
   // "At the beginning of the upkeep of enchanted creature's controller, that player draws a card."
   for (const owner of Object.values(state.players)) {
     for (const perm of owner.battlefield) {

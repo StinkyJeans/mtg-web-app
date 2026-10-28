@@ -21,6 +21,7 @@ const CONFIRM: Partial<Record<PickKind, (name: string) => string>> = {
   revealToHand: (n) => `Take ${n}`,
   handExile: (n) => `Exile ${n}`,
   exileToPlay: (n) => `Exile ${n}`,
+  playExile: (n) => `Exile ${n}: play it this turn`,
   mayCost: (n) => `Sacrifice or discard ${n}`,
   legend: (n) => `Keep ${n}`,
   handToField: (n) => `Put ${n} onto the battlefield`,
@@ -188,16 +189,19 @@ function PickChoice({ state, onPick, onZoom, onPreview, onUnpreview }: PickProps
         </div>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <button
-          onClick={() => chosen && confirm(chosen.iid)}
-          disabled={!chosen}
-          className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          {chosen ? (CONFIRM[pick.kind] ?? ((n: string) => `Choose ${n}`))(state.cards[chosen.defId].name) : "Click a card, then confirm"}
-        </button>
+        {/* Only looking (Mishra's Bauble): there is nothing to choose, just a button to go on. */}
+        {pick.kind !== "look" && (
+          <button
+            onClick={() => chosen && confirm(chosen.iid)}
+            disabled={!chosen}
+            className="rounded-lg bg-amber-500 px-4 py-1.5 text-sm font-semibold text-black hover:bg-amber-400 disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            {chosen ? (CONFIRM[pick.kind] ?? ((n: string) => `Choose ${n}`))(state.cards[chosen.defId].name) : "Click a card, then confirm"}
+          </button>
+        )}
         {pick.optional && (
           <button onClick={() => confirm(undefined)} className="rounded-lg border border-zinc-400 px-3 py-1.5 text-sm hover:bg-zinc-200">
-            {pick.kind === "searchLand" || pick.kind === "searchAny" ? "Don't search" : pick.kind === "crew" ? "Cancel" : pick.kind === "scry" || pick.kind === "surveil" ? "Keep the rest on top" : pick.kind === "revealToHand" ? "Take nothing" : pick.kind === "rummage" || pick.kind === "discard" ? "Don't discard" : pick.kind === "tapSome" ? "Done" : pick.kind === "handExile" ? "Exile nothing" : pick.kind === "mayCost" ? "Don't" : pick.kind === "handToField" ? (pick.elseDraw ? "Don't: draw a card instead" : "Don't") : "No, leave it"}
+            {pick.kind === "searchLand" || pick.kind === "searchAny" ? "Don't search" : pick.kind === "crew" ? "Cancel" : pick.kind === "scry" || pick.kind === "surveil" ? "Keep the rest on top" : pick.kind === "revealToHand" ? "Take nothing" : pick.kind === "rummage" || pick.kind === "discard" ? "Don't discard" : pick.kind === "tapSome" ? "Done" : pick.kind === "handExile" ? "Exile nothing" : pick.kind === "mayCost" ? "Don't" : pick.kind === "handToField" ? (pick.elseDraw ? "Don't: draw a card instead" : "Don't") : pick.kind === "look" ? "OK, leave it on top" : "No, leave it"}
           </button>
         )}
       </div>

@@ -10,7 +10,7 @@ export interface CardPart {
 
 const TRIGGER = /^(when|whenever|at the beginning|at end of|at the end)\b/i;
 const MANA = /(^|: )add (\{|one mana|two mana|three mana|x mana|an amount)/i;
-const COST = /^(kicker|multikicker|flashback|buyback|convoke|cycling|as an additional cost)\b/i;
+const COST = /^(kicker|multikicker|flashback|buyback|convoke|cycling|plot|as an additional cost)\b/i;
 const ACTIVATED = /^([^:"]*\{[^}]+\}[^:"]*|[+−-]\d+|(sacrifice|discard|pay|exile|remove|tap|untap|return)[^:"]*):/i;
 // Keywords that are triggered abilities: they happen on their own.
 export const TRIGGERED_KEYWORDS = ["exalted", "prowess"];

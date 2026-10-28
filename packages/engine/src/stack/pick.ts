@@ -47,6 +47,17 @@ function afterYouDo(state: GameState, player: PlayerId, pick: PendingPick, event
   });
 }
 
+/** A card from the top of the library is exiled, and its owner may play it this turn. */
+function exileToPlayThisTurn(state: GameState, player: PlayerId, iid: string, events: GameEvent[]): void {
+  const me = state.players[player];
+  const at = me.library.findIndex((c) => c.iid === iid);
+  if (at < 0) return;
+  const [card] = me.library.splice(at, 1);
+  me.exile.push(card);
+  me.mayPlay = [...(me.mayPlay ?? []), { iid, source: "thisTurn", throughTurn: state.turn }];
+  events.push({ type: "effect", text: `${playerLabelOf(player)} exiles ${getCard(state, card.defId).name}; they may play it this turn.` });
+}
+
 /** Answers a PendingPick. `iid` is missing when the player declines (only allowed when the pick is optional). */
 export function pickCard(state: GameState, player: PlayerId, iid: string | undefined, events: GameEvent[]): string | null {
   const pick = state.pendingPick;
@@ -54,6 +65,11 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
   const owner = state.players[pick.owner];
   const finish = () => {
     const { rest, ctx } = pick;
+    // Answering this started a new choice (a fetched shock land asks for life): the effects still waiting go with it.
+    if (state.pendingPick && state.pendingPick !== pick) {
+      if (rest && ctx && !state.pendingPick.rest) Object.assign(state.pendingPick, { rest, ctx });
+      return;
+    }
     state.pendingPick = null;
     // The effects that came after the choice on the same card ("Scry 2, then draw a card").
     if (rest && ctx) {
@@ -127,6 +143,19 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
         applyPayment(state, player, paid, events);
         if (pick.payLife) changeLife(state, player, -pick.payLife, events);
       } else counterStackItem(state, item, events, pick.source?.name);
+    }
+    finish();
+    return null;
+  }
+
+  if (pick.kind === "mayPay" && pick.tapIfNot) {
+    // A shock land: pay the life, or it enters tapped.
+    const land = findPermanentOrNull(state, pick.tapIfNot)?.perm;
+    const life = pick.payLife ?? 0;
+    if (iid === "pay" && life <= state.players[player].life) changeLife(state, player, -life, events);
+    else if (land) {
+      land.tapped = true;
+      events.push({ type: "effect", text: `${getCard(state, land.card.defId).name} enters tapped.` });
     }
     finish();
     return null;
@@ -349,8 +378,23 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     }
     case "toHand": {
       owner.hand.push(take(owner.library, iid));
-      for (const other of pick.options.filter((o) => o !== iid)) owner.library.push(take(owner.library, other)); // to the bottom
       events.push({ type: "effect", text: `${playerLabelOf(pick.owner)} puts a card into their hand.` });
+      const others = pick.options.filter((o) => o !== iid);
+      if (pick.thenExile && others.length > 0) {
+        // Expressive Iteration: one of the others is exiled to play this turn, the last goes to the bottom.
+        if (others.length === 1) {
+          exileToPlayThisTurn(state, pick.owner, others[0], events);
+          break;
+        }
+        state.pendingPick = { ...pick, kind: "playExile", prompt: "Choose the card to exile: you may play it this turn. The other goes to the bottom of your library.", options: others, thenExile: undefined };
+        return null;
+      }
+      for (const other of others) owner.library.push(take(owner.library, other)); // to the bottom
+      break;
+    }
+    case "playExile": {
+      exileToPlayThisTurn(state, pick.owner, iid, events);
+      for (const other of pick.options.filter((o) => o !== iid)) owner.library.push(take(owner.library, other));
       break;
     }
     case "scry": {
@@ -383,8 +427,9 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       owner.battlefield.push({ card: land, tapped: pick.entersTapped !== false, summoningSick: true, damage: 0, enteredTurn: state.turn });
       events.push({ type: "permanentEntered", player: pick.owner, iid });
       landEntered(state, pick.owner);
-      askAsEnters(state, owner.battlefield[owner.battlefield.length - 1], pick.owner);
       [owner.library, state.rng] = shuffle(owner.library, state.rng);
+      state.pendingPick = null; // so the land can ask its own question as it enters
+      askAsEnters(state, owner.battlefield[owner.battlefield.length - 1], pick.owner);
       break;
     }
     case "arrange": {

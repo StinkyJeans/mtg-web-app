@@ -163,9 +163,9 @@ export function exilePlayable(state: GameState, player: PlayerId): CardInstance[
 }
 
 /** Playing an exiled card: what a spell cast from there costs more (Lightstall Inquisitor's {1}) and whether a land enters tapped. */
-export function exilePlayTerms(state: GameState, player: PlayerId, iid: string): { tax: number; tappedLand: boolean; payGeneric?: number } {
+export function exilePlayTerms(state: GameState, player: PlayerId, iid: string): { tax: number; tappedLand: boolean; payGeneric?: number; sorcery?: boolean } {
   const entry = state.players[player].mayPlay?.find((e) => e.iid === iid);
-  return { tax: entry?.tax ?? 0, tappedLand: entry?.tappedLand ?? false, ...(entry?.payGeneric !== undefined ? { payGeneric: entry.payGeneric } : {}) };
+  return { tax: entry?.tax ?? 0, tappedLand: entry?.tappedLand ?? false, ...(entry?.payGeneric !== undefined ? { payGeneric: entry.payGeneric } : {}), ...(entry?.sorcery ? { sorcery: true } : {}) };
 }
 
 /** "Until this leaves the battlefield": what it was keeping in exile comes back under its owner's control (a card from a hand goes back to the hand). */
@@ -201,7 +201,7 @@ export function removeFromBattlefield(state: GameState, perm: Permanent, control
 }
 
 /** Makes a token and puts it onto the battlefield under `controller`. */
-export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerId, events: GameEvent[]): void {
+export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerId, events: GameEvent[]): string {
   const keywords: string[] = spec.changeling ? [...spec.keywords, "changeling"] : spec.keywords;
   const defId = `token-${spec.name.toLowerCase().replace(/[^a-z0-9]+/g, "-")}-${spec.power ?? 0}-${spec.toughness ?? 0}-${spec.colors.join("")}-${keywords.join("-")}`;
   state.cards[defId] ??= {
@@ -228,6 +228,7 @@ export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerI
     state.combat.attackers.push({ attacker: card.iid, blockers: [] });
   }
   if (spec.type === "creature") creatureEntered(state, card, controller);
+  return card.iid;
 }
 
 /** A token that is a copy of a card, with base power and toughness 1/1 (offspring). */

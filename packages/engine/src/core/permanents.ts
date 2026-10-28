@@ -110,6 +110,22 @@ export function subtypesOf(s: GameState, p: Permanent): string[] {
 /** How many creature cards are in a player's graveyard. */
 export const yardCreatureCards = (s: GameState, player: PlayerId): number => s.players[player].graveyard.filter((c) => getCard(s, c.defId).type === "creature").length;
 
+const CARD_TYPE_WORDS = ["artifact", "battle", "creature", "enchantment", "instant", "kindred", "land", "planeswalker", "sorcery"];
+
+/** The card types among the cards in a player's graveyard ("Artifact Creature" counts both). */
+export function yardCardTypes(s: GameState, player: PlayerId): string[] {
+  const seen = new Set<string>();
+  for (const c of s.players[player].graveyard) {
+    const def = getCard(s, c.defId);
+    const line = (def.typeLine ?? def.type).split(" // ")[0].split("—")[0].toLowerCase().replace(/\btribal\b/, "kindred");
+    for (const t of CARD_TYPE_WORDS) if (new RegExp(`\\b${t}\\b`).test(line)) seen.add(t);
+  }
+  return CARD_TYPE_WORDS.filter((t) => seen.has(t));
+}
+
+/** Delirium: four or more card types among the cards in the player's graveyard. */
+export const hasDelirium = (s: GameState, player: PlayerId): boolean => yardCardTypes(s, player).length >= 4;
+
 /** The continuous effects (auras, "creatures you control get +1/+1") that apply to `target` right now. */
 export function staticEffectsOn(s: GameState, target: Permanent): StaticEffect[] {
   const out: StaticEffect[] = [];
@@ -130,6 +146,7 @@ export function staticEffectsOn(s: GameState, target: Permanent): StaticEffect[]
         if (st.cond?.selfCounteredThisTurn && !(source.countersThisTurn ?? 0)) continue;
         if (st.targetCounteredThisTurn && !(target.countersThisTurn ?? 0)) continue;
         if (st.cond?.yardCreatures !== undefined && yardCreatureCards(s, owner.id) < st.cond.yardCreatures) continue;
+        if (st.cond?.delirium && !hasDelirium(s, owner.id)) continue;
         if (st.cond?.enteredThisTurn && source.enteredTurn !== s.turn) continue;
         if (st.cond?.controls && !s.players[owner.id].battlefield.some((p) => subtypesOf(s, p).includes(st.cond!.controls!))) continue;
         if (st.cond?.attacking && !s.combat?.attackers.some((a) => a.attacker === source.card.iid)) continue;

@@ -196,7 +196,8 @@ export interface PlayerState {
   /** Cards in exile that may be played: "During any turn you attacked with ~, you may play that card", or a warped card from turn `fromTurn` on. */
   /** `tax`: a spell cast this way costs that much more; `tappedLand`: a land played this way enters tapped (Lightstall Inquisitor). */
   /** `throughTurn`: playable up to and including the end of that turn ("until the end of your next turn"). `always` + `payGeneric`: airbend, playable while it stays exiled, for that much generic mana instead of its cost. */
-  mayPlay?: { iid: string; source: string; fromTurn?: number; untilTurn?: number; throughTurn?: number; always?: boolean; payGeneric?: number; tax?: number; tappedLand?: boolean }[];
+  /** `sorcery`: cast only as a sorcery (a plotted card, which is free: `payGeneric` 0). */
+  mayPlay?: { iid: string; source: string; fromTurn?: number; untilTurn?: number; throughTurn?: number; always?: boolean; payGeneric?: number; tax?: number; tappedLand?: boolean; sorcery?: boolean }[];
   /** Creature cards in the graveyard that may be cast from there until end of turn. */
   yardCastable?: string[];
   /** "If a source you control would deal damage to an opponent this turn, it deals double that damage instead." */
@@ -215,6 +216,8 @@ export interface PlayerState {
   poison?: number;
   /** Lands that entered under this player's control this turn ("if you had a land enter the battlefield under your control this turn"). */
   landsEnteredThisTurn?: number;
+  /** "Draw a card at the beginning of the next turn's upkeep": one per card that said so (Mishra's Bauble). */
+  upkeepDraws?: { source: string; name: string }[];
 }
 
 export interface GameState {

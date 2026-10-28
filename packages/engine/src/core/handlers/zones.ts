@@ -148,7 +148,7 @@ export const ZONE_EFFECTS = {
     // "Its controller creates a 1/1 token": the player is not always the one who cast the spell.
     const who = effect.who ? (subjectsOf(state, effect.who, ctx).find((s) => s.k === "player") as { k: "player"; id: PlayerId } | undefined)?.id : ctx.controller;
     if (!who) return;
-    for (let i = 0; i < n; i++) makeToken(state, effect.token, who, events);
+    for (let i = 0; i < n; i++) ctx.created = [...(ctx.created ?? []), makeToken(state, effect.token, who, events)];
     if (n > 0) say(`${playerLabel(who)} creates ${plural(n, `${effect.token.name} token`)}.`);
   },
   reanimate({ state, ctx, events, say }, effect) {
@@ -208,6 +208,29 @@ export const ZONE_EFFECTS = {
         playLandTapped: effect.tappedLand,
       });
     }
+  },
+  attachToCreated({ state, ctx, say }) {
+    const source = findPermanentOrNull(state, ctx.sourceId)?.perm;
+    const token = ctx.created?.at(-1);
+    const host = token ? findPermanentOrNull(state, token)?.perm : undefined;
+    if (!source || !host) return;
+    source.attachedTo = host.card.iid;
+    say(`${getCard(state, source.card.defId).name} is attached to ${getCard(state, host.card.defId).name}.`);
+  },
+  exileGraveyard({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.who, ctx)) {
+      if (s.k !== "player") continue;
+      const p = state.players[s.id];
+      if (p.graveyard.length === 0) continue;
+      say(`${playerLabel(s.id)}'s graveyard is exiled (${plural(p.graveyard.length, "card")}).`);
+      p.exile.push(...p.graveyard);
+      p.graveyard = [];
+    }
+  },
+  upkeepDraw({ state, ctx, say }) {
+    const me = state.players[ctx.controller];
+    me.upkeepDraws = [...(me.upkeepDraws ?? []), { source: ctx.sourceId, name: ctx.sourceName }];
+    say(`${playerLabel(ctx.controller)} will draw a card at the beginning of the next upkeep.`);
   },
   yardCastable({ state, ctx, say }) {
     // Only the creature cards there now (rule 611.2c): one put there later doesn't gain it.

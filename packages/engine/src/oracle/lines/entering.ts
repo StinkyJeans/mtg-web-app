@@ -123,6 +123,14 @@ export function readEntersPrepared(line: string, out: ParsedCard): boolean {
   return false;
 }
 
+// A shock land: "As ~ enters, you may pay 2 life. If you don't, it enters tapped."
+export function readShockLand(line: string, out: ParsedCard): boolean {
+  const m = /^as ~ enters, you may pay (\d+) life\. if you don't, it enters tapped$/.exec(line);
+  if (!m) return false;
+  out.shock = Number(m[1]);
+  return true;
+}
+
 export function readEntersTapped(line: string, out: ParsedCard): boolean {
   if (line === "~ enters tapped" || line === "~ enters the battlefield tapped") {
     out.entersTapped = true;

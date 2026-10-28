@@ -92,6 +92,8 @@ function parseCardFilter(phrase: string): CardFilter | null {
   }
   return filter.types || filter.subtypes || filter.colors ? filter : null;
 }
+const BASIC_LAND_TYPES = ["plains", "island", "swamp", "mountain", "forest"];
+
 function parseChoiceText(text: string, ctx: Ctx): Effect[] | null {
   const t = text.replace(/\.$/, "");
   if (t === "look at target opponent's hand. you may exile a nonland card from it until ~ leaves the battlefield") {
@@ -117,6 +119,19 @@ function parseChoiceText(text: string, ctx: Ctx): Effect[] | null {
   if (m) return [{ type: "revealPut", n: toNumber(m[1]) ?? 0, filter: { subtypes: [singularType(m[2])] }, maxMV: Number(m[3]) }];
   m = /^search your library for a basic land card, put (?:that card|it) onto the battlefield( tapped)?, then shuffle$/.exec(t);
   if (m) return [{ type: "search", tapped: m[1] !== undefined }];
+  // A fetch land: "search your library for a mountain or plains card, put it onto the battlefield, then shuffle"
+  m = /^search your library for (an? [a-z ]+? card), put (?:that card|it) onto the battlefield( tapped)?, then shuffle$/.exec(t);
+  const lands = m ? searchFilters(m[1]) : null;
+  if (m && lands?.every((f) => !f.types && !f.colors && f.subtypes?.every((s) => BASIC_LAND_TYPES.includes(s)))) {
+    return [{ type: "search", for: "any", to: "battlefield", tapped: m[2] !== undefined, filters: lands, label: m[1].replace(/^an? /, "") }];
+  }
+  if (t === "look at the top three cards of your library. put one of them into your hand, put one of them on the bottom of your library, and exile one of them. you may play the exiled card this turn") {
+    return [{ type: "lookPick", mode: "iterate", n: 3 }];
+  }
+  if (t === "look at the top card of target player's library. draw a card at the beginning of the next turn's upkeep") {
+    const who = refFor("target player", ctx);
+    return who ? [{ type: "lookPick", mode: "look", n: 1, who }, { type: "upkeepDraw" }] : null;
+  }
   m = /^search your library for a basic land card, (reveal (?:it|that card), )?put (?:that card|it) into your hand, then shuffle$/.exec(t);
   if (m) return [{ type: "search", for: "basicLand", to: "hand", reveal: m[1] !== undefined }];
   if (t === "search your library for a card, put that card into your hand, then shuffle") return [{ type: "search", for: "any", to: "hand" }];
@@ -262,6 +277,31 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       if (!then) return null;
       lastGroup = effects.length;
       effects.push({ type: "ifNow", cond: "ferocious", then });
+      continue;
+    }
+    // Delirium: "If there are four or more card types among cards in your graveyard, that creature gains double strike until end of turn."
+    const delirium = /^(?:delirium — )?if there are four or more card types among cards in your graveyard, (.+)$/.exec(sentence);
+    if (delirium) {
+      const then = parseClause(delirium[1], ctx);
+      if (!then) return null;
+      lastGroup = effects.length;
+      effects.push({ type: "ifNow", cond: "delirium", then });
+      continue;
+    }
+    // "Return target nonland permanent to its owner's hand. If you controlled that permanent, draw a card."
+    const controlled = /^if you controlled that permanent, (.+)$/.exec(sentence);
+    if (controlled) {
+      const i = ctx.targets.length - 1;
+      const then = i >= 0 ? parseClause(controlled[1], ctx) : null;
+      if (!then) return null;
+      lastGroup = effects.length;
+      effects.push({ type: "ifControlledTarget", i, then });
+      continue;
+    }
+    // "Create a 1/1 white Monk creature token with prowess. You may attach ~ to it."
+    if (sentence === "you may attach ~ to it" && effects.at(-1)?.type === "createToken") {
+      lastGroup = effects.length;
+      effects.push({ type: "mayPay", cost: "", prompt: "attach it to the token just created?", then: [{ type: "attachToCreated" }] });
       continue;
     }
     // "Put a +1/+1 counter on target creature. If that creature is another Hero, put two +1/+1 counters on it instead."

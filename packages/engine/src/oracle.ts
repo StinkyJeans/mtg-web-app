@@ -96,6 +96,18 @@ export function parseCard(def: CardDef): ParsedCard {
         result.flashback = flashback[1];
         return false;
       }
+      // "Flashback—Sacrifice a Mountain": no mana, a permanent of that type instead
+      const flashbackSac = /^flashback—sacrifice an? ([a-z]+)\.?$/.exec(line);
+      if (flashbackSac) {
+        result.flashback = "{0}";
+        result.flashbackSacrifice = flashbackSac[1];
+        return false;
+      }
+      const plot = /^plot (\{[^}]+\}(?:\{[^}]+\})*)\.?$/.exec(line);
+      if (plot && parseManaCost(plot[1])) {
+        result.plot = plot[1];
+        return false;
+      }
       const kicker = /^kicker (\{[^}]+\}(?:\{[^}]+\})*)\.?$/.exec(line);
       if (kicker && parseManaCost(kicker[1])) {
         result.kicker = kicker[1];

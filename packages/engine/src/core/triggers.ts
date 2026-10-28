@@ -48,6 +48,7 @@ function triggerCondHolds(state: GameState, controller: PlayerId, trigger: Trigg
   if (c?.controlsTypes && !p.battlefield.some((perm) => c.controlsTypes!.some((t) => (t === "artifact" ? isArtifactDef(getCard(state, perm.card.defId)) : t === "enchantment" ? isEnchantmentDef(getCard(state, perm.card.defId)) : getCard(state, perm.card.defId).type === t)))) return false;
   if (trigger.opponentTurnOnly && state.active === controller) return false;
   if (trigger.firstOnly && (extra?.castCount ?? 1) !== 1) return false;
+  if (trigger.secondOnly && extra?.castCount !== 2) return false;
   if (trigger.byOpponent && !extra?.byOpponent) return false;
   if (trigger.bySpell && !extra?.bySpell) return false;
   if (c?.attackPowerAtLeast !== undefined && (extra?.attackers ?? []).reduce((n, iid) => n + Math.max(0, (() => { const p = findPermanentOrNull(state, iid)?.perm; return p ? powerOf(state, p) : 0; })()), 0) < c.attackPowerAtLeast) return false;
@@ -247,6 +248,7 @@ export function cardsDiscarded(state: GameState, player: PlayerId, iids: string[
 /** "As this enters, choose a color" / "choose a creature type": starts the choice (nothing to ask when only one color is allowed). */
 export function askAsEnters(state: GameState, perm: Permanent, controller: PlayerId): void {
   const parsed = parseCard(getCard(state, perm.card.defId));
+  if (parsed.shock !== undefined && !state.pendingPick) return askShock(state, perm, controller, parsed.shock);
   if (parsed.chooseType && !state.pendingPick) return askCreatureType(state, perm, controller);
   const choose = parsed.chooseColor;
   if (!choose || state.pendingPick) return;
@@ -265,6 +267,28 @@ export function askAsEnters(state: GameState, perm: Permanent, controller: Playe
     remaining: 1,
     ordered: [],
     colorFor: perm.card.iid,
+    source: { iid: perm.card.iid, name: nameOf(state, perm), defId: perm.card.defId },
+  };
+}
+
+/** A shock land: "As ~ enters, you may pay 2 life. If you don't, it enters tapped." */
+function askShock(state: GameState, perm: Permanent, controller: PlayerId, life: number): void {
+  if (state.players[controller].life < life) {
+    perm.tapped = true;
+    return;
+  }
+  state.pendingPick = {
+    player: controller,
+    prompt: `pay ${life} life, or it enters tapped`,
+    kind: "mayPay",
+    options: ["pay"],
+    optional: true,
+    owner: controller,
+    remaining: 1,
+    ordered: [],
+    wardCost: "",
+    payLife: life,
+    tapIfNot: perm.card.iid,
     source: { iid: perm.card.iid, name: nameOf(state, perm), defId: perm.card.defId },
   };
 }

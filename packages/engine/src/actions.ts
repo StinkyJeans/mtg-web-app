@@ -30,7 +30,7 @@ import type { TargetChoice } from "./effects.js";
 import type { ManaColor } from "./mana.js";
 import { parseCard } from "./oracle.js";
 import { shuffle, STARTING_HAND } from "./state.js";
-import { activateAbility, activateLoyalty, castSpell, chooseTargets, crewVehicle, cycleCard, getCastable, openWindow, passPriority, pickCard, settle } from "./stack.js";
+import { activateAbility, activateLoyalty, castSpell, chooseTargets, crewVehicle, cycleCard, getCastable, openWindow, passPriority, pickCard, plotCard, settle } from "./stack.js";
 import type { Outcome } from "./stack.js";
 import { OPPONENT } from "./types.js";
 import type { GameState, Permanent, PlayerId } from "./types.js";
@@ -56,6 +56,7 @@ export type Action =
   | { type: "activateAbility"; iid: string; index: number; targets?: TargetChoice[]; payWith?: string; /** The X of a cost like "{X}{R}": what the player chose to pay. */ x?: number; /** Phyrexian symbols paid with 2 life each even where mana could pay them. */ phyrexianLife?: number }
   | { type: "crew"; iid: string } // crew a Vehicle: then choose the creatures to tap
   | { type: "cycle"; iid: string } // cycle a card from hand (pay its cycling cost, discard it, draw a card)
+  | { type: "plot"; iid: string } // plot a card from hand (pay its plot cost and exile it, to cast it for free on a later turn)
   | { type: "passPriority" }
   | { type: "chooseTargets"; targets: TargetChoice[] }
   | { type: "pick"; iid?: string } // answer a choice among cards (iid missing = decline)
@@ -253,6 +254,12 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
 
     case "cycle": {
       const error = cycleCard(next, player, action.iid, events);
+      if (error) return fail(error);
+      break;
+    }
+
+    case "plot": {
+      const error = plotCard(next, player, action.iid, events);
       if (error) return fail(error);
       break;
     }

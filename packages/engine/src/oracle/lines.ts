@@ -1,7 +1,7 @@
 import type { ParsedCard } from "../effects.js";
 import { readWard, readToxic, readProtection, readKeywordLine, readNoRulesEffect, readLandwalk, readAttacksEachCombat, readBlockedOnlyBy, readBlockedByOneAtMost, readCantBlock, readBlockedByPower, readAttackOnlyIfDefenderHas, readAttackOnlyWithMoreCreatures, readBlockOnlyWithMoreCreatures, readUnblockableByColor, readCreaturesAttackEachCombat, readTypeAttacksEachCombat, readAllMustBlock, readBlocksOnlyFlyers, readCantAttackOrBlockAlone, readUnblockable } from "./lines/keywords.js";
-import { readStatsEqualToCount, readAuraTarget, readStaticAbility, readCostLessIfYouControl, readIfDrawnCards, readTypedSpellsCostLess, readCheaperOnOtherTurns, readBigSpellsCostLess, readDuringYourTurn, readAsLongAsYouControl, readWhileAttacking, readAttackingAnthem, readPowerEqualToCount, readTargetingTax, readEnteredThisTurnStatic, readGrantedLandMana, readHostBecomes, readTappedCreaturesHave, readLifeTotalStatic, readTwoTypeLord, readLord, readIgnoresHexproof } from "./lines/statics.js";
-import { readEntersWithCounters, readEntersWithMinusCounters, readKickedCounters, readChooseColorOnEnter, readOthersEnterWithCounters, readEntersTappedUnless, readPreventNoncombatDamage, readGrantsLifeGainCounters, readDrawsTwoInstead, readGainLifePlusOne, readGainTwiceLife, readEntersPrepared, readEntersTapped } from "./lines/entering.js";
+import { readStatsEqualToCount, readAuraTarget, readDeliriumStatic, readStaticAbility, readCostLessIfYouControl, readIfDrawnCards, readTypedSpellsCostLess, readCheaperOnOtherTurns, readBigSpellsCostLess, readDuringYourTurn, readAsLongAsYouControl, readWhileAttacking, readAttackingAnthem, readPowerEqualToCount, readTargetingTax, readEnteredThisTurnStatic, readGrantedLandMana, readHostBecomes, readTappedCreaturesHave, readLifeTotalStatic, readTwoTypeLord, readLord, readIgnoresHexproof } from "./lines/statics.js";
+import { readEntersWithCounters, readEntersWithMinusCounters, readKickedCounters, readChooseColorOnEnter, readOthersEnterWithCounters, readEntersTappedUnless, readPreventNoncombatDamage, readGrantsLifeGainCounters, readDrawsTwoInstead, readGainLifePlusOne, readGainTwiceLife, readEntersPrepared, readEntersTapped, readShockLand } from "./lines/entering.js";
 import { readLifeGainedTrigger, readLandfall, readAttackWithOthers, readBecomesTarget, readCastSpellTrigger, readDrawCardTrigger, readEnchantedDealsDamage, readPackTactics, readBeginningOfStep, readAnySpellCast, readCastKindSpell, readAllyDies, readCountersPutOnAlly, readAnotherCreatureEntersOrLeaves, readBlocksOrBlocked, readDamagedCreatureDies, readDamageAndAnyDies, readEerie, readReturnWhenHostDies, readTapXOnEnter, readDiesReturnsToBattlefield, readAllyEnters, readYouAttack, readYouDiscard, readExcessDamage, readSelfTrigger, readTrigger, readAllyAttacks, readToSolve } from "./lines/triggers.js";
 import { readLoyaltyAbility, readCrew, readEquip, readSacrificeForMana, readLandcycling, readActivatedAbility, readRestrictedMana, readSolvedAbility } from "./lines/activated.js";
 
@@ -17,6 +17,7 @@ const READERS: ((line: string, out: ParsedCard) => boolean)[] = [
   readPlanThreshold,
   readChapter,
   readYardCondition,
+  readDeliriumStatic,
   readNoOneDies,
   readGrimReaper,
   readHostUpkeep,
@@ -74,6 +75,7 @@ const READERS: ((line: string, out: ParsedCard) => boolean)[] = [
   readAttackWithOthers,
   readBecomesTarget,
   readEntersTappedUnless,
+  readShockLand,
   readBlockedByPower,
   readAttackOnlyIfDefenderHas,
   readCastSpellTrigger,

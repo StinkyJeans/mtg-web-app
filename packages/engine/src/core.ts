@@ -12,6 +12,7 @@ export {
   findPermanent,
   findPermanentOrNull,
   forbidden,
+  hasDelirium,
   isArtifactDef,
   handLimit,
   isCreature,
@@ -32,6 +33,7 @@ export {
   staticEffectsOn,
   subtypesOf,
   toughnessOf,
+  yardCardTypes,
 } from "./core/permanents.js";
 export {
   addPoison,

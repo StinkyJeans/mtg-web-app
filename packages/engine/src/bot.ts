@@ -1,12 +1,13 @@
 import { applyAction, getDamageAssignments, getForcedBlocks, getPossibleAttackers, getPossibleBlockers, getRequiredBlocks, MAX_HAND_SIZE, suggestDamageAssignment } from "./actions.js";
 import type { Action, Block } from "./actions.js";
-import { getActivatable, getCastable, getLoyaltyAbilities } from "./stack.js";
-import { legalTargets, playerToAct, powerOf, staticEffectsOn, toughnessOf } from "./core.js";
+import { getActivatable, getCastable, getLoyaltyAbilities, getPlottable } from "./stack.js";
+import { exilePlayable, legalTargets, playerToAct, powerOf, staticEffectsOn, toughnessOf } from "./core.js";
+import { manaSources } from "./mana.js";
 import { hasKeyword } from "./keywords.js";
 import type { Keyword } from "./keywords.js";
 import { parseCard } from "./oracle.js";
 import type { Effect, TargetChoice, TargetSpec } from "./effects.js";
-import type { GameState, Permanent, PlayerId } from "./types.js";
+import type { CardDef, GameState, Permanent, PlayerId } from "./types.js";
 
 /**
  * A computer opponent.
@@ -382,8 +383,43 @@ function chooseDiscard(s: GameState, me: PlayerId): Action {
   return { type: "discard", iids: worst.map((c) => c.iid) };
 }
 
+/** A shock land: 2 life for it to be untapped, worth it only when that mana lets another spell be cast this turn. */
+function shockWorthPaying(s: GameState, me: PlayerId, land: string): boolean {
+  if (s.active !== me || s.players[me].life <= 7) return false;
+  const open: GameState = { ...s, pendingPick: null };
+  const shut = structuredClone(open);
+  const perm = find(shut, land);
+  if (!perm) return false;
+  perm.tapped = true;
+  return getCastable(open, me).length > getCastable(shut, me).length;
+}
+
+const libraryDef = (s: GameState, me: PlayerId, iid: string) => s.cards[s.players[me].library.find((c) => c.iid === iid)?.defId ?? ""];
+
+/** Of the cards looked at, the one to play this turn: a land while no land was played yet, else the biggest spell the untapped mana pays for. */
+function playNow(s: GameState, me: PlayerId, iids: string[]): string {
+  const land = s.players[me].landsPlayedThisTurn === 0 ? iids.find((iid) => libraryDef(s, me, iid)?.type === "land") : undefined;
+  if (land) return land;
+  const mana = manaSources(s, me).filter((m) => !m.tapped && !m.sick).reduce((n, m) => n + m.amount, 0);
+  const cost = (iid: string) => libraryDef(s, me, iid)?.cost ?? 0;
+  const spells = iids.filter((iid) => libraryDef(s, me, iid)?.type !== "land");
+  return [...spells].filter((iid) => cost(iid) <= mana).sort((a, b) => cost(b) - cost(a))[0] ?? [...iids].sort((a, b) => keepValue(s, me, libraryDef(s, me, a)?.id ?? "") - keepValue(s, me, libraryDef(s, me, b)?.id ?? ""))[0];
+}
+
 function choosePick(s: GameState, me: PlayerId): Action {
   const p = s.pendingPick!;
+  if (p.kind === "mayPay" && p.tapIfNot) return { type: "pick", ...(shockWorthPaying(s, me, p.tapIfNot) ? { iid: "pay" } : {}) };
+  if (p.kind === "searchLand") {
+    const best = [...p.options].sort((a, b) => landScore(s, me, libraryDef(s, me, b)) - landScore(s, me, libraryDef(s, me, a)))[0];
+    return { type: "pick", ...(best ? { iid: best } : {}) };
+  }
+  // Expressive Iteration: the card to play this turn is exiled next, so the hand gets the best of the others.
+  if (p.kind === "toHand" && p.thenExile) {
+    const exiled = playNow(s, me, p.options);
+    const keep = p.options.filter((iid) => iid !== exiled).sort((a, b) => keepValue(s, me, libraryDef(s, me, b)?.id ?? "") - keepValue(s, me, libraryDef(s, me, a)?.id ?? ""))[0];
+    return { type: "pick", iid: keep ?? exiled };
+  }
+  if (p.kind === "playExile") return { type: "pick", iid: playNow(s, me, p.options) };
   // scry / surveil: the pick is the card to send away (the bottom of the library, the graveyard)
   if (p.kind === "scry" || p.kind === "surveil") {
     const lands = landCount(s, me) + s.players[me].hand.filter((c) => s.cards[c.defId]?.type === "land").length;
@@ -439,6 +475,8 @@ function candidates(s: GameState, me: PlayerId): Action[] {
       return (pa ? permValue(s, pa) : 0) - (pb ? permValue(s, pb) : 0);
     })[0];
 
+  // "Flashback—Sacrifice a Mountain": one that was already tapped for mana
+  const tappedFirst = (iids: string[]) => [...iids].sort((a, b) => Number(!!find(s, b)?.tapped) - Number(!!find(s, a)?.tapped))[0];
   const worstCard = (iids: string[]) => {
     const hand = s.players[me].hand;
     return [...iids].sort((a, b) => keepValue(s, me, hand.find((c) => c.iid === a)?.defId ?? "") - keepValue(s, me, hand.find((c) => c.iid === b)?.defId ?? ""))[0];
@@ -449,7 +487,7 @@ function candidates(s: GameState, me: PlayerId): Action[] {
     const xs = c.maxX === undefined ? [undefined] : [...new Set([c.maxX, Math.max(1, Math.floor(c.maxX / 2))])];
     const kicks = c.kicker !== undefined || c.blight ? [false, true] : [undefined];
     // An additional cost: the card to discard, or the creature to sacrifice (or "pay" the mana instead).
-    const extras = c.discard ? [worstCard(c.discard)] : c.sacrifice ? [...(c.sacrifice.length > 0 ? [cheapestCreature(c.sacrifice)] : []), ...(c.orPay ? ["pay"] : [])] : [undefined];
+    const extras = c.discard ? [worstCard(c.discard)] : c.sacrifice && c.zone === "graveyard" ? [tappedFirst(c.sacrifice)] : c.sacrifice ? [...(c.sacrifice.length > 0 ? [cheapestCreature(c.sacrifice)] : []), ...(c.orPay ? ["pay"] : [])] : [undefined];
     // Warp: the cheap way that only lasts until the end step, or (when the mana is there) the normal way.
     const warps = c.warp ? (c.warpOnly ? [true] : [false, true]) : [false];
     for (const m of modes) {
@@ -493,12 +531,9 @@ function candidates(s: GameState, me: PlayerId): Action[] {
   return out;
 }
 
-/** The best land to play: the one that gives a color the hand needs and the table does not yet make. */
-function chooseLand(s: GameState, me: PlayerId): Action | null {
+/** How much a land helps: the colors the hand needs and the table does not yet make, less one if it enters tapped. */
+function landScore(s: GameState, me: PlayerId, land: CardDef | undefined): number {
   const pl = s.players[me];
-  if (pl.landsPlayedThisTurn >= 1) return null;
-  const lands = pl.hand.filter((c) => s.cards[c.defId]?.type === "land");
-  if (lands.length === 0) return null;
   const need: Record<string, number> = {};
   for (const c of pl.hand) {
     const d = s.cards[c.defId];
@@ -512,18 +547,36 @@ function chooseLand(s: GameState, me: PlayerId): Action | null {
       have[color] = (have[color] ?? 0) + 1;
     }
   }
-  const score = (iid: string) => {
-    const d = s.cards[pl.hand.find((c) => c.iid === iid)!.defId];
-    const colors = [...(d?.typeLine ?? "").matchAll(/Plains|Island|Swamp|Mountain|Forest/g)].map((m) => ({ Plains: "W", Island: "U", Swamp: "B", Mountain: "R", Forest: "G" })[m[0]]!);
-    return colors.reduce((n, c) => n + (need[c] ?? 0) * 2 - (have[c] ?? 0) * 0.5, 0) + (d?.text?.includes("enters tapped") || d?.text?.includes("enters the battlefield tapped") ? -1 : 0);
-  };
-  const pick = [...lands].sort((a, b) => score(b.iid) - score(a.iid))[0];
+  const colors = [...(land?.typeLine ?? "").matchAll(/Plains|Island|Swamp|Mountain|Forest/g)].map((m) => ({ Plains: "W", Island: "U", Swamp: "B", Mountain: "R", Forest: "G" })[m[0]]!);
+  return colors.reduce((n, c) => n + (need[c] ?? 0) * 2 - (have[c] ?? 0) * 0.5, 0) + (land?.text?.includes("enters tapped") || land?.text?.includes("enters the battlefield tapped") ? -1 : 0);
+}
+
+/** The best land to play (from the hand, or one exiled that may be played): the one that gives a color the hand needs and the table does not yet make. */
+function chooseLand(s: GameState, me: PlayerId): Action | null {
+  const pl = s.players[me];
+  if (pl.landsPlayedThisTurn >= 1) return null;
+  const lands = [...pl.hand, ...exilePlayable(s, me)].filter((c) => s.cards[c.defId]?.type === "land");
+  if (lands.length === 0) return null;
+  const pick = [...lands].sort((a, b) => landScore(s, me, s.cards[b.defId]) - landScore(s, me, s.cards[a.defId]))[0];
   return { type: "playLand", iid: pick.iid };
+}
+
+/** A permanent's ability that is worth using whenever it can be: a fetch land (while life allows), or "draw a card at the next upkeep" for free. */
+function chooseUpkeep(s: GameState, me: PlayerId): Action | null {
+  for (const a of getActivatable(s, me)) {
+    const perm = find(s, a.iid);
+    const ability = perm ? parseCard(defOf(s, perm)).activated[a.index] : undefined;
+    if (!ability || ability.mana) continue;
+    const fetch = ability.effects[0]?.type === "search" && ability.effects[0].to === "battlefield" && s.players[me].life > 5;
+    const freeDraw = ability.effects.some((e) => e.type === "upkeepDraw");
+    if (fetch || freeDraw) return { type: "activateAbility", iid: a.iid, index: a.index, targets: a.specs.map((): TargetChoice => ({ kind: "player", id: me })) };
+  }
+  return null;
 }
 
 /** Use the move that makes the position best, if any is worth it. */
 function chooseMain(s: GameState, me: PlayerId): Action {
-  const land = chooseLand(s, me);
+  const land = chooseLand(s, me) ?? chooseUpkeep(s, me);
   if (land) return land;
   const base = evaluate(rollout(s, quiet), me);
   let best: { action: Action; gain: number } | null = null;
@@ -535,7 +588,10 @@ function chooseMain(s: GameState, me: PlayerId): Action {
     const gain = evaluate(end, me) - base - (action.type === "loyalty" ? -0.5 : 0);
     if (!best || gain > best.gain) best = { action, gain };
   }
-  return best && best.gain > 0.35 ? best.action : { type: "passPhase" };
+  if (best && best.gain > 0.35) return best.action;
+  // Plot with the mana left after combat: the card is cast for free on a later turn.
+  const plot = s.phase === "main2" ? getPlottable(s, me)[0] : undefined;
+  return plot ? { type: "plot", iid: plot.iid } : { type: "passPhase" };
 }
 
 /** Which creatures attack: every plan is played out against the blocks the other player would choose. */

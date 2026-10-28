@@ -41,7 +41,7 @@ export type Effect =
   | { type: "reanimate"; what: Ref; to: "battlefield" | "hand"; tapped?: boolean; finality?: boolean; attacking?: boolean } // a card from a graveyard (`finality`: "with a finality counter on it")
   // The next three ask a player to choose cards, so a card that has one can't have any other effect (see PendingPick).
   | { type: "discard"; who: Ref; amount: number; chooser: "victim" | "you" | "random" } // "target player discards two cards" / "you choose a card from their hand"
-  | { type: "lookPick"; mode: "toHand" | "toGraveyard" | "arrange"; n: number; who?: Ref } // look at the top cards of a library
+  | { type: "lookPick"; mode: "toHand" | "toGraveyard" | "arrange" | "iterate" | "look"; n: number; who?: Ref } // look at the top cards of a library ("iterate": one to hand, one exiled to play this turn, one to the bottom)
   // "Look at the top five cards. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom."
   | { type: "revealToHand"; n: number; filter: CardFilter; random: boolean; required?: boolean; restTo?: "bottom" | "graveyard"; reveal?: boolean }
   // Search your library for a card (a basic land card, or any card): onto the battlefield (tapped) or into your hand, then shuffle.
@@ -113,7 +113,11 @@ export type Effect =
   | { type: "airbend"; what: Ref } // exile it; its owner may cast it for {2} (rather than its mana cost) for as long as it stays exiled
   | { type: "becomeCreatureNow"; what: Ref; subtypes?: string[] } // until end of turn it is an artifact creature (of these creature types)
   | { type: "untargetable"; what: Ref } // "can't be the target of spells or abilities your opponents control this turn"
-  | { type: "ifNow"; cond: "yourMainPhase" | "landEntered" | "ferocious"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead", ferocious "... if you control a creature with power 4 or greater"
+  | { type: "ifNow"; cond: "yourMainPhase" | "landEntered" | "ferocious" | "delirium"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead", ferocious "... if you control a creature with power 4 or greater", delirium "if there are four or more card types among cards in your graveyard, ..."
+  | { type: "ifControlledTarget"; i: number; then: Effect[] } // "if you controlled that permanent, draw a card"
+  | { type: "attachToCreated" } // "you may attach ~ to it": this Equipment goes on the token the same ability just created
+  | { type: "exileGraveyard"; who: Ref } // "exile target player's graveyard"
+  | { type: "upkeepDraw" } // "draw a card at the beginning of the next turn's upkeep"
   | { type: "poison"; who: Ref; amount: Amount } // "each opponent gets a poison counter"
   | { type: "powerFromHand" } // until end of turn: this creature's base power is the number of cards in your hand
   | { type: "mayCost"; cost: "artifactOrCard" | "artifactOrNonland" | "otherCreature"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may sacrifice an artifact or discard a card. If you do, ..."
@@ -186,6 +190,8 @@ export interface RunContext {
   other?: string;
   /** A "when this dies" ability: the creature as it last was on the battlefield (its power and counters). */
   died?: LastKnown;
+  /** The tokens these effects created so far, for "you may attach ~ to it". */
+  created?: string[];
 }
 
 /** A permanent as it last existed on the battlefield. */
@@ -278,7 +284,7 @@ export interface StaticEffect {
   /** "Other Goblin creatures you control attack each combat if able." */
   mustAttack?: boolean;
   /** "As long as you've drawn two or more cards this turn" / "as long as this Aura entered this turn". */
-  cond?: { artifactCreatureOrPlan?: boolean; powerAtMost?: number; selfCounteredThisTurn?: boolean; yardCreatures?: number; drawnAtLeast?: number; lifeAtLeast?: number; yourTurn?: boolean; enteredThisTurn?: boolean; controls?: string; attacking?: boolean; lostLife?: boolean };
+  cond?: { artifactCreatureOrPlan?: boolean; powerAtMost?: number; selfCounteredThisTurn?: boolean; yardCreatures?: number; drawnAtLeast?: number; lifeAtLeast?: number; yourTurn?: boolean; enteredThisTurn?: boolean; controls?: string; attacking?: boolean; lostLife?: boolean; /** Four or more card types among the cards in its controller's graveyard. */ delirium?: boolean };
   /** "Tapped creatures you control have hexproof." */
   tappedOnly?: boolean;
   /** "Other untapped creatures you control have hexproof." */
@@ -433,6 +439,8 @@ export interface TriggeredAbility {
   /** "Whenever you cast a spell during an opponent's turn" / "your first spell during each opponent's turn". */
   opponentTurnOnly?: boolean;
   firstOnly?: boolean;
+  /** Flurry: "whenever you cast your second spell each turn". */
+  secondOnly?: boolean;
   /** "This ability triggers only once each turn." */
   oncePerTurn?: boolean;
   /** The effects say "that creature" (the other side of a block): such a trigger happens once per blocker, others once per attacker. */
@@ -522,8 +530,13 @@ export interface ParsedCard {
   toxic?: number;
   /** "Protection from red": colors, and whether it is also protected from artifacts. */
   protection?: { colors: string[]; artifacts: boolean };
-  /** "Flashback {2}{R}": the cost to cast this from the graveyard. */
+  /** "Flashback {2}{R}": the cost to cast this from the graveyard. "Flashback—Sacrifice a Mountain": no mana ("{0}"), and a permanent of that type is sacrificed. */
   flashback?: string;
+  flashbackSacrifice?: string;
+  /** "Plot {1}{R}": pay this to exile the card from your hand; it may be cast without paying its mana cost, as a sorcery, on a later turn. */
+  plot?: string;
+  /** A shock land: "As ~ enters, you may pay 2 life. If you don't, it enters tapped." The life. */
+  shock?: number;
   /** "If you would put one or more counters on a permanent you control, put that many plus one of each of those kinds instead." */
   countersPlusOne?: boolean;
   /** "Your opponents can't cast spells during your turn." */
@@ -712,7 +725,7 @@ export interface PendingPick {
   /** The card the choice comes from. A resolving spell is already in the graveyard, so this is how both players see what is going on. */
   source?: { iid: string; name: string; defId?: string };
   prompt: string;
-  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color" | "creatureType" | "handExile" | "exileToPlay" | "handToField" | "mayCost" | "legend";
+  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color" | "creatureType" | "handExile" | "exileToPlay" | "handToField" | "mayCost" | "legend" | "look" | "playExile";
   /** The cards to choose between (instance ids). They are shown to the chooser. */
   options: string[];
   /** The player may decline (eye spy, a search that finds nothing). */
@@ -728,6 +741,10 @@ export interface PendingPick {
   wardCost?: string;
   /** "You may pay 2 life": the life paid with (or instead of) `wardCost`. */
   payLife?: number;
+  /** A shock land: the land that enters tapped if the life isn't paid. */
+  tapIfNot?: string;
+  /** To hand: then one of the others is exiled to play this turn, the last goes to the bottom (Expressive Iteration). */
+  thenExile?: boolean;
   /** Crew: the Vehicle being crewed. */
   vehicle?: string;
   /** Connive: the creature that gets a +1/+1 counter if the discarded card is not a land. */

@@ -163,6 +163,19 @@ export default function CastPlanPanels({ state, actor, plan, modePick, onModePic
   }
   if (c.delve && plan.delve === undefined) return <DelvePanel state={state} actor={actor} plan={plan} onAdvance={onAdvance} onCancel={onCancel} />;
   if (plan.sacrifice !== undefined) return null;
+  // "Flashback—Sacrifice a Mountain": the permanent is the flashback cost, not an additional cost.
+  if (c.sacrifice && c.zone === "graveyard") {
+    return (
+      <ChoicePanel
+        title={`${plan.name}: choose a permanent to sacrifice (its flashback cost)`}
+        options={c.sacrifice.map((iid) => {
+          const perm = state.players[actor].battlefield.find((p) => p.card.iid === iid)!;
+          return { label: `${state.cards[perm.card.defId].name}${perm.tapped ? " (tapped)" : ""}`, onPick: () => onAdvance({ ...plan, sacrifice: iid }) };
+        })}
+        onCancel={onCancel}
+      />
+    );
+  }
   if (c.sacrifice) {
     return (
       <ChoicePanel

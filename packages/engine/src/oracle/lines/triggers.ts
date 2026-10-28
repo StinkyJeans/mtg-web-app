@@ -196,10 +196,11 @@ export function readCastKindSpell(line: string, out: ParsedCard): boolean {
 
 // ── "Whenever you cast a spell during an opponent's turn", "Whenever an opponent casts a spell, ..."
 export function readAnySpellCast(line: string, out: ParsedCard): boolean {
-  const castAny = /^whenever you cast (a|your first) spell( during (?:an opponent's turn|each opponent's turn))?,? (.+)$/.exec(line);
+  // Flurry: "whenever you cast your second spell each turn"
+  const castAny = /^(?:flurry — )?whenever you cast (a|your first|your second) spell( each turn)?( during (?:an opponent's turn|each opponent's turn))?,? (.+)$/.exec(line);
   const oppCast = /^whenever an opponent casts a spell,? (.+)$/.exec(line);
   if (castAny || oppCast) {
-    const body = (castAny ? castAny[3] : oppCast![1]).replace(/^it /, "~ ").replace(/ on it$/, " on ~");
+    const body = (castAny ? castAny[4] : oppCast![1]).replace(/^it /, "~ ").replace(/ on it$/, " on ~");
     const ctx = newCtx(true);
     const effects = parseEffectText(body, ctx);
     if (effects && effects.length > 0) {
@@ -208,8 +209,9 @@ export function readAnySpellCast(line: string, out: ParsedCard): boolean {
         effects,
         targets: ctx.targets,
         text: line,
-        ...(castAny?.[2] ? { opponentTurnOnly: true } : {}),
+        ...(castAny?.[3] ? { opponentTurnOnly: true } : {}),
         ...(castAny?.[1] === "your first" ? { firstOnly: true } : {}),
+        ...(castAny?.[1] === "your second" ? { secondOnly: true } : {}),
       });
       return true;
     }

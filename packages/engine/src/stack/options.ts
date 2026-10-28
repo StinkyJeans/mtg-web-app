@@ -49,6 +49,7 @@ function castableAs(state: GameState, player: PlayerId, iid: string, def: CardDe
   const tax = terms?.tax ?? 0;
   const cost = terms?.payGeneric !== undefined ? (parseManaCost(`{${terms.payGeneric}}`) ?? printed) : printed && tax > 0 ? { ...printed, generic: printed.generic + tax } : printed; // airbend: {2} rather than the mana cost
   if (!parsed.ok || !cost || !canCastNow(state, player, def)) return null;
+  if (terms?.sorcery && !sorceryTiming(state, player)) return null; // plotted
   const warpCost = parsed.warp && zone === undefined ? parseManaCost(parsed.warp) : null;
   const canWarp = warpCost !== null && payMana(state, player, warpCost, def).ok;
   // Delve: cards in the graveyard can pay for the generic mana.
@@ -130,7 +131,11 @@ export function getCastable(state: GameState, player: PlayerId): Castable[] {
     if (!parsed.ok || !cost || !canCastNow(state, player, def) || !payMana(state, player, cost, def).ok) continue;
     const specs = parsed.spell?.targets ?? [];
     if (parsed.spell?.modal || specs.some((spec) => legalTargets(state, spec, player).length === 0)) continue;
-    out.push({ iid: card.iid, specs, zone: "graveyard" });
+    // "Flashback—Sacrifice a Mountain": the permanents that could be sacrificed
+    const sacType = parsed.flashbackSacrifice;
+    const sacrifice = sacType ? state.players[player].battlefield.filter((p) => subtypesOf(state, p).includes(sacType)).map((p) => p.card.iid) : [];
+    if (sacType && sacrifice.length === 0) continue;
+    out.push({ iid: card.iid, specs, zone: "graveyard", ...(sacType ? { sacrifice } : {}) });
   }
   return out;
 }
@@ -183,6 +188,17 @@ export interface Cyclable {
 }
 
 /** Cards in hand the player can cycle right now (they hold priority and can pay). */
+/** Cards in hand that could be plotted right now, with their plot cost. */
+export function getPlottable(state: GameState, player: PlayerId): { iid: string; cost: string }[] {
+  if (!sorceryTiming(state, player)) return [];
+  return state.players[player].hand.flatMap((card) => {
+    const def = getCard(state, card.defId);
+    const plot = parseCard(def).plot;
+    const cost = plot ? parseManaCost(plot) : null;
+    return plot && cost && parseCard(def).ok && payMana(state, player, cost, def).ok ? [{ iid: card.iid, cost: plot }] : [];
+  });
+}
+
 export function getCyclable(state: GameState, player: PlayerId): Cyclable[] {
   if (!holdsPriority(state, player)) return [];
   const out: Cyclable[] = [];

@@ -22,6 +22,20 @@ export function readAuraTarget(line: string, out: ParsedCard): boolean {
   return false;
 }
 
+// Delirium: "as long as there are four or more card types among cards in your graveyard, ~ gets +2/+2, has flying, and attacks each combat if able"
+export function readDeliriumStatic(line: string, out: ParsedCard): boolean {
+  const m = /^(?:delirium — )?as long as there are four or more card types among cards in your graveyard, ~ (.+)$/.exec(line);
+  if (!m) return false;
+  const mustAttack = /,? and attacks each combat if able$/.test(m[1]);
+  const st = selfStatic(`~ ${m[1].replace(/,? and attacks each combat if able$/, "").replace(/, has /, " and has ")}`);
+  if (!st) {
+    out.unsupported.push(line);
+    return true;
+  }
+  (out.statics ??= []).push({ ...st, cond: { delirium: true }, ...(mustAttack ? { mustAttack: true } : {}) });
+  return true;
+}
+
 export function readStaticAbility(line: string, out: ParsedCard): boolean {
   const staticEffect = parseStatic(line);
   if (staticEffect) {
