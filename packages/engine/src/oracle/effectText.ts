@@ -169,6 +169,7 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
   const text = rawText
     .replace(/you may draw a card for each artifact you control\. if you do, each opponent draws a card/g, "@@armorwars@@")
     .replace(/(you may put an? [a-z]+ creature card with mana value \d+ or less from your hand onto the battlefield)\. if you don't, draw a card/g, "$1, else draw a card")
+    .replace(/target player loses all poison counters\. ~ deals that much damage to that player/g, "@@poisonburn@@")
     .replace(/you may discard a card\. if you do, draw a card/g, "@@rummage@@")
     .replace(/you may put a card from your hand on the bottom of your library\. if you do, draw a card/g, "@@rummagebottom@@")
     .replace(/exile the top card of your library\. during any turn you attacked with ~, you may play that card/g, "@@exiletopplay@@")

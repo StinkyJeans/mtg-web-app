@@ -37,6 +37,16 @@ export const DAMAGE_EFFECTS = {
   },
   fight: fightOrBite,
   bite: fightOrBite,
+  /** Leeches: the player loses every poison counter, and takes that much damage. */
+  poisonBurn({ state, ctx, events, trait, say }, effect) {
+    for (const s of subjectsOf(state, effect.who, ctx)) {
+      if (s.k !== "player") continue;
+      const n = state.players[s.id].poison ?? 0;
+      state.players[s.id].poison = undefined;
+      say(`${playerLabel(s.id)} loses ${n} poison counter${n === 1 ? "" : "s"}.`);
+      if (n > 0) dealDamage(state, trait, s, n, events);
+    }
+  },
   damage({ state, ctx, events, trait, say, value, preventRegen }, effect) {
     for (const s of subjectsOf(state, effect.to, ctx)) {
       if (s.k === "player") dealDamage(state, trait, s, value(effect.amount), events);

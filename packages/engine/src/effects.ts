@@ -120,6 +120,7 @@ export type Effect =
   | { type: "exileGraveyard"; who: Ref } // "exile target player's graveyard"
   | { type: "upkeepDraw" } // "draw a card at the beginning of the next turn's upkeep"
   | { type: "poison"; who: Ref; amount: Amount } // "each opponent gets a poison counter"
+  | { type: "poisonBurn"; who: Ref } // Leeches: "target player loses all poison counters. ~ deals that much damage to that player"
   | { type: "powerFromHand" } // until end of turn: this creature's base power is the number of cards in your hand
   | { type: "mayCost"; cost: "artifactOrCard" | "artifactOrNonland" | "otherCreature"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may sacrifice an artifact or discard a card. If you do, ..."
   | { type: "ifYardCreatures"; n: number; then: Effect[]; otherwise?: Effect[] } // "...if there are two or more creature cards in your graveyard. Otherwise, mill two cards."

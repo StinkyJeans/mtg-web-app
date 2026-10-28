@@ -50,6 +50,7 @@ const DEFS: Record<string, CardDef> = {
   gizmo: { id: "gizmo", name: "Gizmo", type: "artifact", cost: 1, manaCost: "{R}", typeLine: "Artifact", text: "" } as CardDef,
   kickWatcher: creature("kickWatcher", 1, 1, "Whenever you cast a kicked spell, you gain 2 life."),
   kickme: spell("kickme", "Kick Me", "sorcery", "Kicker {R}\nYou gain 1 life."),
+  leeches: spell("leeches", "Leeches", "sorcery", "Target player loses all poison counters. Leeches deals that much damage to that player."),
   warden: creature("warden", 3, 3, "Other untapped creatures you control have hexproof.", ["hexproof"]),
   zap: spell("zap", "Zap", "instant", "Zap deals 3 damage to any target."),
   ward: spell("ward", "Counterspell", "instant", "Counter target spell."),
@@ -262,6 +263,21 @@ test("\"whenever you cast a kicked spell\" fires only when the kicker was paid",
   h = act(h, "p1", { type: "castSpell", iid: "h0", targets: [] });
   while (h.priority) h = act(h, h.priority.holder, { type: "passPriority" });
   assert.equal(h.players.p1.life, 20 + 1);
+});
+
+test("Leeches: the player loses all poison counters and takes that much damage", () => {
+  assert.equal(isSupportedCard(DEFS.leeches), true);
+  let g = setup(["leeches"]);
+  g.players.p2.poison = 4;
+  g = act(g, "p1", { type: "castSpell", iid: "h0", targets: [{ kind: "player", id: "p2" }] });
+  while (g.priority) g = act(g, g.priority.holder, { type: "passPriority" });
+  assert.equal(g.players.p2.poison ?? 0, 0);
+  assert.equal(g.players.p2.life, 16);
+  // nobody poisoned: nothing happens
+  let h = setup(["leeches"]);
+  h = act(h, "p1", { type: "castSpell", iid: "h0", targets: [{ kind: "player", id: "p2" }] });
+  while (h.priority) h = act(h, h.priority.holder, { type: "passPriority" });
+  assert.equal(h.players.p2.life, 20);
 });
 
 // ───────── counterspells and prowess ─────────
