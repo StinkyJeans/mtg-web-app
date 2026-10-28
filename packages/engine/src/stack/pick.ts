@@ -249,8 +249,16 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       // The opponent learns the card only when the card text reveals it; otherwise it stays hidden in the hand.
       const taken = getCard(state, owner.hand[owner.hand.length - 1].defId).name;
       events.push({ type: "effect", text: pick.reveal ? `${playerLabelOf(pick.owner)} reveals ${taken} and puts it into their hand.` : `${playerLabelOf(pick.owner)} puts a card into their hand.` });
+      pick.ordered.push(iid);
+      pick.options = pick.options.filter((o) => o !== iid);
+      pick.remaining -= 1;
+      // "Put two of them into your hand": the next one
+      if (pick.remaining > 0 && pick.options.length > 0) {
+        pick.prompt = "Choose one more card to put into your hand. The rest go to the bottom of your library.";
+        return null;
+      }
     }
-    const cards = (pick.bottomIids ?? []).filter((id) => id !== iid).map((id) => take(owner.library, id));
+    const cards = (pick.bottomIids ?? []).filter((id) => !pick.ordered.includes(id)).map((id) => take(owner.library, id));
     if (pick.restToGraveyard) {
       owner.graveyard.push(...cards);
     } else {
@@ -351,8 +359,9 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       pick.ordered.push(iid);
       pick.options = pick.options.filter((o) => o !== iid);
       pick.remaining -= 1;
-      // "Discard two cards unless you discard an artifact card": an artifact is enough
-      if (pick.artifactEnough && pick.ordered.length === 1 && isArtifactDef(getCard(state, owner.graveyard[owner.graveyard.length - 1].defId))) pick.remaining = 0;
+      // "Discard two cards unless you discard an artifact card": an artifact (or a creature card) is enough
+      const first = pick.ordered.length === 1 ? getCard(state, owner.graveyard[owner.graveyard.length - 1].defId) : undefined;
+      if (first && (pick.enoughType === "artifact" ? isArtifactDef(first) : pick.enoughType === "creature" && first.type === "creature")) pick.remaining = 0;
       if (pick.remaining > 0 && pick.options.length > 0) return null; // the next card
       cardsDiscarded(state, pick.owner, pick.ordered, events);
       state.pendingPick = null;

@@ -10,6 +10,8 @@ import { creatureEntered, creatureMoved, queueTriggers } from "./triggers.js";
 
 export function changeLife(state: GameState, player: PlayerId, delta: number, events: GameEvent[]): void {
   if (delta === 0) return;
+  // "Players can't gain life."
+  if (delta > 0 && Object.values(state.players).some((p) => p.battlefield.some((perm) => parseCard(getCard(state, perm.card.defId)).noLifeGain))) return;
   if (delta > 0) {
     // "If you would gain life, you gain that much life plus 1" / "twice that much": the player's permanents change the amount.
     for (const perm of state.players[player].battlefield) {
@@ -231,10 +233,10 @@ export function makeToken(state: GameState, spec: TokenSpec, controller: PlayerI
   return card.iid;
 }
 
-/** A token that is a copy of a card, with base power and toughness 1/1 (offspring). */
-export function makeTokenCopy(state: GameState, def: CardDef, controller: PlayerId, events: GameEvent[]): void {
-  const defId = `token-copy-${def.id}-1-1`;
-  state.cards[defId] ??= { ...def, id: defId, power: 1, toughness: 1, playable: false };
+/** A token that is a copy of a card, with base power and toughness 1/1 (offspring) unless `small` is false. */
+export function makeTokenCopy(state: GameState, def: CardDef, controller: PlayerId, events: GameEvent[], small = true): void {
+  const defId = small ? `token-copy-${def.id}-1-1` : def.id.startsWith("token-copy-") ? def.id : `token-copy-${def.id}`;
+  state.cards[defId] ??= { ...def, id: defId, ...(small ? { power: 1, toughness: 1 } : {}), playable: false };
   const card: CardInstance = { iid: `tok${state.nextId++}`, defId, owner: controller };
   state.players[controller].battlefield.push({ card, tapped: false, summoningSick: true, damage: 0 });
   events.push({ type: "permanentEntered", player: controller, iid: card.iid });
@@ -243,10 +245,20 @@ export function makeTokenCopy(state: GameState, def: CardDef, controller: Player
 }
 
 /** Removes a spell or ability from the stack without it resolving. A countered spell goes to its owner's graveyard (exile, for flashback). */
-/** A spell that resolved or left the stack goes to its owner's graveyard (exile after flashback, or the hand). A copy simply ceases to exist. */
-export function spellLeavesStack(state: GameState, item: Extract<StackItem, { kind: "spell" }>, to: "graveyard" | "hand" = "graveyard"): void {
+/**
+ * A spell that resolved or left the stack goes to its owner's graveyard (exile after flashback, or the hand). A copy simply ceases to exist.
+ * An Adventure that resolved (`to` "adventure") is exiled, and its owner may cast the creature from there.
+ */
+export function spellLeavesStack(state: GameState, item: Extract<StackItem, { kind: "spell" }>, to: "graveyard" | "hand" | "adventure" = "graveyard"): void {
   if (item.copy) return;
-  state.players[item.card.owner][to === "hand" ? "hand" : item.flashback ? "exile" : "graveyard"].push(item.card);
+  const owner = state.players[item.card.owner];
+  const card = item.adventure ? { ...item.card, defId: item.card.defId.replace(/\/\/adventure$/, "") } : item.card;
+  if (to === "adventure") {
+    owner.exile.push(card);
+    owner.mayPlay = [...(owner.mayPlay ?? []), { iid: card.iid, source: "adventure", always: true }];
+    return;
+  }
+  owner[to === "hand" ? "hand" : item.flashback ? "exile" : "graveyard"].push(card);
 }
 
 export function counterStackItem(state: GameState, item: StackItem, events: GameEvent[], by?: string): void {

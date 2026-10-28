@@ -132,8 +132,9 @@ async function loadOracle() {
  */
 function isPlayable(c, type) {
   // A prepare card is one creature card with a spell beside it: the engine reads both halves from the joined text.
+  // An Adventure card is the same: a creature with its Adventure spell beside it.
   // A Case is one face; its "To solve" and "Solved" lines are read like any other.
-  if (c.layout !== "normal" && c.layout !== "prepare" && c.layout !== "case") return false;
+  if (c.layout !== "normal" && c.layout !== "prepare" && c.layout !== "adventure" && c.layout !== "case") return false;
   if (!["land", "creature", "artifact", "enchantment", "planeswalker", "instant", "sorcery"].includes(type)) return false;
   return isSupportedCard({
     id: "check",

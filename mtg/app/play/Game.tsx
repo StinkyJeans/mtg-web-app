@@ -566,18 +566,21 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       act({ type: "playLand", iid });
       return;
     }
-    const castable = getCastable(state, actor).find((c) => c.iid === iid && c.zone === undefined);
+    const ways = getCastable(state, actor).filter((c) => c.iid === iid && c.zone === undefined);
+    const castable = ways.find((c) => !c.adventure) ?? ways[0];
     if (!castable) {
       act({ type: "castSpell", iid, targets: [] }); // not castable now: the engine says why
       return;
     }
-    advance({ iid, name: state.cards[defId].name, castable });
+    const adventure = ways.find((c) => c.adventure);
+    advance({ iid, name: state.cards[defId].name, castable, ...(adventure ? { adventureCastable: adventure } : {}) });
   }
 
   /** Moves a spell on to whatever it still needs: modes, the kicker, X, targets, and finally the cast itself. */
   function advance(p: CastPlan) {
     const c = p.castable;
     setPlan(p);
+    if (p.adventureCastable && p.adventure === undefined) return; // the creature-or-Adventure panel is shown
     if (c.teamwork && p.teamwork === undefined) return; // the teamwork panel is shown
     if (c.modal && p.modes === undefined) return; // the mode panel is shown
     if (c.warp !== undefined && p.warp === undefined) return; // the warp panel is shown
@@ -589,6 +592,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     }
     if (c.delve && p.delve === undefined) return; // the delve panel is shown
     if (c.replicate && c.replicate.max > 0 && p.replicate === undefined) return; // the replicate panel is shown
+    if (c.harmonize && c.harmonize.options.length > 0 && p.harmonizeTap === undefined) return; // the harmonize panel is shown
     if ((c.sacrifice || c.discard) && p.sacrifice === undefined) return; // the sacrifice (or discard) panel is shown
     const baseSpecs = c.modal ? (p.modes ?? []).flatMap((m) => c.modal!.modes[m].specs) : c.specs;
     const ownSpecs = (p.teamwork?.length ?? 0) > 0 ? liftedSpecs(baseSpecs) : baseSpecs; // teamwork can waive a limit on the target
@@ -606,6 +610,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       ...(p.warp ? { warp: true } : {}),
       ...(p.delve ? { delve: p.delve } : {}),
       ...(p.replicate ? { replicate: p.replicate } : {}),
+      ...(p.adventure ? { adventure: true } : {}),
+      ...(p.harmonizeTap ? { harmonizeTap: p.harmonizeTap } : {}),
     });
     const title = p.name + (p.x !== undefined && c.maxX !== undefined ? ` (X = ${p.x})` : "") + (p.kicked ? (c.blight ? " (blighted)" : c.kickerName === "offspring" ? " (with offspring)" : " (kicked)") : "") + (p.teamwork?.length ? " (teamwork)" : "") + (p.warp ? " (warp)" : "") + (p.replicate ? ` (${p.replicate + 1} copies with replicate)` : "");
     setPlan(null);

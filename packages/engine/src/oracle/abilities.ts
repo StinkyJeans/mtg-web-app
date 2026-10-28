@@ -21,6 +21,7 @@ export function interveningCond(text: string): TriggerCond | null {
   if ((m = /^you control another ([a-z]+)$/.exec(text))) return { controlsOther: m[1] };
   if ((m = /^you control (two|three|four|five|\d+) or more creatures$/.exec(text))) return { creaturesAtLeast: toNumber(m[1]) ?? 0 };
   if ((m = /^an? ([a-z]+) and an? ([a-z]+) attacked this combat$/.exec(text))) return { attackersInclude: [m[1], m[2]] };
+  if (text === "you cast it") return { cast: true };
   return null;
 }
 

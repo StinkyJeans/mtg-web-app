@@ -161,6 +161,29 @@ export const ZONE_EFFECTS = {
     for (let i = 0; i < n; i++) ctx.created = [...(ctx.created ?? []), makeToken(state, effect.token, who, events)];
     if (n > 0) say(`${playerLabel(who)} creates ${plural(n, `${effect.token.name} token`)}.`);
   },
+  exileYardCard({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "card") continue;
+      const yard = state.players[s.owner].graveyard;
+      yard.splice(yard.indexOf(s.card), 1);
+      state.players[s.owner].exile.push({ ...s.card, exiledBy: ctx.sourceId });
+      say(`${getCard(state, s.card.defId).name} is exiled from ${playerLabel(s.owner)}'s graveyard.`);
+    }
+  },
+  putExiledWith({ state, ctx, events, say }) {
+    // Each creature card it exiled comes back under its controller as a 1/1 Spirit with a flying counter.
+    for (const owner of Object.values(state.players)) {
+      for (const found of owner.exile.filter((c) => c.exiledBy === ctx.sourceId && getCard(state, c.defId).type === "creature")) {
+        owner.exile.splice(owner.exile.indexOf(found), 1);
+        const card = { iid: found.iid, defId: found.defId, owner: found.owner };
+        state.players[ctx.controller].battlefield.push({ card, tapped: false, summoningSick: true, damage: 0, kwCounters: ["flying"], baseOverride: { power: 1, toughness: 1 }, addedSubtypes: ["spirit"] });
+        events.push({ type: "permanentEntered", player: ctx.controller, iid: card.iid });
+        say(`${getCard(state, card.defId).name} returns as a 1/1 Spirit with a flying counter.`);
+        queueTriggers(state, card, ctx.controller, "enters");
+        creatureEntered(state, card, ctx.controller);
+      }
+    }
+  },
   reanimate({ state, ctx, events, say }, effect) {
     for (const s of subjectsOf(state, effect.what, ctx)) {
       if (s.k !== "card") continue;

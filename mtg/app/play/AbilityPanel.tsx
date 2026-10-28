@@ -46,7 +46,7 @@ export function AbilityPanel({
   plots?: { iid: string; name: string; cost: string }[];
   onPlot?: (iid: string) => void;
   /** `source`: for a copy cast from a prepared creature, that creature's name. */
-  flashbacks?: { iid: string; name: string; cost: string; zone?: "graveyard" | "exile" | "prepared"; source?: string; why?: "yard" | ExileReason; tax?: number; sacrifice?: string }[];
+  flashbacks?: { iid: string; name: string; cost: string; zone?: "graveyard" | "exile" | "prepared"; source?: string; why?: "yard" | "harmonize" | ExileReason; tax?: number; sacrifice?: string }[];
   /** Lands in exile that may be played ("you may play that card"). */
   exileLands?: { iid: string; name: string; tapped?: boolean }[];
   onPlayLand?: (iid: string) => void;
@@ -116,6 +116,16 @@ export function AbilityPanel({
               <>
                 <span className="font-semibold">Cast {f.name}</span> for free — you plotted it; cast it as a sorcery, without paying its mana cost
                 <Help text="plot" large />
+              </>
+            ) : f.why === "adventure" ? (
+              <>
+                <span className="font-semibold">Cast {f.name}</span>: <ManaText text={f.cost} /> — from exile, after its Adventure
+                <Help text="adventure" large />
+              </>
+            ) : f.why === "harmonize" ? (
+              <>
+                <span className="font-semibold">Harmonize {f.name}</span>: <ManaText text={f.cost} /> — cast it from your graveyard; you may tap a creature to pay {"{X}"} of it, X being its power
+                <Help text="harmonize" large />
               </>
             ) : f.why === "thisTurn" ? (
               <>

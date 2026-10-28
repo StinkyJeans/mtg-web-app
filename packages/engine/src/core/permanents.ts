@@ -23,6 +23,7 @@ export function entersTappedNow(state: GameState, controller: PlayerId, def: Car
   const unless = parsed.entersTappedUnless;
   if (!unless) return false;
   if (unless.never) return true;
+  if (unless.yourTurn) return state.active !== controller;
   const mine = state.players[controller].battlefield.filter((p) => getCard(state, p.card.defId).type === "land");
   const foe = state.players[OPPONENT[controller]];
   const untapped =
@@ -78,6 +79,11 @@ export const isEnchantmentDef = (def: CardDef) => def.type === "enchantment" || 
 export const qualityOfDef = (def: CardDef): SourceQuality => ({ colors: def.colors ?? [], artifact: isArtifactDef(def) });
 
 /** Is this permanent protected from sources with these qualities? ("Protection from red") */
+/** Can damage be prevented right now? Not this turn after "damage can't be prevented this turn", nor while a permanent says "Damage can't be prevented." */
+export function canPrevent(s: GameState): boolean {
+  return !s.noPrevention && !Object.values(s.players).some((p) => p.battlefield.some((perm) => parseCard(getCard(s, perm.card.defId)).damageUnpreventable));
+}
+
 export function isProtectedFrom(s: GameState, perm: Permanent, source: SourceQuality): boolean {
   const protection = parseCard(getCard(s, perm.card.defId)).protection;
   if (!protection) return false;
@@ -95,7 +101,7 @@ export function subtypesOf(s: GameState, p: Permanent): string[] {
   // "~ becomes a Werewolf" replaces its creature types (unless an Aura has since made it something else).
   const override = p.card.defId.includes("@becomes-") ? undefined : p.subtypesOverride;
   const own = override ?? defSubtypes(getCard(s, p.card.defId));
-  const printed = p.tempSubtypes ? [...own, ...p.tempSubtypes] : own;
+  const printed = p.tempSubtypes || p.addedSubtypes ? [...own, ...(p.tempSubtypes ?? []), ...(p.addedSubtypes ?? [])] : own;
   const added = Object.values(s.players).flatMap((owner) =>
     owner.battlefield.filter((aura) => aura.attachedTo === p.card.iid).flatMap((aura) => (parseCard(getCard(s, aura.card.defId)).statics ?? []).flatMap((st) => (st.scope === "enchanted" ? (st.addSubtypes ?? []) : []))),
   );
@@ -191,8 +197,9 @@ export function countFor(s: GameState, me: PlayerId, spec: CountSpec, sourceIid?
   if (spec.kind === "hand") return s.players[me].hand.length;
   if (spec.kind === "graveyard") {
     return s.players[me].graveyard.filter((c) => {
-      const type = getCard(s, c.defId).type;
-      return spec.spellsOnly ? type === "instant" || type === "sorcery" : !spec.creaturesOnly || type === "creature";
+      const def = getCard(s, c.defId);
+      if (spec.adventures && /\bAdventure\b/.test(def.typeLine ?? "")) return true;
+      return spec.spellsOnly ? def.type === "instant" || def.type === "sorcery" : !spec.creaturesOnly || def.type === "creature";
     }).length;
   }
   if (spec.kind === "attackers") {
@@ -205,7 +212,10 @@ export function countFor(s: GameState, me: PlayerId, spec: CountSpec, sourceIid?
   if (spec.kind === "opponents") return 1;
   if (spec.kind === "discardedThisTurn") return s.players[me].discardedThisTurn ?? 0;
   if (spec.kind === "handDeficit") return Math.max(0, spec.to - s.players[me].hand.length);
-  if (spec.kind === "greatestMV") return Math.max(0, ...s.players[me].battlefield.filter((p) => isArtifactDef(getCard(s, p.card.defId))).map((p) => getCard(s, p.card.defId).cost));
+  if (spec.kind === "greatestMV") {
+    const counted = s.players[me].battlefield.filter((p) => (spec.what === "subtype" ? subtypesOf(s, p).includes(spec.subtype ?? "?") : isArtifactDef(getCard(s, p.card.defId))));
+    return Math.max(0, ...counted.map((p) => getCard(s, p.card.defId).cost));
+  }
   if (spec.kind === "toughnessGtPower") return s.players[me].battlefield.filter((p) => isCreature(s, p) && toughnessOf(s, p) > powerOf(s, p)).length;
   if (spec.kind !== "permanents") return 0; // the other kinds need the context of the effect (see runEffects)
   let n = 0;
@@ -229,6 +239,7 @@ export function countFor(s: GameState, me: PlayerId, spec: CountSpec, sourceIid?
 /** Printed power or toughness; a "*" is worked out from the board. */
 function basePT(s: GameState, p: Permanent, which: "power" | "toughness"): number {
   if (p.tempBase) return p.tempBase[which]; // "becomes a 4/4 until end of turn"
+  if (p.baseOverride) return p.baseOverride[which]; // "is a 1/1 Spirit in addition to its other types"
   if (which === "power" && p.powerFromHand) return s.players[s.players.p1.battlefield.includes(p) ? "p1" : "p2"].hand.length;
   const def = getCard(s, p.card.defId);
   const printed = def[which];

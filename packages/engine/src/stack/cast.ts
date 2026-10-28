@@ -77,16 +77,21 @@ const targetedSpellColors = (state: GameState, id: string): string[] => {
   return item?.kind === "spell" ? (getCard(state, item.card.defId).colors ?? []) : [];
 };
 
-/** Replicate: a copy of the spell for each payment, on the stack above it, each with its own targets. Copies aren't cast, so nothing triggers on them. */
-function pushReplicas(state: GameState, player: PlayerId, card: CardInstance, effects: Effect[], specs: TargetSpec[], copyTargets: TargetChoice[], events: GameEvent[]): void {
-  const copies = specs.length > 0 ? copyTargets.length / specs.length : 0;
+/**
+ * Replicate: a copy of the spell for each payment, on the stack above it, each with its own targets. Storm: `copies` copies with the spell's targets.
+ * Copies aren't cast, so nothing triggers on them.
+ */
+function pushCopies(state: GameState, player: PlayerId, card: CardInstance, effects: Effect[], specs: TargetSpec[], copyTargets: TargetChoice[], events: GameEvent[], why: "replicate" | "storm", x = 0, copies = specs.length > 0 ? copyTargets.length / specs.length : 0): void {
   for (let i = 0; i < copies; i++) {
-    const targets = copyTargets.slice(i * specs.length, (i + 1) * specs.length);
-    state.stack.push({ kind: "spell", id: newId(state), controller: player, card: { ...card, iid: `copy${state.nextId++}` }, effects, targets, specs, x: 0, copy: true });
+    const targets = why === "storm" ? copyTargets : copyTargets.slice(i * specs.length, (i + 1) * specs.length);
+    state.stack.push({ kind: "spell", id: newId(state), controller: player, card: { ...card, iid: `copy${state.nextId++}` }, effects, targets, specs, x, copy: true });
     queueWard(state, state.stack[state.stack.length - 1]);
   }
-  if (copies > 0) events.push({ type: "effect", text: `${getCard(state, card.defId).name} is copied ${copies === 1 ? "once" : `${copies} times`} (replicate).` });
+  if (copies > 0) events.push({ type: "effect", text: `${getCard(state, card.defId).name} is copied ${copies === 1 ? "once" : `${copies} times`} (${why}).` });
 }
+
+/** Harmonize: untapped creatures that could be tapped to pay {X} of the cost, X being the creature's power. */
+export const harmonizers = (state: GameState, player: PlayerId) => state.players[player].battlefield.filter((p) => !p.tapped && isCreature(state, p) && powerOf(state, p) > 0);
 
 /** Targets with the limit that teamwork waives taken off ("exile target creature with mana value 3 or less. If cast using teamwork, instead exile target creature"). */
 export const liftedSpecs = (specs: TargetSpec[]): TargetSpec[] => specs.map((s) => (s.liftedWhenKicked ? { ...s, mv: undefined, power: undefined, toughness: undefined, liftedWhenKicked: undefined } : s));
@@ -103,7 +108,7 @@ export function delveChoice(state: GameState, player: PlayerId, spellIid: string
 /** Untapped creatures that could be tapped to pay teamwork (summoning-sick ones too: it is not a {T} cost). */
 export const teamworkers = (state: GameState, player: PlayerId) => state.players[player].battlefield.filter((p) => !p.tapped && isCreature(state, p));
 
-export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false, teamwork?: string[], phyrexianLife = 0, delve?: string[], replicate = 0): string | null {
+export function castSpell(state: GameState, player: PlayerId, iid: string, targets: TargetChoice[], events: GameEvent[], x = 0, kicked = false, from: "hand" | "graveyard" | "exile" | "prepared" = "hand", modes?: number[], sacrifice?: string, warp = false, teamwork?: string[], phyrexianLife = 0, delve?: string[], replicate = 0, adventure = false, harmonizeTap?: string): string | null {
   const me = state.players[player];
   // A prepared creature: a copy of its spell is cast (`iid` is the creature).
   const prepared = from === "prepared" ? me.battlefield.find((p) => p.card.iid === iid && p.prepared) : undefined;
@@ -111,7 +116,11 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   const idx = zone.findIndex((c) => c.iid === iid);
   if (idx < 0) return from === "graveyard" ? "That card is not in your graveyard." : from === "exile" ? "That card is not in exile." : from === "prepared" ? "That creature isn't prepared." : "That card is not in your hand.";
   if (from === "exile" && !exilePlayable(state, player).some((c) => c.iid === iid)) return "You can't play that exiled card right now: attack with the creature that exiled it first.";
-  const def = getCard(state, zone[idx].defId);
+  // An Adventure card: its Adventure spell is cast instead of the creature (from the hand only).
+  const whole = getCard(state, zone[idx].defId);
+  const adventureDef = adventure ? parseCard(whole).adventure : undefined;
+  if (adventure && (!adventureDef || from !== "hand")) return `${whole.name} has no Adventure to cast${adventureDef ? " from there" : ""}.`;
+  const def = adventureDef ?? whole;
   if (def.type === "land") return "Lands are played, not cast.";
   if (!isPermanentCard(def) && def.type !== "instant" && def.type !== "sorcery") return `${def.name} can't be cast yet.`;
   const parsed = parseCard(def);
@@ -119,9 +128,10 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   // A creature card that may be cast from the graveyard this turn (Case of the Uneaten Feast) costs what it always does.
   const fromYard = from === "graveyard" && def.type === "creature" && (me.yardCastable ?? []).includes(iid);
   if (from === "graveyard" && !fromYard) {
-    // Flashback: only instants and sorceries, for the flashback cost instead of the mana cost.
-    if (!parsed.flashback || (def.type !== "instant" && def.type !== "sorcery")) return `${def.name} doesn't have flashback.`;
-    cost = parseManaCost(parsed.flashback);
+    // Flashback (or harmonize): only instants and sorceries, for that cost instead of the mana cost.
+    const alternative = parsed.flashback ?? parsed.harmonize;
+    if (!alternative || (def.type !== "instant" && def.type !== "sorcery")) return `${def.name} doesn't have flashback.`;
+    cost = parseManaCost(alternative);
   }
   if (warp) {
     // Warp: from the hand only, for the warp cost; the permanent is exiled at the beginning of the next end step.
@@ -129,6 +139,11 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
     cost = parseManaCost(parsed.warp);
   }
   if (!parsed.ok || !cost) return `${def.name} can't be played yet.`;
+  // Harmonize: an untapped creature you control is tapped to pay {X} of the cost, X being its power.
+  const harmonizer = harmonizeTap ? harmonizers(state, player).find((p) => p.card.iid === harmonizeTap) : undefined;
+  if (harmonizeTap && (from !== "graveyard" || !parsed.harmonize || parsed.flashback)) return `${def.name} isn't being cast with harmonize.`;
+  if (harmonizeTap && !harmonizer) return `${def.name}: harmonize taps an untapped creature you control with power 1 or more.`;
+  if (harmonizer) cost = { ...cost, generic: Math.max(0, cost.generic - powerOf(state, harmonizer)) };
   if (from === "exile") {
     const terms = exilePlayTerms(state, player, iid);
     if (terms.sorcery && !sorceryTiming(state, player)) return `${def.name} was plotted: it can only be cast as a sorcery, in your main phase with nothing on the stack.`;
@@ -215,10 +230,10 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   if (delve && delve.length > 0 && !parsed.delve) return `${def.name} doesn't have delve.`;
   if (delved.length > full.generic) return `${def.name}: delve can only pay for the generic mana in its cost ({${full.generic}}).`;
   if (delved.some((id) => id === iid || !me.graveyard.some((c) => c.iid === id))) return `${def.name}: delve exiles cards from your graveyard.`;
-  for (const p of teamed) tapPerm(state, p, player); // paid as part of the cost, before the mana (they can't also be tapped for mana)
+  for (const p of harmonizer ? [...teamed, harmonizer] : teamed) tapPerm(state, p, player); // paid as part of the cost, before the mana (they can't also be tapped for mana)
   const paid = payMana(state, player, withDelve(full, delved.length), def);
   if (!paid.ok) {
-    const price = warp ? `warp ${parsed.warp}` : from === "graveyard" && !fromYard ? `flashback ${flashbackSac ? `(sacrifice a ${flashbackSac})` : parsed.flashback}` : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "") + (payInstead ? ` + ${parsed.extraSacrificeOrPay}` : "");
+    const price = warp ? `warp ${parsed.warp}` : from === "graveyard" && !fromYard ? (parsed.flashback ? `flashback ${flashbackSac ? `(sacrifice a ${flashbackSac})` : parsed.flashback}` : `harmonize ${parsed.harmonize}`) : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "") + (payInstead ? ` + ${parsed.extraSacrificeOrPay}` : "");
     return paid.missing === "life"
       ? `Not enough life to pay for ${def.name} (${price}).`
       : paid.missing === "generic"
@@ -254,21 +269,27 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   const haste = paid.tap.some((src) => hasteFrom(state, src, def));
   if (from === "exile") me.mayPlay = (me.mayPlay ?? []).filter((e) => e.iid !== iid);
   if (prepared) prepared.prepared = undefined; // casting the copy unprepares it
-  const card = prepared ? { ...taken, iid: `copy${state.nextId++}` } : taken;
+  if (adventureDef) state.cards[adventureDef.id] ??= adventureDef; // on the stack it is only its Adventure (it goes back to being the whole card as it leaves)
+  const card = prepared ? { ...taken, iid: `copy${state.nextId++}` } : adventureDef ? { ...taken, defId: adventureDef.id } : taken;
+  const manaSpent = paid.made.length;
   for (const p of teamed) queueTriggers(state, p.card, player, "teamworkTap");
   const own = targets.slice(0, specs.length);
-  state.stack.push({ kind: "spell", id: newId(state), controller: player, card, effects, targets: own, specs, x: cost.x ? x : (sacrificedPower ?? x), ...(wasKicked ? { kicked: true } : {}), ...(haste ? { haste } : {}), ...(from === "graveyard" && !fromYard ? { flashback: true } : {}), ...(prepared ? { copy: true } : {}), ...(warp ? { warped: true } : {}) });
+  const spellX = cost.x ? x : (sacrificedPower ?? x);
+  state.stack.push({ kind: "spell", id: newId(state), controller: player, card, effects, targets: own, specs, x: spellX, manaSpent, ...(wasKicked ? { kicked: true } : {}), ...(haste ? { haste } : {}), ...(from === "graveyard" && !fromYard ? { flashback: true } : {}), ...(prepared ? { copy: true } : {}), ...(warp ? { warped: true } : {}), ...(adventureDef ? { adventure: true } : {}) });
   events.push(
     def.type === "creature"
       ? { type: "creatureCast", player, iid: card.iid, tapped: paid.tap }
       : { type: "spellCast", player, iid: card.iid, tapped: paid.tap, targets: own },
   );
   queueWard(state, state.stack[state.stack.length - 1]);
-  pushReplicas(state, player, card, effects, specs, targets.slice(specs.length), events);
+  pushCopies(state, player, card, effects, specs, targets.slice(specs.length), events, "replicate");
+  // Storm (Ral's emblem): a copy for each spell cast before it this turn, by either player.
+  const castBefore = (state.players.p1.spellsCastThisTurn ?? 0) + (state.players.p2.spellsCastThisTurn ?? 0);
+  if (me.stormEmblem && (def.type === "instant" || def.type === "sorcery")) pushCopies(state, player, card, effects, specs, own, events, "storm", spellX, castBefore);
   // Prowess and friends: "whenever you cast a noncreature spell" ("...a noncreature or Dragon spell" counts Dragon creature spells too).
   const spellTypes = ((def.typeLine ?? "").split(" // ")[0].split("—")[1] ?? "").toLowerCase().split(/\s+/);
   for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "noncreatureSpell", def.type === "creature" ? { subtypes: spellTypes } : undefined);
-  if (def.type === "instant" || def.type === "sorcery") for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "instantOrSorcery");
+  if (def.type === "instant" || def.type === "sorcery") for (const perm of state.players[player].battlefield) queueTriggers(state, perm.card, player, "instantOrSorcery", { count: manaSpent });
   me.spellsCastThisTurn = (me.spellsCastThisTurn ?? 0) + 1;
   const aimedAt = (iid: string) => findPermanentOrNull(state, iid);
   const targetedCreatures = targets.flatMap((t) => (t.kind === "permanent" && aimedAt(t.iid) && isCreature(state, aimedAt(t.iid)!.perm) ? [aimedAt(t.iid)!] : []));

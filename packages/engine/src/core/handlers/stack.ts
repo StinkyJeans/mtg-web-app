@@ -112,8 +112,17 @@ export const STACK_EFFECTS = {
           ? (me.landsEnteredThisTurn ?? 0) > 0
           : effect.cond === "delirium"
             ? hasDelirium(state, ctx.controller)
-            : me.battlefield.some((p) => isCreature(state, p) && powerOf(state, p) >= 4);
+            : effect.cond === "instantAndSorcery"
+              ? ["instant", "sorcery"].every((type) => me.graveyard.some((c) => getCard(state, c.defId).type === type))
+              : me.battlefield.some((p) => isCreature(state, p) && powerOf(state, p) >= 4);
     nested(holds ? effect.then : (effect.otherwise ?? []));
+  },
+  ifManaSpent({ ctx, nested }, effect) {
+    if ((ctx.x ?? 0) >= effect.n) nested(effect.then);
+  },
+  stormEmblem({ state, ctx, say }) {
+    state.players[ctx.controller].stormEmblem = true;
+    say(`${playerLabel(ctx.controller)} gets an emblem: instant and sorcery spells they cast have storm.`);
   },
   ifControlledTarget({ ctx, nested }, effect) {
     // Who controlled it as the spell began to resolve: a bounced permanent has no controller any more.

@@ -6,7 +6,7 @@ import type { ManaCost } from "../mana.js";
 import { parseCard } from "../oracle.js";
 import type { CardDef, GameState, Permanent, PlayerId } from "../types.js";
 import { abilityHaste, abilityManaCost, abilityNeed, canCastNow, holdsPriority, sorceryTiming } from "./shared.js";
-import { castCostOf, costChoices, crewers, delveChoice, liftedSpecs, tapPair, teamworkers } from "./cast.js";
+import { castCostOf, costChoices, crewers, delveChoice, harmonizers, liftedSpecs, tapPair, teamworkers } from "./cast.js";
 
 // What a player could do right now (for the screen and for auto-passing).
 
@@ -39,6 +39,10 @@ export interface Castable {
   delve?: { min: number; max: number; options: string[] };
   /** Replicate: its cost, and the most times it can be paid right now (each payment is a copy, with targets of its own). */
   replicate?: { cost: string; max: number };
+  /** An Adventure card in hand: this is its Adventure spell (cast with `adventure: true`). */
+  adventure?: boolean;
+  /** Harmonize (from the graveyard): the creatures that could be tapped to pay part of the cost, and whether it can be paid without one. */
+  harmonize?: { options: string[]; free: boolean };
 }
 
 /** Cards in hand the player could cast right now: right timing, enough mana, and a legal target for each need. */
@@ -121,6 +125,12 @@ export function getCastable(state: GameState, player: PlayerId): Castable[] {
     const castable = castableAs(state, player, card.iid, getCard(state, card.defId), fromExile.has(card.iid) ? "exile" : undefined);
     if (castable) out.push(castable);
   }
+  // Adventure cards in hand: the Adventure spell may be cast instead of the creature.
+  for (const card of state.players[player].hand) {
+    const adventure = parseCard(getCard(state, card.defId)).adventure;
+    const castable = adventure ? castableAs(state, player, card.iid, adventure) : null;
+    if (castable) out.push({ ...castable, adventure: true });
+  }
   // Prepared creatures: a copy of each one's spell.
   for (const perm of state.players[player].battlefield) {
     const castable = perm.prepared ? castableAs(state, player, perm.card.iid, getCard(state, perm.prepared), "prepared") : null;
@@ -132,20 +142,24 @@ export function getCastable(state: GameState, player: PlayerId): Castable[] {
     const castable = castableAs(state, player, card.iid, getCard(state, card.defId), "graveyard");
     if (castable) out.push(castable);
   }
-  // Flashback: instants and sorceries in the graveyard, for their flashback cost.
+  // Flashback (and harmonize): instants and sorceries in the graveyard, for that cost.
   for (const card of state.players[player].graveyard) {
     const def = getCard(state, card.defId);
     if (def.type !== "instant" && def.type !== "sorcery") continue;
     const parsed = parseCard(def);
-    const cost = parsed.flashback ? parseManaCost(parsed.flashback) : null;
-    if (!parsed.ok || !cost || !canCastNow(state, player, def) || !payMana(state, player, cost, def).ok) continue;
+    const alternative = parsed.flashback ?? parsed.harmonize;
+    const cost = alternative ? parseManaCost(alternative) : null;
+    if (!parsed.ok || !cost || !canCastNow(state, player, def)) continue;
+    const free = payMana(state, player, cost, def).ok;
+    const tappers = parsed.harmonize && !parsed.flashback ? harmonizers(state, player).filter((p) => payMana(state, player, { ...cost, generic: Math.max(0, cost.generic - powerOf(state, p)) }, def).ok) : [];
+    if (!free && tappers.length === 0) continue;
     const specs = parsed.spell?.targets ?? [];
     if (parsed.spell?.modal || specs.some((spec) => legalTargets(state, spec, player).length === 0)) continue;
     // "Flashback—Sacrifice a Mountain": the permanents that could be sacrificed
     const sacType = parsed.flashbackSacrifice;
     const sacrifice = sacType ? state.players[player].battlefield.filter((p) => subtypesOf(state, p).includes(sacType)).map((p) => p.card.iid) : [];
     if (sacType && sacrifice.length === 0) continue;
-    out.push({ iid: card.iid, specs, zone: "graveyard", ...(sacType ? { sacrifice } : {}) });
+    out.push({ iid: card.iid, specs, zone: "graveyard", ...(sacType ? { sacrifice } : {}), ...(parsed.harmonize && !parsed.flashback ? { harmonize: { options: tappers.map((p) => p.card.iid), free } } : {}) });
   }
   return out;
 }

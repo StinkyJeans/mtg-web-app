@@ -269,6 +269,8 @@ export function readAnyDrawSecond(line: string, out: ParsedCard): boolean {
 /** "Prevent all damage that would be dealt to Black Panther." / "Your opponents can't cast spells during your turn." */
 export function readDamagePrevention(line: string, out: ParsedCard): boolean {
   if (line === "prevent all damage that would be dealt to ~") out.preventDamageToSelf = true;
+  else if (line === "players can't gain life") out.noLifeGain = true;
+  else if (line === "damage can't be prevented") out.damageUnpreventable = true;
   else if (line === "your opponents can't cast spells during your turn") out.noOppSpellsOnYourTurn = true;
   else return false;
   return true;

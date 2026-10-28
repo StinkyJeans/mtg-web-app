@@ -33,6 +33,20 @@ export const PERMANENT_EFFECTS = {
     makeTokenCopy(state, getCard(state, card.printed ?? card.defId), ctx.controller, events);
     say(`${ctx.sourceName}'s offspring: a 1/1 token copy enters.`);
   },
+  copySelfToken({ state, ctx, events, say }) {
+    // A token copy of the permanent as it is printed (or as it last was, when it has left the battlefield).
+    const card = cardAnywhere(state, ctx.sourceId);
+    const defId = card ? (card.printed ?? card.defId) : ctx.sourceDefId;
+    if (!defId) return;
+    makeTokenCopy(state, getCard(state, defId), ctx.controller, events, false);
+    say(`${ctx.sourceName}: a token copy of it enters.`);
+  },
+  addLoyalty({ state, ctx, say }, effect) {
+    const self = findPermanentOrNull(state, ctx.sourceId)?.perm;
+    if (!self) return;
+    self.loyalty = (self.loyalty ?? 0) + effect.amount;
+    say(`${ctx.sourceName} gets ${plural(effect.amount, "loyalty counter")} (${self.loyalty}).`);
+  },
   solve({ state, ctx, say }) {
     const self = findPermanentOrNull(state, ctx.sourceId)?.perm;
     if (!self || self.solved) return;

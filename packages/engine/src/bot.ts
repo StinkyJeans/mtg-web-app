@@ -1,8 +1,8 @@
 import { applyAction, getDamageAssignments, getForcedBlocks, getPossibleAttackers, getPossibleBlockers, getRequiredBlocks, MAX_HAND_SIZE, suggestDamageAssignment } from "./actions.js";
 import type { Action, Block } from "./actions.js";
 import { getActivatable, getCastable, getLoyaltyAbilities, getPlottable } from "./stack.js";
-import { exilePlayable, legalTargets, playerToAct, powerOf, staticEffectsOn, toughnessOf } from "./core.js";
-import { manaSources } from "./mana.js";
+import { entersTappedNow, exilePlayable, legalTargets, playerToAct, powerOf, staticEffectsOn, toughnessOf } from "./core.js";
+import { landManaColors, manaSources } from "./mana.js";
 import { hasKeyword } from "./keywords.js";
 import type { Keyword } from "./keywords.js";
 import { parseCard } from "./oracle.js";
@@ -106,9 +106,15 @@ export function evaluate(s: GameState, me: PlayerId): number {
   let v = lifeScore(s.players[me].life) - lifeScore(s.players[opp].life) - poisonScore(s.players[me].poison ?? 0) + poisonScore(s.players[opp].poison ?? 0);
   for (const p of s.players[me].battlefield) v += permValue(s, p);
   for (const p of s.players[opp].battlefield) v -= permValue(s, p) * 1.05;
-  v += handValue(s, me) - s.players[opp].hand.length * 0.8;
+  v += handValue(s, me) - s.players[opp].hand.length * 0.8 + exiledForMe(s, me) * 0.5;
   if (s.players[me].library.length <= 2) v -= 6; // about to run out of cards
   return v;
+}
+
+/** Creature cards exiled with a permanent of mine (Ghost Vacuum): it can put them onto the battlefield later. */
+function exiledForMe(s: GameState, me: PlayerId): number {
+  const mine = new Set(s.players[me].battlefield.map((p) => p.card.iid));
+  return Object.values(s.players).reduce((n, p) => n + p.exile.filter((c) => c.exiledBy && mine.has(c.exiledBy) && s.cards[c.defId]?.type === "creature").length, 0);
 }
 
 /** Danger of the counter-attack: creatures that attacked stay tapped, so they can't block on the other player's turn. */
@@ -490,6 +496,8 @@ function candidates(s: GameState, me: PlayerId): Action[] {
     const extras = c.discard ? [worstCard(c.discard)] : c.sacrifice && c.zone === "graveyard" ? [tappedFirst(c.sacrifice)] : c.sacrifice ? [...(c.sacrifice.length > 0 ? [cheapestCreature(c.sacrifice)] : []), ...(c.orPay ? ["pay"] : [])] : [undefined];
     // Warp: the cheap way that only lasts until the end step, or (when the mana is there) the normal way.
     const warps = c.warp ? (c.warpOnly ? [true] : [false, true]) : [false];
+    // Harmonize: tap the creature that matters least, unless the mana alone pays.
+    const harmonizeTap = c.harmonize && !c.harmonize.free ? cheapestCreature(c.harmonize.options) : undefined;
     for (const m of modes) {
       for (const targets of targetCombos(s, m.specs, me, cardText(c.iid)).length || m.specs.length === 0 ? (m.specs.length === 0 ? [[]] : targetCombos(s, m.specs, me, cardText(c.iid))) : []) {
         for (const x of xs) {
@@ -508,6 +516,8 @@ function candidates(s: GameState, me: PlayerId): Action[] {
                   ...(extra ? { sacrifice: extra } : {}),
                   ...(m.i >= 0 ? { modes: [m.i] } : {}),
                   ...(warp ? { warp: true } : {}),
+                  ...(c.adventure ? { adventure: true } : {}),
+                  ...(harmonizeTap ? { harmonizeTap } : {}),
                 });
               }
             }
@@ -538,8 +548,9 @@ function candidates(s: GameState, me: PlayerId): Action[] {
   return out;
 }
 
-/** How much a land helps: the colors the hand needs and the table does not yet make, less one if it enters tapped. */
+/** How much a land helps: the colors the hand needs and the table does not yet make, less one if it would enter tapped (half for a shock land's 2 life). */
 function landScore(s: GameState, me: PlayerId, land: CardDef | undefined): number {
+  if (!land) return 0;
   const pl = s.players[me];
   const need: Record<string, number> = {};
   for (const c of pl.hand) {
@@ -549,13 +560,10 @@ function landScore(s: GameState, me: PlayerId, land: CardDef | undefined): numbe
   const have: Record<string, number> = {};
   for (const p of pl.battlefield) {
     const d = defOf(s, p);
-    for (const sym of (d?.typeLine ?? "").matchAll(/Plains|Island|Swamp|Mountain|Forest/g)) {
-      const color = { Plains: "W", Island: "U", Swamp: "B", Mountain: "R", Forest: "G" }[sym[0]]!;
-      have[color] = (have[color] ?? 0) + 1;
-    }
+    for (const color of d ? landManaColors(d) : []) have[color] = (have[color] ?? 0) + 1;
   }
-  const colors = [...(land?.typeLine ?? "").matchAll(/Plains|Island|Swamp|Mountain|Forest/g)].map((m) => ({ Plains: "W", Island: "U", Swamp: "B", Mountain: "R", Forest: "G" })[m[0]]!);
-  return colors.reduce((n, c) => n + (need[c] ?? 0) * 2 - (have[c] ?? 0) * 0.5, 0) + (land?.text?.includes("enters tapped") || land?.text?.includes("enters the battlefield tapped") ? -1 : 0);
+  const tapped = entersTappedNow(s, me, land) ? -1 : /\bpay 2 life\b/i.test(land.text ?? "") ? -0.5 : 0;
+  return landManaColors(land).reduce((n, c) => n + (need[c] ?? 0) * 2 - (have[c] ?? 0) * 0.5, 0) + tapped;
 }
 
 /** The best land to play (from the hand, or one exiled that may be played): the one that gives a color the hand needs and the table does not yet make. */

@@ -142,6 +142,12 @@ function permanentVerb(re: RegExp, make: (what: Ref) => Effect): SentenceParser 
 }
 const exile = permanentVerb(/^exile (.+)$/, (what) => ({ type: "exile", what }));
 const bounce = permanentVerb(/^return (.+) to (?:its|their) owner(?:s')?'?s? hands?$/, (what) => ({ type: "bounce", what }));
+/** "Return target creature you own to your hand": your hand is its owner's. */
+const bounceOwned: SentenceParser = (s, ctx) => {
+  const m = /^return (.+) to your hand$/.exec(s);
+  const what = m ? refFor(m[1], ctx) : null;
+  return what?.t === "target" && ctx.targets[what.i].owner === "you" && isPermanentRef(what, ctx) ? [{ type: "bounce", what }] : null;
+};
 /** "Tap target creature or land" / "untap target nonland permanent" / "untap it" */
 const tapUntap: SentenceParser = (s, ctx) => {
   const m = /^(tap|untap) (.+)$/.exec(s);
@@ -168,7 +174,7 @@ const grant: SentenceParser = (s, ctx) => {
 };
 
 const counter: SentenceParser = (s, ctx) => {
-  const m = /^counter (target (?:(?:creature|noncreature|artifact or creature|colorless|triggered ability or colorless) )?spell(?: with mana value \d+(?: or (?:less|greater))?)?)$/.exec(s);
+  const m = /^counter (target (?:(?:creature|noncreature|artifact or creature|creature or enchantment|artifact or enchantment|colorless|triggered ability or colorless|(?:white|blue|black|red|green) or (?:white|blue|black|red|green)) )?spell(?: with mana value \d+(?: or (?:less|greater))?)?)$/.exec(s);
   if (!m) return null;
   const what = refFor(m[1], ctx);
   return what ? [{ type: "counter", what }] : null;
@@ -662,6 +668,38 @@ const destroyArtifacts: SentenceParser = (s) => {
   return m ? [{ type: "destroyArtifacts", mvAtMost: toAmount(m[1])! }] : null;
 };
 
+/** Stoke Genius: "Discard your hand, then draw two cards." */
+const discardHand: SentenceParser = (s) => (s === "discard your hand" ? [{ type: "discardHand" }] : null);
+
+/** Colorstorm Stallion: "If five or more mana was spent to cast that spell, create a token that's a copy of this creature." */
+const ifManaSpent: SentenceParser = (s, ctx) => {
+  const m = /^if (two|three|four|five|six|seven|\d+) or more mana was spent to cast that spell, (.+)$/.exec(s);
+  const then = m ? parseClause(m[2], ctx) : null;
+  return then ? [{ type: "ifManaSpent", n: toNumber(m![1]) ?? 5, then }] : null;
+};
+const copySelfToken: SentenceParser = (s, ctx) => (s === "create a token that's a copy of ~" && ctx.allowSelf ? [{ type: "copySelfToken" }] : null);
+
+/** Impractical Joke: "Damage can't be prevented this turn." */
+const noPrevention: SentenceParser = (s) => (s === "damage can't be prevented this turn" ? [{ type: "noPrevention" }] : null);
+
+/** Ral, Crackling Wit: "Put a loyalty counter on Ral." / "You get an emblem with 'Instant and sorcery spells you cast have storm.'" */
+const addLoyalty: SentenceParser = (s, ctx) => {
+  const m = /^put (a|an|one|two|three|\d+) loyalty counters? on ~$/.exec(s);
+  return m && ctx.allowSelf ? [{ type: "addLoyalty", amount: toNumber(m[1]) ?? 1 }] : null;
+};
+const stormEmblem: SentenceParser = (s) => (/^you get an emblem with "instant and sorcery spells you cast have storm\.?"\.?$/.test(s) ? [{ type: "stormEmblem" }] : null);
+
+/** Sunspine Lynx: "It deals damage to each player equal to the number of nonbasic lands that player controls." */
+const damagePerNonbasic: SentenceParser = (s) => (s === "~ deals damage to each player equal to the number of nonbasic lands that player controls" ? [{ type: "damagePerNonbasic" }] : null);
+
+/** Ghost Vacuum: "Exile target card from a graveyard." and, later, every creature card it exiled comes back as a 1/1 Spirit with flying. */
+const exileYardCard: SentenceParser = (s, ctx) => {
+  const m = /^exile (target card from a graveyard)$/.exec(s);
+  const what = m ? refFor(m[1], ctx) : null;
+  return what ? [{ type: "exileYardCard", what }] : null;
+};
+const putExiledWith: SentenceParser = (s) => (s === "@@putexiledwith@@" ? [{ type: "putExiledWith" }] : null);
+
 /** "Exile target player's graveyard." */
 const exileGraveyard: SentenceParser = (s, ctx) => {
   const m = /^exile (target player|target opponent)'s graveyard$/.exec(s);
@@ -672,7 +710,7 @@ const exileGraveyard: SentenceParser = (s, ctx) => {
 /** A Case of the Uneaten Feast: 'Creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn.' */
 const yardCastable: SentenceParser = (s) => (s === 'creature cards in your graveyard gain "you may cast ~ from your graveyard" until end of turn' ? [{ type: "yardCastable" }] : null);
 
-const PARSERS: SentenceParser[] = [...MARVEL_SENTENCES, exileGraveyard, destroyArtifacts, connive, tokenForPlayer, ifControlOther, airbend, exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, damageDraw, becomeCreature, animateLand, untargetable, poison, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
+const PARSERS: SentenceParser[] = [...MARVEL_SENTENCES, discardHand, ifManaSpent, copySelfToken, noPrevention, addLoyalty, stormEmblem, damagePerNonbasic, exileYardCard, putExiledWith, bounceOwned, exileGraveyard, destroyArtifacts, connive, tokenForPlayer, ifControlOther, airbend, exileToPlay, explore, ifSelfPower, ifLifeGained, putSavedCounters, yardCastable, exileIfDies, exileAttachedEquipment, ifSubtypeThen, distribute, pumpMustBeBlocked, pumpX, diesReturnGrant, returnSelfFromYard, becomeSubtype, stunThose, lenaSacrifice, doubleDamageParser, quotedToken, exileTopParser, damageDraw, becomeCreature, animateLand, untargetable, poison, sacOnDamageGrant, pumpWhere, pumpHandTeam, tapForBonus, assignByToughness, ifSubtypeGrant, libraryChoice, pumpPer, drawForEach, blinkParser, scryIfMV, noGroundBlock, setBase, loseDefender, sweep, rummageBottom, searchTheirs, tokenForController, bounceOwn, lifeCounted, createTokenCounted, winGame, drawUnlessPay, tapOrUntap, sacrificeIt, returnSelfYard, flingDamage, investigate, stunCounter, unblockable, exileUntil, fog, rummage, attachSelf, counterUnless, becomeCopy, damage, draw, life, mill, scry, surveil, createToken, discard, fight, bite, gainControl, cantBlockNow, regenerate, counters, destroy, exile, bounce, topOfLibrary, reanimate, tapUntap, pump, grant, counter, noRegen];
 
 export function parseSimple(s: string, ctx: Ctx): Effect[] | null {
   for (const parse of PARSERS) {

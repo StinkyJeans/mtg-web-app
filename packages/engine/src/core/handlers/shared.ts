@@ -4,7 +4,7 @@ import type { Amount, Effect, PendingPick, RunContext } from "../../effects.js";
 import { parseCard } from "../../oracle.js";
 import { nextRandom } from "../../state.js";
 import type { CardInstance, GameState, Permanent, PlayerId } from "../../types.js";
-import { findPermanentOrNull, isPlaneswalker, nameOf, playerLabel, toughnessOf } from "../permanents.js";
+import { canPrevent, findPermanentOrNull, isPlaneswalker, nameOf, playerLabel, toughnessOf } from "../permanents.js";
 import { addPoison, changeLife } from "../zones.js";
 import { creatureDamaged, excessDamageDealt, queueTriggers } from "../triggers.js";
 
@@ -54,14 +54,15 @@ export function dealDamage(
   events: GameEvent[],
 ): void {
   if (amount <= 0) return;
+  const preventable = canPrevent(state);
   // "Prevent all damage that would be dealt to ~."
-  if (target.k === "perm" && parseCard(getCard(state, target.perm.card.defId)).preventDamageToSelf) {
+  if (preventable && target.k === "perm" && parseCard(getCard(state, target.perm.card.defId)).preventDamageToSelf) {
     events.push({ type: "effect", text: `The damage to ${nameOf(state, target.perm)} is prevented.` });
     return;
   }
   // "Prevent all noncombat damage that would be dealt to you and creatures you control."
   const victim = target.k === "player" ? target.id : isPlaneswalker(state, target.perm) ? undefined : findPermanentOrNull(state, target.perm.card.iid)?.owner.id;
-  if (victim && state.players[victim].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).preventNoncombat)) {
+  if (preventable && victim && state.players[victim].battlefield.some((p) => parseCard(getCard(state, p.card.defId)).preventNoncombat)) {
     events.push({ type: "effect", text: `The damage to ${target.k === "player" ? playerLabel(target.id) : nameOf(state, target.perm)} is prevented.` });
     return;
   }

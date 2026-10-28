@@ -201,6 +201,9 @@ const connivesTarget: SentenceParser = (s, ctx) => {
 };
 
 /** "Then discard two cards unless you discard an artifact card." */
-const thirst: SentenceParser = (s) => (s === "discard two cards unless you discard an artifact card" ? [{ type: "discardUnlessArtifact" }] : null);
+const thirst: SentenceParser = (s) => {
+  const m = /^discard two cards unless you discard an? (artifact|creature) card$/.exec(s);
+  return m ? [{ type: "discardUnless", cardType: m[1] as "artifact" | "creature" }] : null;
+};
 
 export const MARVEL_SENTENCES: SentenceParser[] = [connivesTarget, thirst, transform, extraCombat, damageByCounters, landFromHand, pumpBySelf, baseBecomes, becomesArtifactCreature, searchBasic, drawDifference, returnSpells, basePowerFromHand, planCounter, counterAndKeyword, keywordCounter, fightUpToOne, chooseTarget, doublePT, costLess, freeNext, putFromHand, mayDrawForEach, namedAbilityToken];

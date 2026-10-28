@@ -46,19 +46,19 @@ export const MARVEL_EFFECTS = {
     self.invasion = counters + 1;
     say(`${ctx.sourceName}: an Alien enters with ${counters} +1/+1 counters; it now has ${self.invasion} invasion counters.`);
   },
-  discardUnlessArtifact({ state, ctx, startPick }) {
+  discardUnless({ state, ctx, startPick }, effect) {
     const hand = state.players[ctx.controller].hand;
     if (state.pendingPick || hand.length === 0) return;
     startPick({
       player: ctx.controller,
-      prompt: "Discard two cards, unless you discard an artifact card",
+      prompt: `Discard two cards, unless you discard ${effect.cardType === "artifact" ? "an artifact" : "a creature"} card`,
       kind: "discard",
       options: hand.map((c) => c.iid),
       optional: false,
       owner: ctx.controller,
       remaining: Math.min(2, hand.length),
       ordered: [],
-      artifactEnough: true,
+      enoughType: effect.cardType,
     });
   },
   transform({ state, ctx, say }) {

@@ -66,6 +66,8 @@ export interface CardInstance {
   owner: PlayerId;
   /** On the battlefield, the card's own definition while it is something else (a copy of another creature, or an enchantment instead of a creature). */
   printed?: string;
+  /** In exile: the permanent that exiled it ("each creature card exiled with ~"). */
+  exiledBy?: string;
 }
 
 export interface Permanent {
@@ -109,6 +111,11 @@ export interface Permanent {
   infected?: boolean;
   /** It was cast with its kicker paid. */
   kicked?: boolean;
+  /** It entered from a spell that was cast ("when this enters, if you cast it"). */
+  cast?: boolean;
+  /** For as long as it stays: "is a 1/1 Spirit in addition to its other types". */
+  baseOverride?: { power: number; toughness: number };
+  addedSubtypes?: string[];
   /** A Vehicle that has been crewed this turn: it is an artifact creature until end of turn. */
   crewed?: boolean;
   /** The creatures that crewed it this turn. */
@@ -216,6 +223,8 @@ export interface PlayerState {
   poison?: number;
   /** Lands that entered under this player's control this turn ("if you had a land enter the battlefield under your control this turn"). */
   landsEnteredThisTurn?: number;
+  /** An emblem: "Instant and sorcery spells you cast have storm." */
+  stormEmblem?: boolean;
   /** "Draw a card at the beginning of the next turn's upkeep": one per card that said so (Mishra's Bauble). */
   upkeepDraws?: { source: string; name: string }[];
 }
@@ -251,6 +260,8 @@ export interface GameState {
   pendingPick: PendingPick | null;
   /** "Prevent all combat damage that would be dealt this turn." Cleared as the next turn begins. */
   preventCombat?: boolean;
+  /** "Damage can't be prevented this turn." Cleared as the next turn begins. */
+  noPrevention?: boolean;
   /** "Creatures without flying can't block this turn." */
   noGroundBlock?: boolean;
   /** Triggers that have happened and are about to go on the stack. */

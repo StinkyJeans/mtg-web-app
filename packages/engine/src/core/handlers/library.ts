@@ -226,6 +226,12 @@ export const LIBRARY_EFFECTS = {
       });
     }
   },
+  discardHand({ state, ctx, events }) {
+    const hand = state.players[ctx.controller].hand;
+    const iids = hand.map((c) => c.iid);
+    state.players[ctx.controller].graveyard.push(...hand.splice(0));
+    cardsDiscarded(state, ctx.controller, iids, events);
+  },
   lookPick({ state, ctx, startPick }, effect) {
     const target = effect.who ? subjectsOf(state, effect.who, ctx).find((s) => s.k === "player") : undefined;
     const owner = target?.k === "player" ? target.id : ctx.controller;
@@ -271,14 +277,15 @@ export const LIBRARY_EFFECTS = {
       bottom(top.map((c) => c.iid));
       return;
     }
+    const take = Math.min(effect.take ?? 1, options.length);
     startPick({
       player: ctx.controller,
-      prompt: `Look at the top ${plural(top.length, "card")}: ${effect.required ? "choose one to put" : "you may take one of these"} into your hand. The rest go ${effect.restTo === "graveyard" ? "to your graveyard" : "to the bottom of your library"}.`,
+      prompt: `Look at the top ${plural(top.length, "card")}: ${effect.required ? `choose ${take === 2 ? "two" : "one"} to put` : "you may take one of these"} into your hand. The rest go ${effect.restTo === "graveyard" ? "to your graveyard" : "to the bottom of your library"}.`,
       kind: "revealToHand",
       options,
       optional: effect.required !== true,
       owner: ctx.controller,
-      remaining: 1,
+      remaining: take,
       ordered: [],
       bottomIids: top.map((c) => c.iid),
       randomBottom: effect.random,

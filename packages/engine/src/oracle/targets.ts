@@ -16,6 +16,14 @@ export interface Ctx {
   usedOther?: boolean;
 }
 
+const SPELL_KINDS: Record<string, NonNullable<TargetSpec["spellKind"]>> = {
+  creature: "creature",
+  noncreature: "noncreature",
+  "artifact or creature": "artifactOrCreature",
+  "creature or enchantment": "creatureOrEnchantment",
+  "artifact or enchantment": "artifactOrEnchantment",
+};
+
 /** A target phrase: "target creature", "another target creature you control", "target creature with mana value 2 or greater". */
 export function targetSpec(phrase: string): TargetSpec | null {
   const nonType = /^target non-([a-z]+) creature( you control| an opponent controls)?$/.exec(phrase);
@@ -57,10 +65,11 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   if (ofType && !/^(creature|land|artifact|enchantment|permanent|planeswalker|player|opponent|spell|nonland)$/.test(ofType[1])) {
     return { kind: "creature", subtype: ofType[1], controller: "you", label: phrase };
   }
-  // "target creature or enchantment", "target artifact or enchantment an opponent controls"
-  const kinds = /^target ((?:creature|artifact|enchantment|land|planeswalker)(?:(?:, | or |, or )(?:creature|artifact|enchantment|land|planeswalker))+)( you control| an opponent controls)?$/.exec(phrase);
+  // "target creature or enchantment", "target artifact or enchantment an opponent controls", "target creature or enchantment you own"
+  const kinds = /^target ((?:creature|artifact|enchantment|land|planeswalker)(?:(?:, | or |, or )(?:creature|artifact|enchantment|land|planeswalker))+)( you control| an opponent controls| you own)?$/.exec(phrase);
   if (kinds && !/^target (?:artifact or land|artifact or enchantment|creature or planeswalker)$/.test(phrase)) {
-    return { kind: "permanent", types: kinds[1].split(/, or |, | or /), ...(kinds[2] ? { controller: kinds[2].trim() === "you control" ? ("you" as const) : ("opponent" as const) } : {}), label: phrase };
+    const whose = kinds[2]?.trim();
+    return { kind: "permanent", types: kinds[1].split(/, or |, | or /), ...(whose === "you own" ? { controller: "you" as const, owner: "you" as const } : whose ? { controller: whose === "you control" ? ("you" as const) : ("opponent" as const) } : {}), label: phrase };
   }
   if (phrase === "any target") return { kind: "any", label: phrase };
   if (phrase === "any other target") return { kind: "any", other: true, label: phrase };
@@ -77,8 +86,12 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   if (phrase === "target permanent") return { kind: "permanent", label: phrase };
   const nonland = /^target nonland permanent( you control| an opponent controls)?$/.exec(phrase);
   if (nonland) return { kind: "permanent", nonland: true, ...(nonland[1] ? { controller: nonland[1].trim() === "you control" ? ("you" as const) : ("opponent" as const) } : {}), label: phrase };
-  const spellKind = /^target (creature|noncreature|artifact or creature) spell$/.exec(phrase);
-  if (spellKind) return { kind: "spell", spellKind: spellKind[1] === "creature" ? "creature" : spellKind[1] === "noncreature" ? "noncreature" : "artifactOrCreature", label: phrase };
+  const spellKind = /^target (creature|noncreature|artifact or creature|creature or enchantment|artifact or enchantment) spell$/.exec(phrase);
+  if (spellKind) return { kind: "spell", spellKind: SPELL_KINDS[spellKind[1]], label: phrase };
+  // "target red or green spell"
+  const spellColors = /^target (white|blue|black|red|green) or (white|blue|black|red|green) spell$/.exec(phrase);
+  if (spellColors) return { kind: "spell", spellColors: [COLOR_OF[spellColors[1]], COLOR_OF[spellColors[2]]], label: phrase };
+  if (phrase === "target card from a graveyard") return { kind: "graveyardCard", label: phrase };
   if (phrase === "target land") return { kind: "land", label: phrase };
   if (phrase === "target artifact or land") return { kind: "artifactOrLand", label: phrase };
   if (phrase === "target artifact") return { kind: "artifact", label: phrase };
@@ -215,8 +228,8 @@ export function refFor(phrase: string, ctx: Ctx): Ref | null {
   }
   const eachOther = /^each other ([a-z]+) you control$/.exec(phrase);
   if (eachOther && !/^(creature|land|artifact|enchantment|permanent)$/.test(eachOther[1])) return { t: "allCreatures", scope: "yours", subtype: eachOther[1], notSelf: true };
-  const nonType = /^each non-([a-z]+) creature$/.exec(phrase);
-  if (nonType) return { t: "allCreatures", scope: "all", notSubtype: nonType[1] };
+  const nonType = /^(?:each non-([a-z]+) creature|all non-([a-z]+) creatures)$/.exec(phrase);
+  if (nonType) return { t: "allCreatures", scope: "all", notSubtype: nonType[1] ?? nonType[2] };
   const known = ctx.phrases.get(phrase);
   if (known !== undefined) return { t: "target", i: known };
   const groupOfType = /^([a-z]+) you control$/.exec(phrase);

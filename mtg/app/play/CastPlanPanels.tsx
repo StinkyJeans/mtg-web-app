@@ -73,9 +73,44 @@ function DelvePanel({ state, actor, plan, onAdvance, onCancel }: Pick<Props, "st
   );
 }
 
-/** The question a spell being cast still needs answered, in order: modes, warp, the kicker (or offspring, or blight), X, delve, replicate, then a creature to sacrifice or a card to discard. */
+/** A card with an Adventure: cast the creature, or the Adventure spell beside it. */
+function AdventurePanel({ plan, onAdvance, onCancel }: Pick<Props, "plan" | "onAdvance" | "onCancel">) {
+  const [creature, spell] = plan.name.split(" // ");
+  return (
+    <ChoicePanel
+      title={`${plan.name}: cast the creature, or its Adventure?`}
+      options={[
+        { label: `Cast ${creature}`, disabled: plan.castable.adventure, onPick: () => onAdvance({ ...plan, name: creature, adventure: false }) },
+        { label: `Cast ${spell} (Adventure): afterwards the card goes into exile, and you may cast ${creature} from there later`, onPick: () => onAdvance({ ...plan, name: spell, castable: plan.adventureCastable!, adventure: true }) },
+      ]}
+      onCancel={onCancel}
+    />
+  );
+}
+
+/** Harmonize: tap a creature to pay {X} of the cost (X: its power), or pay it all with mana. */
+function HarmonizePanel({ state, actor, plan, onAdvance, onCancel }: Pick<Props, "state" | "actor" | "plan" | "onAdvance" | "onCancel">) {
+  const harmonize = plan.castable.harmonize!;
+  return (
+    <ChoicePanel
+      title={`${plan.name}: harmonize — tap a creature to pay {X} of the cost, X being its power?`}
+      options={[
+        { label: "Don't tap a creature: pay the full cost", disabled: !harmonize.free, onPick: () => onAdvance({ ...plan, harmonizeTap: "" }) },
+        ...harmonize.options.map((iid) => {
+          const perm = state.players[actor].battlefield.find((p) => p.card.iid === iid)!;
+          const power = powerOf(state, perm);
+          return { label: <>Tap {state.cards[perm.card.defId].name}: <ManaText text={`{${power}}`} /> less</>, onPick: () => onAdvance({ ...plan, harmonizeTap: iid }) };
+        }),
+      ]}
+      onCancel={onCancel}
+    />
+  );
+}
+
+/** The question a spell being cast still needs answered, in order: creature or Adventure, modes, warp, the kicker (or offspring, or blight), X, delve, replicate, harmonize, then a creature to sacrifice or a card to discard. */
 export default function CastPlanPanels({ state, actor, plan, modePick, onModePick, xValue, onX, onAdvance, onCancel }: Props) {
   const c = plan.castable;
+  if (plan.adventureCastable && plan.adventure === undefined) return <AdventurePanel plan={plan} onAdvance={onAdvance} onCancel={onCancel} />;
   const teamworkDone = c.teamwork === undefined || plan.teamwork !== undefined;
   const modesDone = !c.modal || plan.modes !== undefined;
   const warpDone = c.warp === undefined || plan.warp !== undefined;
@@ -175,6 +210,7 @@ export default function CastPlanPanels({ state, actor, plan, modePick, onModePic
       />
     );
   }
+  if (c.harmonize && c.harmonize.options.length > 0 && plan.harmonizeTap === undefined) return <HarmonizePanel state={state} actor={actor} plan={plan} onAdvance={onAdvance} onCancel={onCancel} />;
   if (plan.sacrifice !== undefined) return null;
   // "Flashback—Sacrifice a Mountain": the permanent is the flashback cost, not an additional cost.
   if (c.sacrifice && c.zone === "graveyard") {

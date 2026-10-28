@@ -154,7 +154,7 @@ export function parseCreatureLine(rawLine: string, out: ParsedCard): void {
     for (let i = before; i < out.triggers.length; i++) out.triggers[i] = { ...out.triggers[i], oncePerTurn: true };
     return;
   }
-  const line = rawLine.replace(/\.$/, "").replace(/^raid — /, "").replace(MARVEL_ABILITY_WORD, "");
+  const line = rawLine.replace(/\.$/, "").replace(/^(?:raid|opus) — /, "").replace(MARVEL_ABILITY_WORD, "");
 
   for (const read of READERS) if (read(line, out)) return;
   out.unsupported.push(line);

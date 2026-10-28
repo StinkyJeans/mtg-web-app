@@ -54,7 +54,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
         if (spec.types && !spec.types.some(fits)) return false;
         if (spec.controller === "you" && found.owner.id !== controller) return false;
         if (spec.controller === "opponent" && found.owner.id === controller) return false;
-        return true;
+        return spec.owner !== "you" || found.perm.card.owner === controller;
       }
       if (spec.kind === "land") return def.type === "land";
       const walker = def.type === "planeswalker";
@@ -111,8 +111,11 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (!mvFits(spec, def.cost + (manaCostOf(def)?.x ?? 0) * item.x)) return false; // on the stack, X is the number chosen
       if (spec.colorless && (def.colors ?? []).length > 0) return false;
       if (spec.spellColor && !(def.colors ?? []).includes(spec.spellColor)) return false;
+      if (spec.spellColors && !spec.spellColors.some((c) => (def.colors ?? []).includes(c))) return false;
       if (!spec.spellKind) return true;
       const creature = def.type === "creature";
+      if (spec.spellKind === "creatureOrEnchantment") return creature || isEnchantmentDef(def);
+      if (spec.spellKind === "artifactOrEnchantment") return isArtifactDef(def) || isEnchantmentDef(def);
       return spec.spellKind === "creature" ? creature : spec.spellKind === "noncreature" ? !creature : creature || isArtifactDef(def);
     }
   }

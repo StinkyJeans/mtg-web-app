@@ -5,6 +5,7 @@
 
 export {
   bindSpecs,
+  canPrevent,
   cardMatches,
   countFor,
   dynamicCount,

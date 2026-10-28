@@ -2,7 +2,7 @@ import type { ParsedCard, TargetSpec } from "./effects.js";
 import { keywordsSupported } from "./keywords.js";
 import { landManaColors, manaAbilityUsesChosenColor, manaCostOf, parseManaCost } from "./mana.js";
 import type { CardDef } from "./types.js";
-import { COLOR_OF, normalizeText, parseCount, toNumber } from "./oracle/words.js";
+import { COLOR_OF, normalizeText, parseCount, singularType, toNumber } from "./oracle/words.js";
 import { newCtx } from "./oracle/targets.js";
 import { parseClause, parseEffectText, parseModes } from "./oracle/effectText.js";
 import { parseCreatureLine } from "./oracle/lines.js";
@@ -17,27 +17,31 @@ export { normalizeText } from "./oracle/words.js";
 
 const cache = new WeakMap<CardDef, ParsedCard>();
 
-const faceCache = new WeakMap<CardDef, { front: CardDef; spell: CardDef } | null>();
+type Faces = { front: CardDef; spell: CardDef; kind: "prepare" | "adventure" };
+const faceCache = new WeakMap<CardDef, Faces | null>();
 const manaValueOf = (cost: string) => (cost.match(/\{[^}]+\}/g) ?? []).reduce((n, sym) => n + (/^\{\d+\}$/.test(sym) ? Number(sym.slice(1, -1)) : sym === "{X}" ? 0 : 1), 0);
 
 /**
- * A preparation card ("Quill-Blade Laureate // Twofold Intent") is stored as one card with both halves: the creature, then
- * " // " and its spell. Splits it into the creature and the spell. Null for any other card.
+ * A preparation card ("Quill-Blade Laureate // Twofold Intent") or an Adventure card ("Hearth Elemental // Stoke Genius") is stored
+ * as one card with both halves: the creature, then " // " and its spell. Splits it into the creature and the spell. Null for any other card.
  */
-export function prepareFaces(def: CardDef): { front: CardDef; spell: CardDef } | null {
+export function prepareFaces(def: CardDef): Faces | null {
   const hit = faceCache.get(def);
   if (hit !== undefined) return hit;
   const names = def.name.split(" // ");
   const types = (def.typeLine ?? "").split(" // ");
   const costs = (def.manaCost ?? "").split(" // ");
   const texts = (def.text ?? "").split("\n//\n");
-  const spellType = types[1]?.trim().toLowerCase();
-  const isPrepare = names.length === 2 && types.length === 2 && costs.length === 2 && texts.length === 2 && /\bprepared\b/i.test(texts[0]) && (spellType === "instant" || spellType === "sorcery");
-  const faces = isPrepare
+  const adventure = /^(instant|sorcery) — adventure$/.exec(types[1]?.trim().toLowerCase() ?? "");
+  const spellType = adventure ? adventure[1] : types[1]?.trim().toLowerCase();
+  const halves = names.length === 2 && types.length === 2 && costs.length === 2 && texts.length === 2 && (spellType === "instant" || spellType === "sorcery");
+  const kind: Faces["kind"] = adventure ? "adventure" : "prepare";
+  const faces = halves && (adventure || /\bprepared\b/i.test(texts[0]))
     ? {
+        kind,
         front: { ...def, name: names[0], typeLine: types[0], manaCost: costs[0], text: texts[0] },
         spell: {
-          id: `${def.id}//prepare`,
+          id: `${def.id}//${kind}`,
           name: names[1],
           type: spellType as "instant" | "sorcery",
           cost: manaValueOf(costs[1]),
@@ -73,7 +77,7 @@ export function parseCard(def: CardDef): ParsedCard {
     // The creature half is the card; its spell must be understood too.
     const front = parseCard(faces.front);
     const spell = parseCard(faces.spell);
-    const whole: ParsedCard = spell.ok && spell.spell ? { ...front, prepare: faces.spell } : { ...front, ok: false, unsupported: [...front.unsupported, ...spell.unsupported] };
+    const whole: ParsedCard = spell.ok && spell.spell ? { ...front, [faces.kind]: faces.spell } : { ...front, ok: false, unsupported: [...front.unsupported, ...spell.unsupported] };
     cache.set(def, whole);
     return whole;
   }
@@ -173,6 +177,21 @@ export function parseCard(def: CardDef): ParsedCard {
       const ifColor = /^~ costs \{(\d+)\} less to cast if it targets an? (white|blue|black|red|green) spell\.?$/.exec(line);
       if (ifColor) {
         result.costReduction = { n: Number(ifColor[1]), ifTargetsColor: COLOR_OF[ifColor[2]] };
+        return false;
+      }
+      const harmonize = /^harmonize ((?:\{[^}]+\})+)\.?$/.exec(line);
+      if (harmonize && parseManaCost(harmonize[1])) {
+        result.harmonize = harmonize[1];
+        return false;
+      }
+      // "This spell costs {X} less to cast, where X is the greatest mana value among Elementals you control."
+      const greatest = /^~ costs \{X\} less to cast, where x is the greatest mana value among ([a-z]+) you control\.?$/.exec(line);
+      if (greatest) {
+        result.costReduction = { n: 1, per: { kind: "greatestMV", what: "subtype", subtype: singularType(greatest[1]) } };
+        return false;
+      }
+      if (/^~ costs \{X\} less to cast, where x is the number of cards in your graveyard that are instant cards, sorcery cards, and\/or have an adventure\.?$/.test(line)) {
+        result.costReduction = { n: 1, per: { kind: "graveyard", creaturesOnly: false, spellsOnly: true, adventures: true } };
         return false;
       }
       const replicate = /^replicate ((?:\{[^}]+\})+)\.?$/.exec(line);

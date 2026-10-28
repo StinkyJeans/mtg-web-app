@@ -58,6 +58,7 @@ const LABELS = new Set([
   "heal", "fight", "swampwalk", "islandwalk", "forestwalk", "mountainwalk", "plainswalk",
   "eerie", "prepared", "raid",
   "explore", "solved", "infusion", "warp", "blight", "offspring", "toxic", "exalted", "delve", "ferocious", "delirium", "plot", "flurry", "replicate",
+  "opus", "harmonize",
   // Marvel Super Heroes: "teamwork" is read by the card reader; the rest are names in front of an ability ("Radar Sense — ...")
   "teamwork", "transform", "enrage", "avian telepathy", "radar sense", "sonic attack", "unbreakable skin", "embiggen fist", "wasp's sting", "street justice", "legal justice",
   "trick arrows", "net", "explosive", "boomerang", "intangibility", "cosmic awareness", "photographic reflexes", "cybernetic senses", "mental organism",

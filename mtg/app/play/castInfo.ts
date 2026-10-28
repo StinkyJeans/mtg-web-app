@@ -1,12 +1,18 @@
-import { addCosts, castCostOf, manaSourcesToConfirm, parseCard, parseManaCost, payForAbility, payMana, withDelve, withPhyrexianLife } from "@mtg/engine";
+import { addCosts, castCostOf, manaSourcesToConfirm, parseCard, parseManaCost, payForAbility, payMana, powerOf, withDelve, withPhyrexianLife } from "@mtg/engine";
 import type { Action, CardDef, Castable, GameState, ManaColor, ManaCost, PlayerId } from "@mtg/engine";
 
-/** A spell being cast step by step: teamwork, modes, then the kicker, then X, then delve, then replicate, then an additional cost, then targets. */
+/** A spell being cast step by step: creature or Adventure, teamwork, modes, then the kicker, then X, then delve, then replicate, then harmonize, then an additional cost, then targets. */
 export interface CastPlan {
   iid: string;
   name: string;
   from?: "graveyard" | "exile" | "prepared";
   castable: Castable;
+  /** A card with an Adventure that can be cast either way: the Adventure's castable, until the player chooses. */
+  adventureCastable?: Castable;
+  /** The Adventure was chosen. */
+  adventure?: boolean;
+  /** Harmonize: the creature tapped to pay {X} of the cost ("" = none). */
+  harmonizeTap?: string;
   modes?: number[];
   kicked?: boolean;
   /** Teamwork: the creatures tapped as an additional cost ([] = cast without it). */
@@ -21,6 +27,14 @@ export interface CastPlan {
   replicate?: number;
 }
 
+/** Flashback's cost, or harmonize's less the power of the creature tapped for it. */
+function graveyardCost(state: GameState, def: CardDef, action: Action): ManaCost | null {
+  const parsed = parseCard(def);
+  const cost = parseManaCost(parsed.flashback ?? parsed.harmonize ?? "");
+  const tapped = action.type === "castSpell" && action.harmonizeTap ? Object.values(state.players).flatMap((p) => p.battlefield).find((p) => p.card.iid === action.harmonizeTap) : undefined;
+  return cost && tapped ? { ...cost, generic: Math.max(0, cost.generic - powerOf(state, tapped)) } : cost;
+}
+
 /** The mana cost of a spell or ability being used, and for a permanent's ability the card (paid like the engine pays it). */
 function costOf(state: GameState, action: Action, who: PlayerId): { cost: ManaCost | null; ability: { def: CardDef; iid?: string } | null } {
   const me = state.players[who];
@@ -28,8 +42,9 @@ function costOf(state: GameState, action: Action, who: PlayerId): { cost: ManaCo
     const fromYard = action.type === "castSpell" && action.from === "graveyard";
     const prepared = action.type === "castSpell" && action.from === "prepared" ? me.battlefield.find((p) => p.card.iid === action.iid)?.prepared : undefined;
     const card = (fromYard ? me.graveyard : me.hand).find((c) => c.iid === action.iid);
-    const def = prepared ? state.cards[prepared] : card ? state.cards[card.defId] : undefined;
-    const printed = def ? (fromYard ? parseManaCost(parseCard(def).flashback ?? "") : castCostOf(state, who, def, action.type === "castSpell" ? action.targets : undefined)) : null;
+    const base = prepared ? state.cards[prepared] : card ? state.cards[card.defId] : undefined;
+    const def = base && action.type === "castSpell" && action.adventure ? parseCard(base).adventure : base;
+    const printed = def ? (fromYard ? graveyardCost(state, def, action) : castCostOf(state, who, def, action.type === "castSpell" ? action.targets : undefined)) : null;
     // Replicate: its cost once more for each copy.
     const each = def && action.type === "castSpell" && action.replicate ? parseManaCost(parseCard(def).replicate ?? "") : null;
     const cost = printed && each ? Array.from({ length: action.type === "castSpell" ? (action.replicate ?? 0) : 0 }, () => each).reduce(addCosts, printed) : printed;

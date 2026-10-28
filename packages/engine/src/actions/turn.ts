@@ -55,6 +55,7 @@ function queueWarpExiles(state: GameState): void {
 
 export function startNextTurn(state: GameState, events: GameEvent[]): void {
   state.preventCombat = undefined;
+  state.noPrevention = undefined;
   state.noGroundBlock = undefined;
   state.extraCombats = undefined;
   // Rule 514.2: damage wears off for everyone at end of turn.

@@ -155,13 +155,14 @@ function manaAbilityPerSubtype(def: CardDef): string | undefined {
 /** An Aura such as New Horizons: 'Enchanted land has "{T}: Add two mana of any one color."' */
 export const grantsTwoOfOneColor = (def: CardDef): boolean => /^enchanted land has "\{t\}: add two mana of any one color\.?"\.?$/im.test(def.text ?? "");
 
-/** "Activate only if this land entered this turn or if you control a basic land." (the Marvel dual lands) */
-const GATE = /\.? ?activate only if (?:this land|~) entered this turn or if you control a basic land\.?/gi;
+/** "Activate only if this land entered this turn or if you control a basic land." (the Marvel dual lands) / "...if you control an Island or a Mountain." (the Verges) */
+const GATE = /\.? ?activate only if (?:(?:this land|~) entered this turn or if you control a basic land|you control an? [a-z]+ or an? [a-z]+)\.?/gi;
+const GATE_TYPES = /activate only if you control an? ([a-z]+) or an? ([a-z]+)/i;
 
 /** "{T}, Pay 1 life: Add {U} or {R}.": the life each tap costs. */
 export const manaAbilityLife = (def: CardDef): number => manaAbility(def)?.life ?? 0;
 
-function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chosen: boolean; gated: ManaColor[]; life: number } | undefined {
+function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chosen: boolean; gated: ManaColor[]; gateTypes?: string[]; life: number } | undefined {
   const text = (def.text ?? "")
     .replace(/\([^)]*\)/g, "")
     .replace(/\.? ?spend this mana only to cast an instant or sorcery spell\.?/gi, "")
@@ -173,8 +174,11 @@ function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chose
   let amount = 1;
   let chosen = false;
   let life = 0;
+  let gateTypes: string[] | undefined;
   for (const rawLine of text.split("\n")) {
     const isGated = rawLine.search(GATE) >= 0;
+    const typed = GATE_TYPES.exec(rawLine);
+    if (typed) gateTypes = [typed[1], typed[2]];
     const raw = rawLine.replace(GATE, "");
     const pain = /^(\{t\}), pay (\d+) life(: add .+)$/.exec(raw.trim());
     if (pain) life = Number(pain[2]);
@@ -215,7 +219,7 @@ function manaAbility(def: CardDef): { colors: ManaColor[]; amount: number; chose
     if (fixed.every(Boolean) && (fixed.length > 0 || chosen)) fixed.forEach((p) => found.add(p![1].toUpperCase() as ManaColor));
     else if (pieces.includes("one mana of the chosen color")) chosen = false;
   }
-  return found.size > 0 || gated.size > 0 || chosen ? { colors: [...new Set([...found, ...gated])], amount, chosen, gated: [...gated].filter((c) => !found.has(c)), life } : undefined;
+  return found.size > 0 || gated.size > 0 || chosen ? { colors: [...new Set([...found, ...gated])], amount, chosen, gated: [...gated].filter((c) => !found.has(c)), ...(gateTypes ? { gateTypes } : {}), life } : undefined;
 }
 
 /** "{T}: Add X mana of any one color": how many mana one tap makes (2, or the permanent's power), if the card has such a line. */
@@ -242,10 +246,11 @@ export function landManaColors(def: CardDef): ManaColor[] {
   return [...colors];
 }
 
-/** Is the condition of "Activate only if this land entered this turn or if you control a basic land" met? */
-function gateOpen(state: GameState, perm: Permanent): boolean {
-  if (perm.enteredTurn === state.turn) return true;
+/** Is the condition of "Activate only if this land entered this turn or if you control a basic land" (or "...an Island or a Mountain") met? */
+function gateOpen(state: GameState, perm: Permanent, gateTypes?: string[]): boolean {
   const owner = Object.values(state.players).find((p) => p.battlefield.includes(perm));
+  if (gateTypes) return !!owner?.battlefield.some((p) => defSubtypes(getCard(state, p.card.defId)).some((t) => gateTypes.includes(t)));
+  if (perm.enteredTurn === state.turn) return true;
   return !!owner?.battlefield.some((p) => /\bBasic\b/.test(getCard(state, p.card.defId).typeLine ?? ""));
 }
 
@@ -264,7 +269,7 @@ function manaColorsOf(state: GameState, perm: Permanent, forSpell?: CardDef, for
       ? restrictedMana(def).filter((r) => abilityAllows(r, forAbility)).flatMap((r) => r.colors)
       : [];
   const gate = manaAbility(def)?.gated ?? [];
-  const open = gate.length === 0 || gateOpen(state, perm);
+  const open = gate.length === 0 || gateOpen(state, perm, manaAbility(def)?.gateTypes);
   const withChosen = (colors: ManaColor[]) => [...new Set([...(open ? colors : colors.filter((c) => !gate.includes(c))), ...chosen, ...only])];
   if (def.type === "land") return perm.crewed && perm.summoningSick && !hasKeyword(def, "haste") && !(perm.tempKeywords ?? []).includes("haste") ? [] : withChosen(landManaColors(def)); // a land that became a creature this turn is summoning sick
   if (def.type === "artifact") return withChosen(manaAbilityColors(def) ?? []); // artifacts aren't "summoning sick"

@@ -35,7 +35,7 @@ export default function AbilitiesDialog({ state, actor, list, onClose, onAct, on
   function castFromZone(iid: string) {
     const castable = getCastable(state, actor).find((c) => c.iid === iid && (c.zone === "graveyard" || c.zone === "exile" || c.zone === "prepared"));
     const card = [...state.players[actor].graveyard, ...state.players[actor].exile].find((x) => x.iid === iid);
-    const name = castable?.zone === "prepared" ? preparedSpell(state, actor, iid)?.spell.name : card && state.cards[card.defId].name;
+    const name = castable?.zone === "prepared" ? preparedSpell(state, actor, iid)?.spell.name : card && state.cards[card.defId].name.split(" // ")[0]; // a two-part card is cast as its creature
     if (castable && name) onCast({ iid, name, from: castable.zone as "graveyard" | "exile" | "prepared", castable });
   }
 

@@ -136,5 +136,9 @@ export function readEntersTapped(line: string, out: ParsedCard): boolean {
     out.entersTapped = true;
     return true;
   }
+  if (line === "~ enters tapped if it's not your turn") {
+    out.entersTappedUnless = { yourTurn: true };
+    return true;
+  }
   return false;
 }

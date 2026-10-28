@@ -40,6 +40,7 @@ function triggerCondHolds(state: GameState, controller: PlayerId, trigger: Trigg
   }
   if (c?.selfEquipped && !Object.values(state.players).some((pl) => pl.battlefield.some((e) => e.attachedTo === sourceIid && subtypesOf(state, e).includes("equipment")))) return false;
   if (c?.unsolved && (!sourceIid || findPermanentOrNull(state, sourceIid)?.perm.solved)) return false;
+  if (c?.cast && !(sourceIid && findPermanentOrNull(state, sourceIid)?.perm.cast)) return false;
   if (c?.enchantedUntapped) {
     const host = sourceIid ? findPermanentOrNull(state, sourceIid)?.perm.attachedTo : undefined;
     const hostPerm = host ? findPermanentOrNull(state, host)?.perm : undefined;

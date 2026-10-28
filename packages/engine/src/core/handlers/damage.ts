@@ -1,6 +1,7 @@
 import { getCard } from "../../cards.js";
 import type { Permanent, PlayerId } from "../../types.js";
-import { findPermanentOrNull, isProtectedFrom, kw, nameOf, playerLabel, powerOf, qualityOfDef } from "../permanents.js";
+import { isBasicLand } from "../../deck.js";
+import { canPrevent, findPermanentOrNull, isProtectedFrom, kw, nameOf, playerLabel, powerOf, qualityOfDef } from "../permanents.js";
 import { addPoison, changeLife } from "../zones.js";
 import { subjectsOf } from "../targets.js";
 import { dealDamage, type EffectHandlers, type EffectOf, type EffectRun } from "./shared.js";
@@ -18,7 +19,7 @@ function fightOrBite({ state, ctx, events, say }: EffectRun, effect: EffectOf<"f
   const traitOf = (perm: Permanent, controller: PlayerId) => ({ name: nameOf(state, perm), controller, deathtouch: kw(state, perm, "deathtouch"), lifelink: kw(state, perm, "lifelink"), infect: kw(state, perm, "infect") });
   const hit = (from: Permanent, fromOwner: PlayerId, to: Permanent) => {
     const quality = qualityOfDef(getCard(state, from.card.defId));
-    if (isProtectedFrom(state, to, quality)) return say(`${nameOf(state, to)} has protection: the damage is prevented.`);
+    if (isProtectedFrom(state, to, quality) && canPrevent(state)) return say(`${nameOf(state, to)} has protection: the damage is prevented.`);
     dealDamage(state, traitOf(from, fromOwner), { k: "perm", perm: to }, Math.max(0, powerOf(state, from)) * (effect.type === "bite" ? (effect.times ?? 1) : 1), events);
   };
   const a = { perm: first.perm, owner: first.owner };
@@ -40,7 +41,7 @@ export const DAMAGE_EFFECTS = {
     for (const s of subjectsOf(state, effect.to, ctx)) {
       if (s.k === "player") dealDamage(state, trait, s, value(effect.amount), events);
       else if (s.k === "perm") {
-        if (ctx.sourceDefId && isProtectedFrom(state, s.perm, qualityOfDef(getCard(state, ctx.sourceDefId)))) {
+        if (ctx.sourceDefId && isProtectedFrom(state, s.perm, qualityOfDef(getCard(state, ctx.sourceDefId))) && canPrevent(state)) {
           say(`${nameOf(state, s.perm)} has protection: the damage is prevented.`);
           continue;
         }
@@ -84,6 +85,16 @@ export const DAMAGE_EFFECTS = {
       if (s.k !== "perm") continue;
       s.perm.unblockableTurn = true;
       say(`${nameOf(state, s.perm)} can't be blocked this turn.`);
+    }
+  },
+  noPrevention({ state, say }) {
+    state.noPrevention = true;
+    say("Damage can't be prevented this turn.");
+  },
+  damagePerNonbasic({ state, events, trait }) {
+    for (const player of Object.values(state.players)) {
+      const nonbasic = player.battlefield.filter((p) => getCard(state, p.card.defId).type === "land" && !isBasicLand(getCard(state, p.card.defId))).length;
+      dealDamage(state, trait, { k: "player", id: player.id }, nonbasic, events);
     }
   },
   fog({ state, say }) {

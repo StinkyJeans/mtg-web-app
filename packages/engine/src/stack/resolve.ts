@@ -29,7 +29,7 @@ import { outcomeSince, snapshot } from "./outcome.js";
 
 // Resolving the top of the stack, and the rounds of priority around it.
 
-export function enterBattlefield(state: GameState, card: CardInstance, controller: PlayerId, events: GameEvent[], attachedTo?: string, x = 0, kicked = false, haste = false, warped = false): void {
+export function enterBattlefield(state: GameState, card: CardInstance, controller: PlayerId, events: GameEvent[], attachedTo?: string, x = 0, kicked = false, haste = false, warped = false, cast = false): void {
   const parsed = parseCard(getCard(state, card.defId));
   const printed = getCard(state, card.defId);
   const loyalty = printed.type === "planeswalker" ? (printed.loyalty ?? printed.toughness ?? 0) : undefined;
@@ -42,7 +42,7 @@ export function enterBattlefield(state: GameState, card: CardInstance, controlle
     ...(parsed.entersPrepared && parsed.prepare ? { prepared: parsed.prepare.id } : {}),
   };
   if (remembered.prepared) state.cards[remembered.prepared] ??= parsed.prepare!; // the copy of its spell, waiting to be cast
-  state.players[controller].battlefield.push({ ...(attachedTo ? { attachedTo } : {}), ...(loyalty !== undefined ? { loyalty } : {}), ...(minus > 0 ? { minusCounters: minus } : {}), ...(kicked ? { kicked } : {}), ...(haste ? { tempKeywords: ["haste" as const] } : {}), ...(warped ? { warped } : {}), ...remembered, card, tapped: entersTappedNow(state, controller, getCard(state, card.defId)), summoningSick: getCard(state, card.defId).type === "creature" || parsed.crew !== undefined, damage: 0 });
+  state.players[controller].battlefield.push({ ...(attachedTo ? { attachedTo } : {}), ...(loyalty !== undefined ? { loyalty } : {}), ...(minus > 0 ? { minusCounters: minus } : {}), ...(kicked ? { kicked } : {}), ...(cast ? { cast } : {}), ...(haste ? { tempKeywords: ["haste" as const] } : {}), ...(warped ? { warped } : {}), ...remembered, card, tapped: entersTappedNow(state, controller, getCard(state, card.defId)), summoningSick: getCard(state, card.defId).type === "creature" || parsed.crew !== undefined, damage: 0 });
   events.push({ type: "permanentEntered", player: controller, iid: card.iid });
   const entered = state.players[controller].battlefield[state.players[controller].battlefield.length - 1];
   if (counters > 0) putCounters(state, entered, controller, counters);
@@ -106,11 +106,11 @@ function resolveTop(state: GameState, events: GameEvent[]): void {
         if (target?.kind === "permanent" && !fizzled) enterBattlefield(state, item.card, item.controller, events, target.iid);
         else state.players[item.card.owner].graveyard.push(item.card);
       } else {
-        enterBattlefield(state, item.card, item.controller, events, undefined, item.x, item.kicked === true, item.haste === true, item.warped === true);
+        enterBattlefield(state, item.card, item.controller, events, undefined, item.x, item.kicked === true, item.haste === true, item.warped === true, !item.copy);
       }
     } else {
       if (!fizzled) runEffects(state, item.effects, { controller: item.controller, sourceId: item.card.iid, sourceName: def.name, sourceDefId: item.card.defId, targets: item.targets, specs: item.specs, stackId: item.id, x: item.x, kicked: item.kicked }, events);
-      spellLeavesStack(state, item); // flashback: exiled afterwards; a copy ceases to exist
+      spellLeavesStack(state, item, item.adventure && !fizzled ? "adventure" : "graveyard"); // flashback: exiled afterwards; a copy ceases to exist
     }
   } else {
     if (!fizzled) {

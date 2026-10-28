@@ -13,18 +13,19 @@ import { parseSimple } from "./sentences.js";
  * (Each copy gets its own target slot, so the player can choose fewer or none.)
  */
 function expandUpTo(s: string, ctx: Ctx): Effect[] | null {
-  const m = /^(.*?)(?:each of )?(up to (?:one|two|three)|one or two) (other |another )?(target (?:creature card from your graveyard|creature|permanent|nonland permanent|artifact|enchantment)s?(?: or (?:artifact|enchantment)s?)?(?: you control| an opponent controls| you don't control)?)(.*)$/.exec(s);
+  const m = /^(.*?)(?:each of )?(up to (?:one|two|three)|one or two) (other |another )?(targets|target (?:creature card from your graveyard|creature|permanent|nonland permanent|artifact|enchantment)s?(?: (?:or|and\/or) (?:artifact|enchantment|planeswalker)s?)?(?: you control| an opponent controls| you don't control| you own)?)(.*)$/.exec(s);
   if (!m) return null;
   const firstRequired = m[2] === "one or two"; // "one or two target ...": at least one
   const count = firstRequired ? 2 : (toNumber(m[2].slice(6)) ?? 0);
-  const base = m[4].replace(/^target (creature|permanent|nonland permanent|artifact|enchantment)s/, "target $1").replace(/ or (artifact|enchantment)s\b/, " or $1");
+  // "each of one or two targets": any target, each a different one
+  const base = m[4] === "targets" ? "any target" : m[4].replace(/^target (creature|permanent|nonland permanent|artifact|enchantment)s/, "target $1").replace(/ and\/or /, " or ").replace(/ or (artifact|enchantment|planeswalker)s\b/, " or $1");
   const spec = targetSpec(base);
   if (!spec || count < 1) return null;
   const out: Effect[] = [];
   const before = ctx.targets.length;
   for (let i = 0; i < count; i++) {
     const key = `${base}@${i}`;
-    ctx.targets.push({ ...spec, ...(firstRequired && i === 0 ? {} : { optional: true }), ...(m[3] ? { other: true } : {}), label: firstRequired ? `${i === 0 ? "" : "second "}${base}${i === 0 ? "" : " (optional)"}` : `up to ${count === 1 ? "one" : count} ${base}` });
+    ctx.targets.push({ ...spec, ...(firstRequired && i === 0 ? {} : { optional: true }), ...(m[3] ? { other: true } : {}), ...(count > 1 ? { distinct: true } : {}), label: firstRequired ? `${i === 0 ? "" : "second "}${base}${i === 0 ? "" : " (optional)"}` : `up to ${count === 1 ? "one" : count} ${base}` });
     ctx.phrases.set(key, ctx.targets.length - 1);
     const effects = parseSimple(`${m[1]}${key}${m[5]}`, ctx);
     if (!effects) {
@@ -113,8 +114,14 @@ function parseChoiceText(text: string, ctx: Ctx): Effect[] | null {
     const who = refFor("target player", ctx);
     return who ? [{ type: "lookPick", mode: "toGraveyard", n: 1, who }] : null;
   }
-  m = new RegExp(`^look at the top (${NUMBER_WORDS}) cards of your library\. put one of them into your hand and the (?:rest|other) (on the bottom of your library in any order|into your graveyard)$`).exec(t);
-  if (m) return [{ type: "revealToHand", n: toNumber(m[1]) ?? 0, filter: { all: true }, random: false, required: true, restTo: m[2].startsWith("into") ? "graveyard" : "bottom" }];
+  m = new RegExp(`^look at the top (${NUMBER_WORDS}) cards of your library\\. put (one|two) of them into your hand and the (?:rest|other) (on the bottom of your library in any order|into your graveyard)$`).exec(t);
+  if (m) return [{ type: "revealToHand", n: toNumber(m[1]) ?? 0, filter: { all: true }, random: false, required: true, restTo: m[3].startsWith("into") ? "graveyard" : "bottom", ...(m[2] === "two" ? { take: 2 } : {}) }];
+  // Flow State: "... Put one of them into your hand and the rest on the bottom of your library in any order. If there is an instant card and a sorcery card in your graveyard, instead put two of them ..."
+  m = new RegExp(`^look at the top (${NUMBER_WORDS}) cards of your library\\. put one of them into your hand and the rest on the bottom of your library in any order\\. if there is an instant card and a sorcery card in your graveyard, instead put two of them into your hand and the rest on the bottom of your library in any order$`).exec(t);
+  if (m) {
+    const dig = { type: "revealToHand" as const, n: toNumber(m[1]) ?? 0, filter: { all: true }, random: false, required: true, restTo: "bottom" as const };
+    return [{ type: "ifNow", cond: "instantAndSorcery", then: [{ ...dig, take: 2 }], otherwise: [dig] }];
+  }
   m = new RegExp(`^reveal the top (${NUMBER_WORDS}) cards of your library\\. put all ([a-z]+) creature cards with mana value (\\d+) or less from among them onto the battlefield and the rest on the bottom of your library in a random order$`).exec(t);
   if (m) return [{ type: "revealPut", n: toNumber(m[1]) ?? 0, filter: { subtypes: [singularType(m[2])] }, maxMV: Number(m[3]) }];
   m = /^search your library for a basic land card, put (?:that card|it) onto the battlefield( tapped)?, then shuffle$/.exec(t);
@@ -170,7 +177,8 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
     .replace(/~ becomes an? (\d+\/\d+) ([a-z ]+?) artifact creature( with [a-z ,]+?)? until end of turn\. it's still a land/g, "@@animateland $1 $2$3@@")
     .replace(/exile the top card of your library\. until the end of your next turn, you may play that card/g, "@@exiletopnext@@")
     .replace(/each opponent exiles a card from their hand and may play that card for as long as it remains exiled\. each spell cast this way costs \{(\d+)\} more to cast\. each land played this way enters tapped/g, "@@exiletoplay $1@@")
-    .replace(/you may tap any number of untapped creatures you control\. ~ gets \+1\/\+1 until end of turn for each creature tapped this way/g, "@@tapforbonus@@");
+    .replace(/you may tap any number of untapped creatures you control\. ~ gets \+1\/\+1 until end of turn for each creature tapped this way/g, "@@tapforbonus@@")
+    .replace(/put each creature card exiled with ~ onto the battlefield under your control with a flying counter on it\. each of them is a 1\/1 spirit in addition to its other types/g, "@@putexiledwith@@");
   const whole = parseChoiceText(text, ctx);
   if (whole) return whole;
   // "Put two +1/+1 counters on target creature. Look at the top five cards ...": the digging part is the end of the text.

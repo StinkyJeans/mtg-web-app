@@ -44,7 +44,7 @@ export type Effect =
   | { type: "discard"; who: Ref; amount: number; chooser: "victim" | "you" | "random" } // "target player discards two cards" / "you choose a card from their hand"
   | { type: "lookPick"; mode: "toHand" | "toGraveyard" | "arrange" | "iterate" | "look"; n: number; who?: Ref } // look at the top cards of a library ("iterate": one to hand, one exiled to play this turn, one to the bottom)
   // "Look at the top five cards. You may reveal a creature card from among them and put it into your hand. Put the rest on the bottom."
-  | { type: "revealToHand"; n: number; filter: CardFilter; random: boolean; required?: boolean; restTo?: "bottom" | "graveyard"; reveal?: boolean }
+  | { type: "revealToHand"; n: number; filter: CardFilter; random: boolean; required?: boolean; restTo?: "bottom" | "graveyard"; reveal?: boolean; take?: number } // `take`: "put two of them into your hand"
   // Search your library for a card (a basic land card, or any card): onto the battlefield (tapped) or into your hand, then shuffle.
   | { type: "search"; tapped?: boolean; for?: "basicLand" | "any"; to?: "hand" | "battlefield"; who?: Ref; reveal?: boolean; filters?: CardFilter[]; label?: string } // `filters`: a card that fits any of them, `label` names it
   | { type: "scry"; n: number } // look at the top n cards; any of them may go to the bottom (see PendingPick)
@@ -114,7 +114,7 @@ export type Effect =
   | { type: "airbend"; what: Ref } // exile it; its owner may cast it for {2} (rather than its mana cost) for as long as it stays exiled
   | { type: "becomeCreatureNow"; what: Ref; subtypes?: string[] } // until end of turn it is an artifact creature (of these creature types)
   | { type: "untargetable"; what: Ref } // "can't be the target of spells or abilities your opponents control this turn"
-  | { type: "ifNow"; cond: "yourMainPhase" | "landEntered" | "ferocious" | "delirium"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead", ferocious "... if you control a creature with power 4 or greater", delirium "if there are four or more card types among cards in your graveyard, ..."
+  | { type: "ifNow"; cond: "yourMainPhase" | "landEntered" | "ferocious" | "delirium" | "instantAndSorcery"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead", ferocious "... if you control a creature with power 4 or greater", delirium "if there are four or more card types among cards in your graveyard, ...", "if there is an instant card and a sorcery card in your graveyard, instead ..."
   | { type: "ifControlledTarget"; i: number; then: Effect[] } // "if you controlled that permanent, draw a card"
   | { type: "attachToCreated" } // "you may attach ~ to it": this Equipment goes on the token the same ability just created
   | { type: "exileGraveyard"; who: Ref } // "exile target player's graveyard"
@@ -124,7 +124,8 @@ export type Effect =
   | { type: "mayCost"; cost: "artifactOrCard" | "artifactOrNonland" | "otherCreature"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may sacrifice an artifact or discard a card. If you do, ..."
   | { type: "ifYardCreatures"; n: number; then: Effect[]; otherwise?: Effect[] } // "...if there are two or more creature cards in your graveyard. Otherwise, mill two cards."
   | { type: "invasion" } // Alien Invasion: a 1/1 Alien with a +1/+1 counter for each invasion counter, then an invasion counter
-  | { type: "discardUnlessArtifact" } // "discard two cards unless you discard an artifact card"
+  | { type: "discardUnless"; cardType: "artifact" | "creature" } // "discard two cards unless you discard an artifact card"
+  | { type: "discardHand" } // "discard your hand"
   | { type: "transform" } // a double-faced permanent turns over
   | { type: "extraCombatIfAttacking" } // "if he's attacking, untap him and there is an additional combat phase after this phase"
   | { type: "putFromHand"; subtype: string; maxMV: number; elseDraw: boolean; cardType?: "artifact" | "land"; attach?: boolean; tapped?: boolean } // "you may put a Hero creature card with mana value 3 or less from your hand onto the battlefield. If you don't, draw a card"
@@ -133,7 +134,15 @@ export type Effect =
   | { type: "freeNext"; colors: string[] } // the next creature spell of one of these colors you cast this turn costs nothing
   | { type: "addKeywordCounter"; keyword: Keyword; what: Ref } // "put a double strike counter on ~": it has that keyword for as long as the counter is there
   | { type: "planCounter" } // "put a plan counter on this enchantment": at the card's threshold it is sacrificed (see ParsedCard.plan)
-  | { type: "warpExile" }; // warp: exile the permanent; its owner may cast it from exile on a later turn
+  | { type: "warpExile" } // warp: exile the permanent; its owner may cast it from exile on a later turn
+  | { type: "ifManaSpent"; n: number; then: Effect[] } // "if five or more mana was spent to cast that spell, ..." (a cast trigger's X is the mana spent)
+  | { type: "copySelfToken" } // "create a token that's a copy of ~"
+  | { type: "noPrevention" } // "damage can't be prevented this turn"
+  | { type: "addLoyalty"; amount: number } // "put a loyalty counter on ~"
+  | { type: "stormEmblem" } // "you get an emblem with 'Instant and sorcery spells you cast have storm.'"
+  | { type: "damagePerNonbasic" } // "~ deals damage to each player equal to the number of nonbasic lands that player controls"
+  | { type: "exileYardCard"; what: Ref } // "exile target card from a graveyard": remembered as exiled with the source
+  | { type: "putExiledWith" }; // "put each creature card exiled with ~ onto the battlefield under your control with a flying counter on it. Each of them is a 1/1 Spirit in addition to its other types."
 
 /** Which cards a "reveal a ... card" effect may take: any of the types, or any of the creature types (subtypes), or any nonland card. */
 export interface CardFilter {
@@ -267,10 +276,14 @@ export interface TargetSpec {
   /** The mana value or power limit above is waived when the spell was kicked ("...mana value 3 or less. If this spell was cast using teamwork, instead exile target creature"). */
   liftedWhenKicked?: boolean;
   /** For spells: "target creature spell" / "target noncreature spell". */
-  spellKind?: "creature" | "noncreature" | "artifactOrCreature";
+  spellKind?: "creature" | "noncreature" | "artifactOrCreature" | "creatureOrEnchantment" | "artifactOrEnchantment";
   /** For spells: "target colorless spell" / only spells of this color (W, U, B, R or G). */
   colorless?: boolean;
   spellColor?: string;
+  /** "Target red or green spell": a spell of any of these colors. */
+  spellColors?: string[];
+  /** "...you own": a permanent its controller also owns. */
+  owner?: "you";
   /** "Target triggered ability or colorless spell": a triggered ability on the stack counts too. */
   orTriggered?: boolean;
   /** The printed phrase, shown to players, e.g. "target creature an opponent controls". */
@@ -332,14 +345,14 @@ export interface StaticEffect {
 export type CountSpec =
   | { kind: "permanents"; what: "creature" | "land" | "artifact" | "enchantment" | "landType" | "subtype"; landType?: string; subtype?: string; nontoken?: boolean; other?: boolean; scope: "you" | "opponents" | "all" }
   | { kind: "hand" }
-  | { kind: "graveyard"; creaturesOnly: boolean; spellsOnly?: boolean }
+  | { kind: "graveyard"; creaturesOnly: boolean; spellsOnly?: boolean; adventures?: boolean } // `adventures`: "and/or have an Adventure" counts too
   | { kind: "attackers"; subtype?: string; other?: boolean } // creatures you control that are attacking
   | { kind: "toughnessGtPower" } // creatures you control with toughness greater than power
   | { kind: "opponents" } // the number of opponents you have
   | { kind: "selfPower" } // the power of the permanent the ability belongs to
   | { kind: "selfCounters" } // counters on it
   | { kind: "excessDamage" } // the excess of the damage the same spell or ability just dealt
-  | { kind: "greatestMV"; what: "artifact" } // the greatest mana value among the artifacts you control
+  | { kind: "greatestMV"; what: "artifact" | "subtype"; subtype?: string } // the greatest mana value among the artifacts (or Elementals) you control
   | { kind: "discardedThisTurn" } // cards you've discarded this turn
   | { kind: "selfToughness" } // the toughness of the permanent the ability belongs to
   | { kind: "equipmentOnSelf" } // the Equipment attached to the permanent the ability belongs to
@@ -400,6 +413,8 @@ export interface TriggeredAbility {
     unsolved?: boolean;
     /** "If a Pirate and a Vehicle attacked this combat": each of these types is among the attackers. */
     attackersInclude?: string[];
+    /** "When this creature enters, if you cast it": it came from a spell. */
+    cast?: boolean;
   };
   /** "Whenever you cast a noncreature or Dragon spell": a creature spell of this type counts too. */
   orSpellSubtype?: string;
@@ -541,6 +556,13 @@ export interface ParsedCard {
   /** "Flashback {2}{R}": the cost to cast this from the graveyard. "Flashback—Sacrifice a Mountain": no mana ("{0}"), and a permanent of that type is sacrificed. */
   flashback?: string;
   flashbackSacrifice?: string;
+  /** "Harmonize {4}{U}": the cost to cast this from the graveyard (then it is exiled). A creature may be tapped to pay {X} of it, X being its power. */
+  harmonize?: string;
+  /** An Adventure card's spell (the second half of "Hearth Elemental // Stoke Genius"): cast from the hand, then exiled; the creature may be cast from exile. */
+  adventure?: CardDef;
+  /** "Players can't gain life." / "Damage can't be prevented." */
+  noLifeGain?: boolean;
+  damageUnpreventable?: boolean;
   /** "Replicate {1}": paid any number of times as the spell is cast, each time for a copy of it (with its own targets). */
   replicate?: string;
   /** "Plot {1}{R}": pay this to exile the card from your hand; it may be cast without paying its mana cost, as a sorcery, on a later turn. */
@@ -600,7 +622,7 @@ export interface ParsedCard {
   /** "Can't be blocked except by walls and/or creatures with flying": only these can block it. */
   blockedOnlyBy?: { subtypes: string[]; keywords: Keyword[]; colors: string[]; artifact: boolean };
   /** "This land enters tapped unless ...": the conditions under which it enters untapped. */
-  entersTappedUnless?: { basics?: number; otherLands?: number; fewerOtherLands?: number; planeswalker?: boolean; lifeAtMost?: number; opponentLands?: number; never?: boolean; /** "unless you control a Forest or an Island" */ landTypes?: string[] };
+  entersTappedUnless?: { /** "enters tapped if it's not your turn" */ yourTurn?: boolean; basics?: number; otherLands?: number; fewerOtherLands?: number; planeswalker?: boolean; lifeAtMost?: number; opponentLands?: number; never?: boolean; /** "unless you control a Forest or an Island" */ landTypes?: string[] };
   /** "Can't be blocked by creatures with power 2 or less / 4 or greater." */
   cantBeBlockedByPower?: { n: number; op: "max" | "min" };
   /** "This creature can't attack unless defending player controls an Island." */
@@ -695,6 +717,10 @@ export type StackItem =
       haste?: boolean;
       /** Cast for its warp cost: the permanent is exiled at the beginning of the next end step. */
       warped?: boolean;
+      /** An Adventure: it goes to exile as it resolves, and the creature may be cast from there. */
+      adventure?: boolean;
+      /** The mana spent to cast it. */
+      manaSpent?: number;
     }
   | {
       kind: "ability";
@@ -764,8 +790,8 @@ export interface PendingPick {
   colorFor?: string;
   /** Search: the land enters tapped. */
   entersTapped?: boolean;
-  /** Discard: one artifact card is enough ("discard two cards unless you discard an artifact card"). */
-  artifactEnough?: boolean;
+  /** Discard: one card of this type is enough ("discard two cards unless you discard an artifact card"). */
+  enoughType?: "artifact" | "creature";
   /** Hand to field: the card enters tapped (entersTapped), and an Equipment is attached to this permanent. */
   attachHolder?: string;
   /** Hand to field: if the player declines, they draw a card. */
