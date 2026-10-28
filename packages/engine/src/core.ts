@@ -13,6 +13,7 @@ export {
   findPermanent,
   findPermanentOrNull,
   forbidden,
+  gainedKeywords,
   hasDelirium,
   isArtifactDef,
   handLimit,

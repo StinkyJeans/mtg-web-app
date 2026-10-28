@@ -1,4 +1,4 @@
-import { abilityLockReason, getActivatable, getCastable, getCrewable, getCyclable, getLegalActions, getLoyaltyAbilities, getPlottable, parseCard, parseManaCost, payMana } from "@mtg/engine";
+import { abilityLockReason, getActivatable, getCastable, getCrewable, getCyclable, getLegalActions, getLoyaltyAbilities, getPlottable, hasKeywordNow, parseCard, parseManaCost, payMana } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { ManaText } from "./ManaSymbols";
 import { CostChips, splitAbility } from "./abilityText";
@@ -91,11 +91,11 @@ export function abilityWarnings(state: GameState, actor: PlayerId): Record<strin
       const grants = ability.effects.filter((e) => e.type === "grant" && e.what.t === "self");
       if (grants.length === 0 || grants.length !== ability.effects.length) return;
       const names = grants.map((e) => (e.type === "grant" ? e.keyword : "")).join(" and ");
-      const owned = grants.every((e) => e.type === "grant" && ((perm.tempKeywords ?? []).includes(e.keyword) || (state.cards[perm.card.defId].keywords ?? []).includes(e.keyword)));
+      const owned = grants.every((e) => e.type === "grant" && hasKeywordNow(state, perm, e.keyword));
       const combatOnly = grants.every((e) => e.type === "grant" && COMBAT_KEYWORDS.includes(e.keyword));
       const def = state.cards[perm.card.defId];
       if (owned) out[`${perm.card.iid}-${index}`] = `already has ${names}: this would change nothing`;
-      else if (combatOnly && perm.summoningSick && def.type === "creature" && !(perm.tempKeywords ?? []).includes("haste") && !(def.keywords ?? []).includes("haste") && ["main1", "attackers", "main2", "end"].includes(state.phase) && state.active === actor) {
+      else if (combatOnly && perm.summoningSick && def.type === "creature" && !hasKeywordNow(state, perm, "haste") && ["main1", "attackers", "main2", "end"].includes(state.phase) && state.active === actor) {
         out[`${perm.card.iid}-${index}`] = `it just arrived and can't attack this turn: ${names} won't matter until your next turn`;
       } else if (combatOnly && ["main2", "end", "cleanup"].includes(state.phase) && state.active === actor) {
         out[`${perm.card.iid}-${index}`] = `combat is over this turn: ${names} would change nothing`;

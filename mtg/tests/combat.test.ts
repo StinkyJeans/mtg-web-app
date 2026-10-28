@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { blockOutcome, canBlock } from "@/app/play/combatHints";
+import { gainedKeywords } from "@mtg/engine";
+import { attackHint, blockOutcome, canBlock } from "@/app/play/combatHints";
 import { endReason } from "@/app/play/log";
 import { blocking, board, permanent } from "./fixtures";
 
@@ -13,6 +14,16 @@ test("a flyer can only be blocked by flying or reach", () => {
   assert.equal(ground.ok, false);
   assert.match(ground.reason ?? "", /flying/i);
   assert.deepEqual(canBlock(g, "p2", spider.card.iid, drake.card.iid), { ok: true });
+});
+
+test("a creature that gains flying (Dragon's Rage Channeler with delirium) is a free hit past ground creatures, and shows its flying", () => {
+  const drc = permanent("drc", "p1");
+  const g = board({ mine: [drc], theirs: [permanent("bears", "p2")] });
+  assert.equal(attackHint(g, "p1", drc).tone, "risky", "a 1/1 the Bears can block and kill");
+  assert.deepEqual(gainedKeywords(g, drc), []);
+  g.players.p1.graveyard = ["mountain", "shock", "bears", "divination"].map((defId, i) => ({ iid: `y${i}`, defId, owner: "p1" as const }));
+  assert.equal(attackHint(g, "p1", drc).tone, "free", "with delirium it flies over the Bears");
+  assert.deepEqual(gainedKeywords(g, drc), ["flying"]);
 });
 
 test("while players may still respond to the attack, a creature that will be able to block still says so", () => {

@@ -1,7 +1,7 @@
 "use client";
 
 import { MatTear } from "./MatTear";
-import { powerOf, toughnessOf } from "@mtg/engine";
+import { gainedKeywords, powerOf, toughnessOf } from "@mtg/engine";
 import type { CardDef, GameState, Permanent, PlayerId } from "@mtg/engine";
 import type { Inspected } from "./CardDetail";
 import CardView from "./CardView";
@@ -120,6 +120,8 @@ export function Lane({
       ...(p.chosenColor ? [`Color: ${p.chosenColor}`] : []),
       ...(p.chosenType ? [`Type: ${p.chosenType.charAt(0).toUpperCase()}${p.chosenType.slice(1)}`] : []),
       ...(p.regenShield ? ["Regenerates"] : []),
+      // keywords it has without printing them: delirium, an anthem, an Equipment, a counter
+      ...gainedKeywords(state, p).map((k) => k.charAt(0).toUpperCase() + k.slice(1)),
       // effects that last until end of turn
       ...(p.powerBonus || p.toughnessBonus ? [`${sign(p.powerBonus ?? 0)}/${sign(p.toughnessBonus ?? 0)} this turn`] : []),
       ...(p.tempKeywords ?? []).map((k) => `${k} this turn`),

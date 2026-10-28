@@ -1,6 +1,6 @@
 "use client";
 
-import { getPossibleBlockers, powerOf, toughnessOf } from "@mtg/engine";
+import { gainedKeywords, getPossibleBlockers, powerOf, toughnessOf } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { COMBAT_BADGE } from "./CardView";
 import { blockOutcome, canBlock } from "./combatHints";
@@ -101,7 +101,7 @@ export default function BlockPanel({
                 <span className="rounded bg-zinc-200 px-1.5 text-xs font-bold">
                   {powerOf(state, perm)}/{toughnessOf(state, perm)}
                 </span>
-                {(def.keywords ?? []).map((k, i) => (
+                {[...(def.keywords ?? []), ...gainedKeywords(state, perm), ...(perm.tempKeywords ?? [])].map((k, i) => (
                   <span key={`${i}-${k}`} className="rounded bg-amber-100 px-1.5 text-xs capitalize text-amber-900">
                     {k}
                   </span>

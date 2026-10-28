@@ -1,7 +1,7 @@
 // Plain-language advice for the combat steps, so a new player can see which creatures are worth attacking or blocking with.
 // These are simple rules of thumb (damage against toughness, flying, deathtouch, first strike), not a full simulation.
-import { applyAction, powerOf, toughnessOf } from "@mtg/engine";
-import type { GameState, Permanent, PlayerId } from "@mtg/engine";
+import { applyAction, hasKeywordNow, powerOf, toughnessOf } from "@mtg/engine";
+import type { GameState, Keyword, Permanent, PlayerId } from "@mtg/engine";
 
 export type CombatTone = "free" | "safe" | "risky" | "best" | "good" | "trade" | "chump" | "block" | "threat" | "blocked";
 
@@ -12,8 +12,8 @@ export interface CombatHint {
   why: string;
 }
 
-const kws = (state: GameState, perm: Permanent): string[] => [...(state.cards[perm.card.defId].keywords ?? []), ...(perm.tempKeywords ?? [])];
-const has = (state: GameState, perm: Permanent, k: string) => kws(state, perm).includes(k);
+// Keywords from every source: printed, until end of turn, counters, and static effects (delirium, anthems, Equipment).
+const has = (state: GameState, perm: Permanent, k: Keyword) => hasKeywordNow(state, perm, k);
 const isCreature = (state: GameState, perm: Permanent) => state.cards[perm.card.defId].type === "creature" || perm.crewed === true;
 const lifeLeft = (state: GameState, perm: Permanent) => toughnessOf(state, perm) - perm.damage;
 const name = (state: GameState, perm: Permanent) => state.cards[perm.card.defId].name;

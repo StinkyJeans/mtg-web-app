@@ -13,6 +13,11 @@ export const DEFS: Record<string, CardDef> = {
   spider: { id: "spider", name: "Giant Spider", type: "creature", cost: 4, power: 2, toughness: 4, manaCost: "{3}{G}", colors: ["G"], keywords: ["reach"] },
   mutagen: { id: "mutagen", name: "Phyrexian Bear", type: "creature", cost: 1, power: 2, toughness: 2, manaCost: "{G/P}", colors: ["G"] },
   shock: { id: "shock", name: "Shock", type: "instant", cost: 1, manaCost: "{R}", colors: ["R"], text: "Shock deals 2 damage to any target." },
+  divination: { id: "divination", name: "Divination", type: "sorcery", cost: 3, manaCost: "{2}{U}", colors: ["U"], text: "Draw two cards." },
+  drc: {
+    id: "drc", name: "Dragon's Rage Channeler", type: "creature", cost: 1, power: 1, toughness: 1, manaCost: "{R}", colors: ["R"], typeLine: "Creature — Human Shaman", keywords: ["delirium", "surveil"],
+    text: "Whenever you cast a noncreature spell, surveil 1. (Look at the top card of your library. You may put that card into your graveyard.)\nDelirium — As long as there are four or more card types among cards in your graveyard, Dragon's Rage Channeler gets +2/+2, has flying, and attacks each combat if able.",
+  },
   adventure: { id: "adventure", name: "Bonecrusher Giant // Stomp", type: "creature", cost: 3, power: 4, toughness: 3, manaCost: "{2}{R}", colors: ["R"] },
   walker: { id: "walker", name: "Test Walker", type: "planeswalker", cost: 3, loyalty: 3, manaCost: "{2}{R}", colors: ["R"] },
 };

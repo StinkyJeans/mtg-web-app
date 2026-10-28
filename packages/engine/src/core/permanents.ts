@@ -269,6 +269,13 @@ export const kw = (s: GameState, p: Permanent, keyword: Keyword) =>
   !(keyword === "defender" && p.tempNoDefender) && (
   hasKeyword(getCard(s, p.card.defId), keyword) || (p.tempKeywords ?? []).includes(keyword) || (p.kwCounters ?? []).includes(keyword) || staticEffectsOn(s, p).some((st) => st.keywords.includes(keyword)));
 
+/** Keywords the permanent has right now that its card doesn't print and that don't wear off this turn: from counters and static effects (delirium, anthems, Equipment). */
+export function gainedKeywords(s: GameState, p: Permanent): Keyword[] {
+  const def = getCard(s, p.card.defId);
+  const gained = new Set<Keyword>([...(p.kwCounters ?? []), ...staticEffectsOn(s, p).flatMap((st) => st.keywords)]);
+  return [...gained].filter((k) => !hasKeyword(def, k) && !(p.tempKeywords ?? []).includes(k));
+}
+
 export function findPermanentOrNull(state: GameState, iid: string): { owner: PlayerState; perm: Permanent } | null {
   for (const owner of Object.values(state.players)) {
     const perm = owner.battlefield.find((p) => p.card.iid === iid);
