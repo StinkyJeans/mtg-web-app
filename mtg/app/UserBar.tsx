@@ -41,7 +41,7 @@ export default function UserBar() {
     <div className="topbar">
       <Link href="/" className="flex items-center gap-2" aria-label="DuelRealm MTG home">
         <Logo size={26} />
-        <span className="brand hidden min-[480px]:inline">DUELREALM</span>
+        <span className="brand">DUELREALM</span>
       </Link>
       <span className="flex-1" />
       <button

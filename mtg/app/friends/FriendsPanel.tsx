@@ -114,7 +114,13 @@ export default function FriendsPanel() {
     () => true,
   );
   const [chosen, setChosen] = useState<boolean | null>(null);
-  const open = chosen ?? wide;
+  const [sheet, setSheet] = useState(false); // a phone: the list is a pop-up, opened from the button beside the bell
+  const open = sheet || (chosen ?? wide);
+  useEffect(() => {
+    const show = () => setSheet(true);
+    window.addEventListener("mtg-open-friends", show);
+    return () => window.removeEventListener("mtg-open-friends", show);
+  }, []);
   const [adding, setAdding] = useState(false);
   const [confirming, setConfirming] = useState<string | null>(null); // a friend about to be removed
   const net = useOnline();
@@ -200,9 +206,12 @@ export default function FriendsPanel() {
 
   return (
     <>
+      {sheet && <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={() => setSheet(false)} aria-hidden="true" />}
       <section
         aria-label="Friends"
-        className="panel-glass z-10 flex w-full max-w-[20rem] flex-col gap-2.5 self-start p-3.5 text-white xl:fixed xl:left-4 xl:top-[7.6rem] xl:max-h-[calc(100dvh-9rem)]"
+        className={`panel-glass z-10 flex w-full max-w-[20rem] flex-col gap-2.5 self-start p-3.5 text-white ${
+          sheet ? "max-md:fixed max-md:inset-x-3 max-md:bottom-4 max-md:top-16 max-md:z-50 max-md:!max-w-none max-md:overflow-y-auto max-md:!bg-[#0b1020] max-md:!backdrop-blur-none" : "max-md:hidden"
+        } xl:fixed xl:left-4 xl:top-[7.6rem] xl:max-h-[calc(100dvh-9rem)]`}
       >
         <header className="flex items-center gap-2">
           <button
@@ -251,6 +260,11 @@ export default function FriendsPanel() {
             </svg>
             Add
           </button>
+          {sheet && (
+            <button onClick={() => setSheet(false)} aria-label="Close the friends list" className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-white/30 bg-white/10 text-2xl leading-none md:hidden">
+              ×
+            </button>
+          )}
         </header>
 
         {open && (

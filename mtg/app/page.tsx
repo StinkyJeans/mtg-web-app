@@ -16,6 +16,8 @@ export default function Home() {
       <FriendsPanel />
       <Lobby />
       <section className="relative flex flex-col items-center gap-5 text-center">
+        {/* on a phone the logo and the title give way to the buttons (the name is in the top bar) */}
+        <div className="flex flex-col items-center gap-5 max-md:hidden">
         <div className="hero-scrim" aria-hidden="true" />
         <Logo size={124} glow className="hero-rise" />
         <p className="hero-eyebrow hero-rise">A two-player card duel game</p>
@@ -26,6 +28,7 @@ export default function Home() {
         <p className="hero-sub hero-rise" style={{ animationDelay: "0.16s" }}>
           Build a deck, join a room, and duel.
         </p>
+        </div>
         <div className="hero-rise mt-2 flex flex-wrap justify-center gap-3" style={{ animationDelay: "0.24s" }}>
           <Link href="/play" className="hero-btn hero-btn-primary">
             <svg viewBox="0 0 24 24" {...icon}>

@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import NotificationBell from "./NotificationBell";
+import FriendsButton from "../friends/FriendsButton";
 import { holdWallpaper } from "../LiveWallpaper";
 import { RowSkeletons, Skeleton } from "../Skeleton";
 import DeckPreview from "../decks/DeckPreview";
@@ -135,6 +136,7 @@ export default function ProfileButton() {
         </span>
       </button>
       <NotificationBell meId={me.id} meName={me.nickname || me.name} />
+      <FriendsButton />
       </div>
       {open && (
         <ProfilePopup me={me} onMe={setMe} onClose={() => setOpen(false)} />
