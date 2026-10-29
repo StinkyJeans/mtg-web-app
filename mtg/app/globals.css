@@ -1182,3 +1182,16 @@ body:has(.game-modal, .victory-backdrop) .castable-glow::after { animation-play-
   main.battlefield-bg > section, main.battlefield-bg > aside { flex: none; }
   main.battlefield-bg .playmat { min-height: 13rem; }
 }
+
+/* Phones: headings, buttons and chips on the dashboard and deck pages were made for a wide screen. */
+@media (max-width: 639px) {
+  .page-title { font-size: 1.45rem; letter-spacing: 0.06em; }
+  .btn-gold, .btn-ghost, .btn-danger { font-size: 0.78rem; padding: 0.4rem 0.8rem; }
+  .seg button { padding: 0.32rem 0.75rem; font-size: 0.78rem; }
+  .seg-wide button { padding-left: 0.35rem; padding-right: 0.35rem; }
+  .deck-name { font-size: 0.95rem; }
+  .chip { font-size: 0.7rem; padding: 0.1rem 0.5rem; }
+  .count-chip { font-size: 0.72rem; padding: 0.15rem 0.55rem; }
+  .hero-btn { font-size: 0.92rem; padding: 0.65rem 1.2rem; }
+  .pager-btn { font-size: 0.78rem; padding: 0.3rem 0.6rem; }
+}

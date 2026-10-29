@@ -4,6 +4,7 @@ import "mana-font/css/mana.css";
 import "./globals.css";
 import UserBar from "./UserBar";
 import RegisterSW from "./RegisterSW";
+import AutoFullscreen from "./AutoFullscreen";
 import Music from "./Music";
 import { THEME_BOOT_SCRIPT } from "@/lib/theme";
 
@@ -64,6 +65,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       </head>
       <body className="min-h-full flex flex-col">
         <RegisterSW />
+        <AutoFullscreen />
         <Music />
         <UserBar />
         {children}

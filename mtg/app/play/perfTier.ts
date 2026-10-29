@@ -36,6 +36,8 @@ export function liteMode(): boolean {
   } catch {
     // (no storage: decided from the computer alone)
   }
+  // A phone (a touch screen, no mouse) always gets the cheaper effects: the battle already asks a lot of it.
+  if (matchMedia("(hover: none) and (pointer: coarse)").matches) return (lite = true);
   return (lite = weakComputer());
 }
 

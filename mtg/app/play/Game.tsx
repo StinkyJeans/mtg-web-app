@@ -26,7 +26,9 @@ import { dismissNotice, leaveRoom, send as netSend, useOnline } from "@/lib/onli
 import { Lightbox } from "./CardDetail";
 import { HoverDetail, HoverPreview } from "./HoverPanels";
 import { PREVIEW_W, setInspected, setPreview } from "./hoverStore";
-import { useTouch } from "./useMedia";
+import { useStacked, useTouch } from "./useMedia";
+import CardView from "./CardView";
+import { liveCardProps } from "./stats";
 import RotateHint from "./RotateHint";
 import type { Inspected } from "./CardDetail";
 import CoinFlip from "./CoinFlip";
@@ -173,6 +175,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     watch.observe(el, { childList: true });
     return () => watch.disconnect();
   }, []);
+  const stacked = useStacked();
   const touch = useTouch(); // no mouse: nothing is "under" it, so no card is shown big on hover
   const [cursorOn, setCursorOn] = useCustomCursor();
   useBattleFullscreen(game !== null); // the battle fills the whole screen, whatever its size
@@ -950,6 +953,30 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         <div ref={watchSheet} className="action-box flex max-h-[34dvh] shrink-0 flex-col gap-1.5 overflow-y-auto empty:hidden">
         {mine && state.phase === "blockers" && !state.priority && !state.pendingChoice && !state.pendingPick && <BlockPanel state={state} actor={actor} blocks={blocks} picked={picked} onChange={(b) => { setBlocks(b); setPicked(null); }} onPicked={setPicked} />}
 
+        {stacked && mine && state.phase === "attackers" && !state.priority && !state.pendingChoice && !state.pendingPick && !targeting && possibleAttackers.length > 0 && (
+          <section className="flex flex-col gap-1.5 rounded-xl border border-red-400/60 bg-red-950/90 p-2 text-white [--card-h:92px]">
+            <h2 className="text-sm font-bold">Tap the creatures that attack</h2>
+            <div className="flex gap-2 overflow-x-auto py-1">
+              {state.players[actor].battlefield
+                .filter((p) => possibleAttackers.includes(p.card.iid))
+                .map((p) => {
+                  const on = attacking.includes(p.card.iid);
+                  return (
+                    <CardView
+                      key={p.card.iid}
+                      def={state.cards[p.card.defId]}
+                      size="md"
+                      {...liveCardProps(state, p)}
+                      ring={on ? "ring-4 ring-red-500" : ""}
+                      note={on ? "⚔ Attacking" : undefined}
+                      onClick={() => setAttacking((a) => (on ? a.filter((x) => x !== p.card.iid) : [...a, p.card.iid]))}
+                      onZoom={() => setZoomed(state.cards[p.card.defId])}
+                    />
+                  );
+                })}
+            </div>
+          </section>
+        )}
         <AttackTargetsPanel state={state} actor={actor} attacking={attacking} targets={attackTargets} onChange={setAttackTargets} />
 
         <StackPanel

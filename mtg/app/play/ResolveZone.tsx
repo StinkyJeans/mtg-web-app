@@ -8,7 +8,6 @@ import { itemName, readable, targetName } from "./cardText";
 import { playerName } from "./log";
 import type { Announcement } from "./log";
 import { PlayLines } from "./Announcements";
-import { useStacked } from "./useMedia";
 
 const REVEAL_MS = 1500;
 const REVEAL_FAST_MS = 700; // animations off: still seen, but the game moves on sooner
@@ -107,8 +106,6 @@ function ResolveZoneInner({
   ].slice(0, MAX_SHOWN);
   // The player can close the panel when it is in the way. It stays closed for exactly what it shows now; anything new put on the stack opens it again.
   const [closedFor, setClosedFor] = useState<string | null>(null);
-  const stacked = useStacked();
-  const [sheet, setSheet] = useState(false);
   const signature = entries.map((e) => e.key).join("|");
   if (entries.length === 0) return null;
   const list = entries.map((e) => (
@@ -147,47 +144,13 @@ function ResolveZoneInner({
           </div>
         </div>
       ));
-  if (stacked) {
-    // A phone: the newest play is one slim line over the opponent's mat; tapping it opens everything in a sheet.
-    const first = entries[0];
-    return (
-      <>
-        <button
-          type="button"
-          onClick={() => setSheet(true)}
-          aria-label={`What is on the stack and what was just played (${entries.length})`}
-          className={`pointer-events-auto fixed inset-x-2 top-[6.4rem] z-40 flex items-center gap-2 rounded-xl bg-white p-1.5 text-left text-zinc-900 shadow-2xl shadow-black/50 ring-2 ${LOOK[first.status].ring}`}
-        >
-          <span
-            aria-hidden="true"
-            className="h-11 w-8 shrink-0 rounded border border-zinc-700 bg-zinc-300 bg-cover bg-center"
-            style={first.def?.image ? { backgroundImage: `url(${cardImageUrl(first.def.image)})` } : undefined}
-          />
-          <span className={`shrink-0 rounded px-1.5 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-wide ${LOOK[first.status].chip}`}>{label(first)}</span>
-          <span className="min-w-0 flex-1 truncate text-sm font-semibold">{first.title}</span>
-          {entries.length > 1 && <span className="shrink-0 rounded-full bg-zinc-200 px-2 py-0.5 text-xs font-bold">+{entries.length - 1}</span>}
-          <span aria-hidden="true" className="shrink-0 pr-1 text-zinc-500">▾</span>
-        </button>
-        {sheet && (
-          <div role="dialog" aria-modal="true" aria-label="To resolve" className="game-modal fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-3" onClick={() => setSheet(false)}>
-            <div className="flex max-h-[85dvh] w-full max-w-sm flex-col gap-2 overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-              <button onClick={() => setSheet(false)} aria-label="Close" className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/30 bg-slate-950 text-2xl leading-none text-white">
-                ×
-              </button>
-              {list}
-            </div>
-          </div>
-        )}
-      </>
-    );
-  }
   if (closedFor === signature) {
     return (
       <button
         type="button"
         onClick={() => setClosedFor(null)}
         aria-label={`Show what is on the stack (${entries.length})`}
-        className="fixed left-[56%] top-[26dvh] z-40 -translate-x-1/2 rounded-full bg-slate-950/85 px-3 py-0.5 font-display text-[11px] font-extrabold uppercase tracking-widest text-amber-200 shadow-lg shadow-black/40 hover:bg-slate-900"
+        className="fixed left-1/2 top-[6.4rem] z-40 -translate-x-1/2 rounded-full bg-slate-950/90 px-4 py-1.5 lg:left-[56%] lg:top-[26dvh] lg:py-0.5 font-display text-[11px] font-extrabold uppercase tracking-widest text-amber-200 shadow-lg shadow-black/40 hover:bg-slate-900"
       >
         To resolve · {entries.length} ▸
       </button>
@@ -196,10 +159,10 @@ function ResolveZoneInner({
 
   return (
     // It floats over the board (no panel behind it), so the player's mat stays visible around the cards. Only the cards take clicks.
-    <section aria-label="To resolve" aria-live="polite" className="pointer-events-none fixed left-[56%] top-[26dvh] z-40 flex w-[min(24rem,92vw)] -translate-x-1/2 flex-col gap-2">
+    <section aria-label="To resolve" aria-live="polite" className="pointer-events-none fixed left-1/2 top-1/2 z-40 flex max-h-[72dvh] w-[min(24rem,92vw)] -translate-x-1/2 -translate-y-1/2 flex-col gap-2 overflow-y-auto lg:left-[56%] lg:top-[26dvh] lg:max-h-none lg:translate-y-0 lg:overflow-visible">
       <div className="pointer-events-auto flex items-center gap-2 self-start rounded-full bg-slate-950/80 py-0.5 pl-3 pr-1 shadow-lg shadow-black/40">
         <h3 className="font-display text-[11px] font-extrabold uppercase tracking-widest text-amber-200">To resolve</h3>
-        <button type="button" onClick={() => setClosedFor(signature)} aria-label="Close the list of what is on the stack" title="Close (it opens again when something new is cast)" className="rounded-full px-2 text-sm leading-5 text-amber-100 hover:bg-white/15">
+        <button type="button" onClick={() => setClosedFor(signature)} aria-label="Close the list of what is on the stack" title="Close (it opens again when something new is cast)" className="rounded-full px-3 text-xl leading-8 lg:px-2 lg:text-sm lg:leading-5 text-amber-100 hover:bg-white/15">
           ×
         </button>
       </div>

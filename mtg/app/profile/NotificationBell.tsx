@@ -37,6 +37,7 @@ export default function NotificationBell({ meId, meName }: { meId: string; meNam
   const [open, setOpen] = useState(false);
   const [seen, setSeen] = useState<Set<string>>(new Set());
   const [toastGone, setToastGone] = useState<string | null>(null);
+  const drag = useRef<{ x: number; dx: number } | null>(null); // a finger on the toast: where it started, how far it moved
   const [sent, setSent] = useState<Set<string>>(new Set()); // friends invited from here
   const [busy, setBusy] = useState<string | null>(null);
   const box = useRef<HTMLDivElement>(null);
@@ -164,7 +165,32 @@ export default function NotificationBell({ meId, meName }: { meId: string; meNam
       </button>
 
       {newest && !open && toastGone !== newest.key && (
-        <div role="status" className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-max max-w-[18rem] max-md:fixed max-md:inset-x-3 max-md:top-14 max-md:mt-0 max-md:w-auto max-md:max-w-none rounded-xl border border-amber-300/60 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-amber-100 shadow-xl shadow-black/40">
+        <div
+          role="status"
+          style={{ touchAction: "pan-y" }}
+          onPointerDown={(e) => {
+            drag.current = { x: e.clientX, dx: 0 };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={(e) => {
+            const d = drag.current;
+            if (!d) return;
+            d.dx = e.clientX - d.x;
+            e.currentTarget.style.transform = `translateX(${d.dx}px)`;
+            e.currentTarget.style.opacity = String(1 - Math.min(1, Math.abs(d.dx) / 220));
+          }}
+          onPointerUp={(e) => {
+            const d = drag.current;
+            drag.current = null;
+            if (!d) return;
+            if (Math.abs(d.dx) > 60 || Math.abs(d.dx) < 6) setToastGone(newest.key); // swiped away, or tapped
+            else {
+              e.currentTarget.style.transform = "";
+              e.currentTarget.style.opacity = "";
+            }
+          }}
+          onPointerCancel={(e) => ((drag.current = null), (e.currentTarget.style.transform = ""), (e.currentTarget.style.opacity = ""))}
+          className="absolute left-0 top-full z-30 mt-2 w-max max-w-[18rem] cursor-pointer select-none max-md:fixed max-md:inset-x-3 max-md:top-14 max-md:mt-0 max-md:w-auto max-md:max-w-none rounded-xl border border-amber-300/60 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-amber-100 shadow-xl shadow-black/40">
           🔔 {summary(newest)}
         </div>
       )}

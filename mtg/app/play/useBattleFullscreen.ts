@@ -39,7 +39,7 @@ export function useBattleFullscreen(active: boolean): void {
       document.removeEventListener("fullscreenchange", onChange);
       window.removeEventListener("pointerdown", retry);
       window.removeEventListener("keydown", retry);
-      if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      if (document.fullscreenElement && !matchMedia("(hover: none) and (pointer: coarse)").matches) void document.exitFullscreen().catch(() => undefined);
     };
   }, [active]);
 }

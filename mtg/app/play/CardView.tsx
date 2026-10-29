@@ -257,7 +257,7 @@ function CardViewInner(props: Props) {
         onClick={props.onZoom}
         aria-label={`Enlarge ${props.def.name}`}
         title="Enlarge (or right-click the card)"
-        className={`absolute right-1 ${props.power !== undefined ? "top-8" : "top-1"} flex h-6 w-6 items-center justify-center rounded-full bg-black/75 text-white opacity-0 shadow transition hover:bg-black group-hover:opacity-100 focus-visible:opacity-100`}
+        className={`absolute right-1 ${props.power !== undefined ? "top-8" : "top-1"} [@media(hover:none)]:hidden flex h-6 w-6 items-center justify-center rounded-full bg-black/75 text-white opacity-0 shadow transition hover:bg-black group-hover:opacity-100 focus-visible:opacity-100`}
       >
         <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" aria-hidden="true">
           <circle cx="10.5" cy="10.5" r="6.5" />
