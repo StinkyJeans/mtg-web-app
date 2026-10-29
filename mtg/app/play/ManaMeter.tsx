@@ -47,7 +47,6 @@ export function ManaMeter({ state, id, note, compact }: { state: GameState; id: 
         </span>
         <span className="shrink-0 text-[13px] text-zinc-500">/ {total}</span>
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
-          {sources.length === 0 && <span className="text-[13px] text-zinc-500">no mana sources yet</span>}
           {sources.map((s) => (
             <ManaPip key={s.iid} source={s} />
           ))}

@@ -56,7 +56,7 @@ export function Side({ label, children, player, tone, grow, mat, zones, overlay,
 
 /** The line between a player's creatures and lands, labelled on the side where the lands are. */
 export function LandsDivider({ landsBelow, onMat }: { landsBelow: boolean; onMat?: boolean }) {
-  const label = <span className={`font-display text-[11px] font-semibold uppercase tracking-widest ${onMat ? "text-white/70 [text-shadow:0_1px_2px_rgba(0,0,0,0.7)]" : "text-zinc-500"}`}>Lands &amp; artifacts</span>;
+  const label = <span className={`font-display text-[11px] font-semibold uppercase tracking-widest max-lg:hidden ${onMat ? "text-white/70 [text-shadow:0_1px_2px_rgba(0,0,0,0.7)]" : "text-zinc-500"}`}>Lands &amp; artifacts</span>;
   return (
     <div className="flex flex-col gap-0.5" role="separator" aria-label="Lands are on this side of the line">
       {!landsBelow && label}

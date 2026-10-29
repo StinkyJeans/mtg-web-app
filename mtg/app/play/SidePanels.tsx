@@ -133,7 +133,8 @@ function PlayersPanelInner({
                   <LifeTotal id={id} value={p.life} />
                 </span>
               </div>
-              <ManaMeter state={state} id={id} note={manaNotes[id]} compact />
+              {/* the opponent's mana is a detail: only the player's own is shown */}
+              {id === actor && <ManaMeter state={state} id={id} note={manaNotes[id]} compact />}
             </div>
           );
         })}

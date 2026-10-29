@@ -25,13 +25,13 @@ export default function StepBanner({ state, actor, waiting, error, abilityCount,
   if (state.winner) return null;
   const b = BANNER[bannerMode(state)];
   return (
-    <div className={`flex shrink-0 items-center gap-2 rounded-xl border px-2.5 py-1.5 shadow-sm lg:gap-2.5 lg:px-3.5 lg:py-2 ${b.box}`}>
+    <div className={`flex shrink-0 items-center gap-2 rounded-xl border px-2.5 py-1 shadow-sm lg:gap-2.5 lg:px-3.5 lg:py-2 ${b.box}`}>
       <span className="text-xl lg:text-2xl" aria-hidden="true">
         {b.icon}
       </span>
       <div className="min-w-0 flex-1 text-sm leading-snug lg:text-[15px]">
-        <span className="mr-2 text-xs font-extrabold uppercase font-display tracking-widest">{b.label}</span>
-        <span className="font-semibold max-lg:line-clamp-3">{hintFor(state, actor, waiting)}</span>
+        <span className="mr-2 text-xs font-extrabold max-lg:hidden uppercase font-display tracking-widest">{b.label}</span>
+        <Hint text={hintFor(state, actor, waiting)} />
       </div>
       {error && (
         <span className="rounded-lg bg-red-600 px-3 py-1 text-sm font-semibold text-white shadow">
@@ -52,6 +52,18 @@ export default function StepBanner({ state, actor, waiting, error, abilityCount,
         )}
       </div>
     </div>
+  );
+}
+
+/** The hint; on a phone only its first sentence (the rest is the legend of the symbols, which the cards show anyway). */
+function Hint({ text }: { text: string }) {
+  const cut = text.indexOf(". ");
+  if (cut < 0) return <span className="font-semibold">{text}</span>;
+  return (
+    <span className="font-semibold">
+      {text.slice(0, cut + 1)}
+      <span className="max-lg:hidden">{text.slice(cut + 1)}</span>
+    </span>
   );
 }
 

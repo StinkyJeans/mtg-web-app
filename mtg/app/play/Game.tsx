@@ -1046,7 +1046,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         {!watching && (
         // Only the hand gets smaller while a choice panel is open or in combat: the battlefields are fitted by FitToHeight, so making their
         // cards smaller too (as this once did) meant laying out the whole board again for every phase.
-        <div className="contents [--card-h:clamp(66px,11dvh,120px)] lg:[--card-h:var(--hand-h)]" style={state.phase === "attackers" ? ({ "--card-h": "clamp(60px, 10.5dvh, 130px)" } as React.CSSProperties) : state.phase === "blockers" ? ({ "--card-h": "clamp(56px, 9dvh, 110px)" } as React.CSSProperties) : undefined}>
+        <div className="contents [--card-h:clamp(72px,13dvh,130px)] lg:[--card-h:var(--hand-h)]" style={state.phase === "attackers" ? ({ "--card-h": "clamp(60px, 10.5dvh, 130px)" } as React.CSSProperties) : state.phase === "blockers" ? ({ "--card-h": "clamp(56px, 9dvh, 110px)" } as React.CSSProperties) : undefined}>
         <Side label={`${playerName(actor)}'s hand`} tone="emerald">
           <HandRow
             state={state}
