@@ -28,6 +28,7 @@ function triggerCondHolds(state: GameState, controller: PlayerId, trigger: Trigg
   const p = state.players[controller];
   const c = trigger.cond;
   if (c?.opponentLostLife && (state.players[OPPONENT[controller]].lifeLostThisTurn ?? 0) === 0) return false;
+  if (c?.anyLostLifeAtLeast !== undefined && !Object.values(state.players).some((pl) => (pl.lifeLostThisTurn ?? 0) >= c.anyLostLifeAtLeast!)) return false;
   if (c?.attackedThisTurn && !p.attackedThisTurn) return false;
   if (c?.controlsOther && !p.battlefield.some((perm) => perm.card.iid !== sourceIid && subtypesOf(state, perm).includes(c.controlsOther!))) return false;
   if (c?.creaturesAtLeast !== undefined && p.battlefield.filter((perm) => isCreature(state, perm)).length < c.creaturesAtLeast) return false;

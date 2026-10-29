@@ -2,7 +2,7 @@ import { getCard } from "../../cards.js";
 import { parseManaCost, payMana } from "../../mana.js";
 import { parseCard } from "../../oracle.js";
 import { OPPONENT, type CardInstance, type GameState, type PlayerId } from "../../types.js";
-import { defSubtypes, findPermanentOrNull, hasDelirium, isCreature, playerLabel, powerOf } from "../permanents.js";
+import { defSubtypes, findPermanentOrNull, hasDelirium, isCreature, playerLabel, powerOf, subtypesOf } from "../permanents.js";
 import { counterStackItem, spellLeavesStack } from "../zones.js";
 import { subjectsOf } from "../targets.js";
 import { cardAnywhere, type EffectHandlers, type EffectOf } from "./shared.js";
@@ -151,8 +151,10 @@ export const STACK_EFFECTS = {
     // "If it's a Zombie card, ...": the card is looked at wherever the spell put it.
     const t = effect.what.t === "target" ? ctx.targets[effect.what.i] : undefined;
     const iid = t?.kind === "card" || t?.kind === "permanent" ? t.iid : undefined;
+    const onField = iid ? findPermanentOrNull(state, iid)?.perm : undefined;
     const card = iid ? cardAnywhere(state, iid) : undefined;
-    if (card && defSubtypes(getCard(state, card.defId)).includes(effect.subtype)) nested(effect.then);
+    const types = onField ? subtypesOf(state, onField) : card ? defSubtypes(getCard(state, card.defId)) : [];
+    if (types.includes(effect.subtype)) nested(effect.then);
   },
   counter({ state, ctx, events, say }, effect) {
     for (const s of subjectsOf(state, effect.what, ctx)) {

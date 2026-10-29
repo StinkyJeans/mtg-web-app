@@ -174,8 +174,22 @@ export function exilePlayTerms(state: GameState, player: PlayerId, iid: string):
   return { tax: entry?.tax ?? 0, tappedLand: entry?.tappedLand ?? false, ...(entry?.payGeneric !== undefined ? { payGeneric: entry.payGeneric } : {}), ...(entry?.sorcery ? { sorcery: true } : {}) };
 }
 
+/** "For as long as you control Olivia Voldaren": what it took goes back once it leaves. */
+function returnControlled(state: GameState, source: Permanent): void {
+  for (const holder of Object.values(state.players)) {
+    for (const taken of holder.battlefield.filter((p) => p.controlledWhile?.source === source.card.iid)) {
+      const back = taken.controlledWhile!.owner;
+      delete taken.controlledWhile;
+      if (back === holder.id) continue;
+      holder.battlefield.splice(holder.battlefield.indexOf(taken), 1);
+      state.players[back].battlefield.push(taken);
+    }
+  }
+}
+
 /** "Until this leaves the battlefield": what it was keeping in exile comes back under its owner's control (a card from a hand goes back to the hand). */
 function releaseHeld(state: GameState, perm: Permanent): void {
+  returnControlled(state, perm);
   for (const card of perm.heldFromHand ?? []) {
     const owner = state.players[card.owner];
     const at = owner.exile.findIndex((c) => c.iid === card.iid);

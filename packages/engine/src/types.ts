@@ -131,6 +131,8 @@ export interface Permanent {
   chosenType?: string;
   /** Control was taken "until end of turn": the player it goes back to. */
   controlReturn?: PlayerId;
+  /** Control was taken "for as long as you control" `source`: it goes back to `owner` when that ends. */
+  controlledWhile?: { source: string; owner: PlayerId };
   /** "Target creature can't block this turn." */
   cantBlockTurn?: boolean;
   /** Planeswalkers: loyalty counters. At 0 the planeswalker is put into the graveyard. */

@@ -164,6 +164,7 @@ const SAC_CHOICE_COST: Record<string, Extract<Effect, { type: "mayCost" }>["cost
   "sacrifice another creature": "otherCreature",
   "sacrifice another creature or artifact": "otherCreatureOrArtifact",
   "sacrifice three other nonland permanents": "threeOtherNonland",
+  "sacrifice a vampire": "vampire",
 };
 
 /**
@@ -271,7 +272,7 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       continue;
     }
     // "You may sacrifice an artifact or discard a card. If you do, draw a card." / "...discard a nonland card. When you do, ~ deals 2 damage to any target."
-    const sacChoice = /^you may (sacrifice an artifact or discard a card|sacrifice an artifact or discard a nonland card|sacrifice another creature|sacrifice another creature or artifact|sacrifice three other nonland permanents)$/.exec(sentence);
+    const sacChoice = /^you may (sacrifice an artifact or discard a card|sacrifice an artifact or discard a nonland card|sacrifice another creature|sacrifice another creature or artifact|sacrifice three other nonland permanents|sacrifice a vampire)$/.exec(sentence);
     const doNext = /^(if|when) you do, (.+)$/.exec(sentences[si + 1] ?? "");
     if (sacChoice && doNext) {
       const targeted = doNext[1] === "when";

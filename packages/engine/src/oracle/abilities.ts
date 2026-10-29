@@ -16,6 +16,7 @@ export function interveningCond(text: string): TriggerCond | null {
   if ((m = /^you have fewer than (ten|\d+) cards in hand$/.exec(text))) return { handBelow: m[1] === "ten" ? 10 : Number(m[1]) };
   if (text === "enchanted creature is untapped") return { enchantedUntapped: true };
   if (text === "an opponent lost life this turn") return { opponentLostLife: true };
+  if ((m = /^a player lost (\d+|two|three|four|five) or more life this turn$/.exec(text))) return { anyLostLifeAtLeast: toNumber(m[1]) ?? 0 };
   if (text === "you attacked this turn") return { attackedThisTurn: true };
   if ((m = /^you control an? (artifact or enchantment|artifact|enchantment)$/.exec(text))) return { controlsTypes: m[1].split(" or ") };
   if ((m = /^you control another ([a-z]+)$/.exec(text))) return { controlsOther: m[1] };

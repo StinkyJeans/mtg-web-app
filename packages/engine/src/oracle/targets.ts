@@ -1,4 +1,5 @@
 import type { Ref, TargetSpec } from "../effects.js";
+import { CREATURE_TYPES } from "../creatureTypes.js";
 import { CARD_TYPES, COLOR_OF, isKeyword, singularType } from "./words.js";
 
 // What a sentence points at: targets ("target creature an opponent controls") and references ("it", "that player").
@@ -65,6 +66,9 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   if (ofType && !/^(creature|land|artifact|enchantment|permanent|planeswalker|player|opponent|spell|nonland)$/.test(ofType[1])) {
     return { kind: "creature", subtype: ofType[1], controller: "you", label: phrase };
   }
+  // Olivia Voldaren: "target Vampire"
+  const anyOfType = /^target ([a-z]+)$/.exec(phrase);
+  if (anyOfType && CREATURE_TYPES.includes(anyOfType[1])) return { kind: "creature", subtype: anyOfType[1], label: phrase };
   // "target creature or enchantment", "target artifact or enchantment an opponent controls", "target creature or enchantment you own"
   const kinds = /^target ((?:creature|artifact|enchantment|land|planeswalker)(?:(?:, | or |, or )(?:creature|artifact|enchantment|land|planeswalker))+)( you control| an opponent controls| you own)?$/.exec(phrase);
   if (kinds && !/^target (?:artifact or land|artifact or enchantment|creature or planeswalker)$/.test(phrase)) {
@@ -81,6 +85,9 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   if (phrase === "target colorless spell") return { kind: "spell", colorless: true, label: phrase };
   if (phrase === "target triggered ability or colorless spell") return { kind: "spell", colorless: true, orTriggered: true, label: phrase };
   if (phrase === "target creature that crewed it this turn") return { kind: "creature", crewedIt: true, label: phrase };
+  // Cut Down
+  const totalPT = /^target creature with total power and toughness (\d+) or less$/.exec(phrase);
+  if (totalPT) return { kind: "creature", totalPTMax: Number(totalPT[1]), label: phrase };
   if (phrase === "target player") return { kind: "player", label: phrase };
   if (phrase === "target opponent") return { kind: "player", opponentOnly: true, label: phrase };
   if (phrase === "target permanent") return { kind: "permanent", label: phrase };
@@ -237,6 +244,9 @@ export function refFor(phrase: string, ctx: Ctx): Ref | null {
     case "creatures your opponents control":
       return { t: "allCreatures", scope: "opponents" };
   }
+  // Cordial Vampire: "each Vampire you control"
+  const eachOfType = /^each ([a-z]+) you control$/.exec(phrase);
+  if (eachOfType && CREATURE_TYPES.includes(eachOfType[1])) return { t: "allCreatures", scope: "yours", subtype: eachOfType[1] };
   const eachOther = /^each other ([a-z]+) you control$/.exec(phrase);
   if (eachOther && !/^(creature|land|artifact|enchantment|permanent)$/.test(eachOther[1])) return { t: "allCreatures", scope: "yours", subtype: eachOther[1], notSelf: true };
   const nonType = /^(?:each non-([a-z]+) creature|all non-([a-z]+) creatures)$/.exec(phrase);

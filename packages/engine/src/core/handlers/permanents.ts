@@ -127,10 +127,18 @@ export const PERMANENT_EFFECTS = {
       if (s.k !== "perm" || s.owner === ctx.controller) continue;
       const from = state.players[s.owner].battlefield;
       from.splice(from.indexOf(s.perm), 1);
-      s.perm.controlReturn = s.perm.controlReturn ?? s.owner; // it goes back at the end of the turn
+      if (effect.whileSource) s.perm.controlledWhile = { source: ctx.sourceId, owner: s.owner };
+      else s.perm.controlReturn = s.perm.controlReturn ?? s.owner; // it goes back at the end of the turn
       s.perm.summoningSick = true;
       state.players[ctx.controller].battlefield.push(s.perm);
-      say(`${playerLabel(ctx.controller)} gains control of ${nameOf(state, s.perm)} until end of turn.`);
+      say(`${playerLabel(ctx.controller)} gains control of ${nameOf(state, s.perm)} ${effect.whileSource ? `for as long as they control ${ctx.sourceName}` : "until end of turn"}.`);
+    }
+  },
+  addSubtype({ state, ctx, say }, effect) {
+    for (const s of subjectsOf(state, effect.what, ctx)) {
+      if (s.k !== "perm" || subtypesOf(state, s.perm).includes(effect.subtype)) continue;
+      s.perm.addedSubtypes = [...(s.perm.addedSubtypes ?? []), effect.subtype];
+      say(`${nameOf(state, s.perm)} becomes a ${effect.subtype[0].toUpperCase()}${effect.subtype.slice(1)} in addition to its other types.`);
     }
   },
   combatDamageDraw({ state, ctx, say }, effect) {

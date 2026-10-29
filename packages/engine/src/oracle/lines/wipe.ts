@@ -8,7 +8,7 @@ import { newCtx } from "../targets.js";
 export function readOppCreatureDies(line: string, out: ParsedCard): boolean {
   const m = /^whenever a creature an opponent controls dies,? (.+)$/.exec(line);
   if (!m) return false;
-  const ctx = newCtx(true);
+  const ctx = newCtx(false); // "it" is the creature that died, not ~
   const effects = parseEffectText(m[1].replace(/^that player /, "each opponent "), ctx);
   if (effects && effects.length > 0) out.triggers.push({ event: "oppCreatureDies", effects, targets: ctx.targets, text: line });
   else out.unsupported.push(line);

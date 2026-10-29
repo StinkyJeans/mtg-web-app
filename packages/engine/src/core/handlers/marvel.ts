@@ -6,7 +6,7 @@ import { subjectsOf } from "../targets.js";
 import { cardMatches } from "../permanents.js";
 import { defSubtypes } from "../../creatureTypes.js";
 import { drawCards } from "../zones.js";
-import { isArtifactDef, isCreature, powerOf, toughnessOf, yardCreatureCards } from "../permanents.js";
+import { isArtifactDef, isCreature, powerOf, subtypesOf, toughnessOf, yardCreatureCards } from "../permanents.js";
 import type { EffectHandlers } from "./shared.js";
 
 const COLOR_NAME: Record<string, string> = { W: "white", U: "blue", B: "black", R: "red", G: "green" };
@@ -17,6 +17,7 @@ const MAY_COST_PROMPT = {
   otherCreature: "You may sacrifice another creature",
   otherCreatureOrArtifact: "You may sacrifice another creature or an artifact",
   threeOtherNonland: "You may sacrifice three other nonland permanents: choose the first (or stop, and sacrifice none)",
+  vampire: "You may sacrifice a Vampire",
 } as const;
 
 /** Effects of the Marvel Super Heroes set: keyword counters, Plan counters and the like. */
@@ -30,8 +31,10 @@ export const MARVEL_EFFECTS = {
     const others = me.battlefield.filter((p) => p.card.iid !== ctx.sourceId && isCreature(state, p)).map((p) => p.card.iid);
     const cards = me.hand.filter((c) => effect.cost === "artifactOrCard" || getCard(state, c.defId).type !== "land").map((c) => c.iid);
     const otherNonland = me.battlefield.filter((p) => p.card.iid !== ctx.sourceId && getCard(state, p.card.defId).type !== "land").map((p) => p.card.iid);
+    const vampires = me.battlefield.filter((p) => isCreature(state, p) && subtypesOf(state, p).includes("vampire")).map((p) => p.card.iid);
     const options =
-      effect.cost === "otherCreature" ? others
+      effect.cost === "vampire" ? vampires
+      : effect.cost === "otherCreature" ? others
       : effect.cost === "otherCreatureOrArtifact" ? [...new Set([...others, ...artifacts.filter((iid) => iid !== ctx.sourceId)])]
       : effect.cost === "threeOtherNonland" ? otherNonland
       : [...artifacts, ...cards];
@@ -154,7 +157,7 @@ export const MARVEL_EFFECTS = {
     say(`${ctx.sourceName}: you may put a ${effect.subtype} from your hand onto the battlefield.`);
     startPick({
       player: ctx.controller,
-      prompt: effect.cardType ? `You may put ${effect.cardType === "land" ? "a land" : "an artifact"} card from your hand onto the battlefield${effect.tapped ? " tapped" : ""}` : `You may put a ${effect.subtype} creature card with mana value ${effect.maxMV} or less from your hand onto the battlefield${effect.elseDraw ? " (if you don't, draw a card)" : ""}`,
+      prompt: effect.cardType ? `You may put ${effect.cardType === "land" ? "a land" : "an artifact"} card from your hand onto the battlefield${effect.tapped ? " tapped" : ""}` : `You may put a ${effect.subtype} creature card${effect.maxMV < 99 ? ` with mana value ${effect.maxMV} or less` : ""} from your hand onto the battlefield${effect.elseDraw ? " (if you don't, draw a card)" : ""}`,
       kind: "handToField",
       ...(effect.tapped ? { entersTapped: true } : {}),
       ...(effect.attach ? { attachHolder: ctx.sourceId } : {}),

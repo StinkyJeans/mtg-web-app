@@ -86,7 +86,8 @@ export type Effect =
   | { type: "addCounters"; amount: Amount; what: Ref; kind?: "minus" } // +1/+1 counters (or -1/-1 with kind "minus")
   | { type: "fight"; a: Ref; b: Ref } // each deals damage equal to its power to the other
   | { type: "bite"; from: Ref; to: Ref; times?: number; trampleExcess?: boolean } // "target creature you control deals damage equal to its power to target creature" (`trampleExcess`: with trample, the excess goes to that creature's controller instead)
-  | { type: "gainControl"; what: Ref } // until end of turn
+  | { type: "gainControl"; what: Ref; whileSource?: boolean } // until end of turn (`whileSource`: "for as long as you control ~")
+  | { type: "addSubtype"; what: Ref; subtype: string } // "That creature becomes a Vampire in addition to its other types." (for good)
   | { type: "cantBlockThisTurn"; what: Ref }
   | { type: "crewed" } // this Vehicle becomes an artifact creature until end of turn
   | { type: "combatDamageDraw"; what: Ref } // "whenever that creature deals combat damage to a player this turn, you draw a card"
@@ -131,7 +132,7 @@ export type Effect =
   | { type: "removeAllCounters"; what: Ref } // Blitz Leech: "remove all counters from that creature"
   | { type: "poisonBurn"; who: Ref } // Leeches: "target player loses all poison counters. ~ deals that much damage to that player"
   | { type: "powerFromHand" } // until end of turn: this creature's base power is the number of cards in your hand
-  | { type: "mayCost"; cost: "artifactOrCard" | "artifactOrNonland" | "otherCreature" | "otherCreatureOrArtifact" | "threeOtherNonland"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may sacrifice an artifact or discard a card. If you do, ..."
+  | { type: "mayCost"; cost: "artifactOrCard" | "artifactOrNonland" | "otherCreature" | "otherCreatureOrArtifact" | "threeOtherNonland" | "vampire"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may sacrifice an artifact or discard a card. If you do, ..."
   | { type: "ifYardCreatures"; n: number; then: Effect[]; otherwise?: Effect[] } // "...if there are two or more creature cards in your graveyard. Otherwise, mill two cards."
   | { type: "invasion" } // Alien Invasion: a 1/1 Alien with a +1/+1 counter for each invasion counter, then an invasion counter
   | { type: "discardUnless"; cardType: "artifact" | "creature" } // "discard two cards unless you discard an artifact card"
@@ -307,6 +308,8 @@ export interface TargetSpec {
   /** "Exile up to one target Equipment attached to that creature": it must be attached to the permanent chosen for this target. */
   attachedToTarget?: number;
   toughness?: { n: number; op: "min" | "max" | "eq" };
+  /** Cut Down: "with total power and toughness 5 or less". */
+  totalPTMax?: number;
   /** "target noncreature artifact": an artifact that is not also a creature. */
   noncreature?: boolean;
   /** The mana value or power limit above is waived when the spell was kicked ("...mana value 3 or less. If this spell was cast using teamwork, instead exile target creature"). */
@@ -444,6 +447,8 @@ export interface TriggeredAbility {
     wasCreature?: boolean;
     /** "If an opponent lost life this turn" / "if you attacked this turn" (raid). */
     opponentLostLife?: boolean;
+    /** Knight of the Ebon Legion: "if a player lost 4 or more life this turn". */
+    anyLostLifeAtLeast?: number;
     attackedThisTurn?: boolean;
     /** "If you control another Elf". */
     controlsOther?: string;
