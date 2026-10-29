@@ -73,19 +73,23 @@ function Scales() {
 export function VictoryDialog({
   winner,
   reason,
-  onPlayAgain,
   you,
   onLeave,
   keep,
+  rematch,
+  series,
 }: {
   winner: PlayerId | "draw";
   reason: string | null;
-  onPlayAgain: () => void;
   /** Online: which player is looking at the screen. */
   you?: PlayerId;
   onLeave?: () => void;
   /** Buttons to keep the random decks that were played. */
   keep?: ReactNode;
+  /** Online, best of 3 or 5: the score; while the series goes on there is a "Next game" button instead of a rematch. */
+  series?: { bestOf: number; game: number; wins: Record<PlayerId, number>; decided: boolean; ready: PlayerId[]; you: PlayerId; opponent: string; onReady: () => void };
+  /** Online: asking the other player for another game. */
+  rematch?: { state: "none" | "sent" | "incoming"; opponent: string; onAsk: () => void; onCancel: () => void; onAccept: () => void; onDecline: () => void };
 }) {
   const lost = you !== undefined && winner !== "draw" && winner !== you;
   const result = winner === "draw" ? "draw" : lost ? "lose" : "win";
@@ -100,23 +104,58 @@ export function VictoryDialog({
           <h2 className="victory-title">{title}</h2>
           <p className="victory-sub">{result === "draw" ? "Neither player wins this one" : result === "lose" ? `${playerName(winner as PlayerId)} wins this one` : `Congratulations, ${playerName(winner as PlayerId)}!`}</p>
           {reason && <p className="victory-reason">{reason}</p>}
+          {series && (
+            <p className="victory-reason !text-[#fde68a]">
+              {series.decided
+                ? `${series.wins[series.you] > series.wins[OPPONENT[series.you]] ? "You won" : "You lost"} the best of ${series.bestOf}: ${series.wins[series.you]} – ${series.wins[OPPONENT[series.you]]}`
+                : `Game ${series.game} of up to ${series.bestOf}. Score: you ${series.wins[series.you]} – ${series.wins[OPPONENT[series.you]]} ${series.opponent}`}
+            </p>
+          )}
           {keep}
+          {rematch?.state === "incoming" && (
+            <p role="status" className="victory-reason !text-[#fde68a]">
+              {rematch.opponent} wants a rematch.
+            </p>
+          )}
+          {rematch?.state === "sent" && (
+            <p role="status" className="victory-reason">
+              Rematch asked. Waiting for {rematch.opponent} to answer…
+            </p>
+          )}
           <div className="victory-actions">
-            {onLeave ? (
-              <button onClick={onLeave} autoFocus className="btn-gold !px-7 !py-3 !text-base">
+            {rematch?.state === "none" && (
+              <button onClick={rematch.onAsk} className="btn-gold !px-7 !py-3 !text-base">
+                Rematch
+              </button>
+            )}
+            {rematch?.state === "sent" && (
+              <button onClick={rematch.onCancel} className="btn-ghost !px-6 !py-3 !text-base">
+                Cancel rematch
+              </button>
+            )}
+            {rematch?.state === "incoming" && (
+              <>
+                <button onClick={rematch.onAccept} autoFocus className="btn-gold !px-7 !py-3 !text-base">
+                  Accept
+                </button>
+                <button onClick={rematch.onDecline} className="btn-danger !px-6 !py-3 !text-base">
+                  Reject
+                </button>
+              </>
+            )}
+            {series && !series.decided && (
+              series.ready.includes(series.you) ? (
+                <p role="status" className="victory-reason">Waiting for {series.opponent} to be ready…</p>
+              ) : (
+                <button onClick={series.onReady} autoFocus className="btn-gold !px-7 !py-3 !text-base">
+                  Next game
+                </button>
+              )
+            )}
+            {onLeave && (
+              <button onClick={onLeave} autoFocus={!series || series.decided} className="btn-gold !px-7 !py-3 !text-base">
                 Back to the lobby
               </button>
-            ) : (
-              <>
-                <button onClick={onPlayAgain} autoFocus className="btn-gold !px-7 !py-3 !text-base">
-                  Play again
-                </button>
-                {/* A plain link (a full page load) on purpose: a client-side link would keep this finished game in memory, and the next hot-seat game would open on the victory screen. */}
-                {/* eslint-disable-next-line @next/next/no-html-link-for-pages */}
-                <a href="/" className="btn-ghost !px-6 !py-3 !text-base">
-                  Main menu
-                </a>
-              </>
             )}
           </div>
         </div>

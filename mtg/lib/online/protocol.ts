@@ -47,6 +47,10 @@ export interface RoomSnapshot {
   coin: { caller: PlayerId; call: "heads" | "tails" | null; result: "heads" | "tails" | null; winner: PlayerId | null; chose: "first" | "second" | null } | null;
   winner: PlayerId | "draw" | null;
   endReason: string | null;
+  /** After the game: the player who asked for a rematch, until the other answers. */
+  rematch: PlayerId | null;
+  /** Best of 3 or 5: the games so far. Null for a single game. */
+  series: { bestOf: number; game: number; wins: Record<PlayerId, number>; /** The whole series is over (someone has won enough games, or left). */ decided: boolean; /** Between games: who has pressed "Next game". */ ready: PlayerId[] } | null;
   /** How many people are watching. */
   spectators: number;
   /** True when this player is watching, not playing (`you` is then only the side the board is drawn from). */

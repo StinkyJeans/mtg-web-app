@@ -78,6 +78,10 @@ export interface RoomSnapshot {
   coin: { caller: PlayerId; call: Side | null; result: Side | null; winner: PlayerId | null; chose: "first" | "second" | null } | null;
   winner: PlayerId | "draw" | null;
   endReason: string | null;
+  /** After the game: the player who asked for a rematch, until the other answers. */
+  rematch: PlayerId | null;
+  /** Best of 3 or 5: the games so far. Null for a single game. */
+  series: { bestOf: number; game: number; wins: Record<PlayerId, number>; /** The whole series is over (someone has won enough games, or left). */ decided: boolean; /** Between games: who has pressed "Next game". */ ready: PlayerId[] } | null;
   /** How many people are watching. */
   spectators: number;
   /** Set when this snapshot is for someone watching, not playing (`you` is then only the side the board is drawn from). */
@@ -154,6 +158,10 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   private replay: Replay | null = null;
   private winner: PlayerId | "draw" | null = null;
   private endReason: string | null = null;
+  private rematchFrom: PlayerId | null = null; // asked for a rematch, and waiting for the other player's answer
+  /** Best of 3 or 5 (null: a single game): the score, and who is ready for the next game. */
+  private series: { bestOf: number; game: number; wins: Record<PlayerId, number>; decided: boolean; ready: Set<PlayerId> } | null = null;
+  private nextTimer?: ReturnType<typeof setTimeout>;
   private deckNames: Record<PlayerId, string> = { p1: "", p2: "" };
   private defs: Record<string, CardDef> = {};
   private busy = false; // actions are handled one at a time
@@ -174,12 +182,39 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     startVote: (client: Client) => {
       const m = this.member(client);
       if (!m || m.seat !== "p1" || this.stage !== "waiting" || this.members.length < 2) return;
-      // Every deck is 60 cards: there is nothing to vote on, the players go straight to choosing their decks.
+      // The players have voted on the game mode (a single game, best of 3 or best of 5): they must agree before they choose decks.
+      const votes = this.members.map((x) => x.vote);
+      if (votes.some((v) => v === null) || new Set(votes).size !== 1) {
+        client.send("error", { message: "You both need to pick the same game mode first." });
+        return;
+      }
+      this.series = { bestOf: votes[0] as number, game: 1, wins: { p1: 0, p2: 0 }, decided: false, ready: new Set() };
       this.members.forEach((x) => ((x.vote = null), (x.deck = null)));
       this.mismatch = false;
       this.size = DECK_SIZE;
       this.stage = "decks";
       this.publish();
+    },
+
+    /** A player's vote for the game mode: 1 (a single game), 3 or 5 (best of). The computer votes the same as the host. */
+    format: (client: Client, message: { bestOf?: number }) => {
+      const m = this.member(client);
+      const n = message?.bestOf;
+      if (!m || this.stage !== "waiting" || (n !== 1 && n !== 3 && n !== 5)) return;
+      m.vote = n;
+      const bot = this.bot;
+      if (bot && m.seat === "p1") bot.vote = n;
+      this.publish();
+    },
+
+    /** Between the games of a series: this player is ready. The next game begins when both are (or after a minute). */
+    nextGame: (client: Client) => {
+      const m = this.member(client);
+      const s = this.series;
+      if (!m || this.stage !== "over" || !s || s.decided) return;
+      s.ready.add(m.seat);
+      if (this.members.every((x) => s.ready.has(x.seat))) void this.startNextGame();
+      else this.publish();
     },
 
     /** The host plays against the computer instead of waiting for a second player. */
@@ -191,7 +226,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
         return;
       }
       MatchRoom.botRooms.add(this.roomId);
-      this.members.push({ sessionId: "bot", account: { id: "bot", username: "Bot" }, seat: "p2", connected: true, vote: null, deck: null, isBot: true });
+      this.members.push({ sessionId: "bot", account: { id: "bot", username: "Bot" }, seat: "p2", connected: true, vote: this.members[0]?.vote ?? null, deck: null, isBot: true });
       this.publish();
     },
 
@@ -282,6 +317,39 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       if (!m || !this.game) return;
       this.endingTurn = { seat: m.seat, turn: this.game.turn };
       this.play(m, () => this.passThroughTurn(m.seat));
+    },
+
+    /** After the game: a player asks the other for a rematch. */
+    rematch: (client: Client) => {
+      const m = this.member(client);
+      if (!m || this.stage !== "over" || this.members.length !== 2 || this.rematchFrom || this.members.some((x) => !x.connected)) return;
+      this.rematchFrom = m.seat;
+      this.publish();
+      // the computer always says yes, after a moment
+      if (this.members.some((x) => x.isBot && x.seat !== m.seat)) this.botTimer = setTimeout(() => void this.beginRematch(), 1500);
+    },
+
+    /** The player who was asked: yes (the decks are chosen again, then the coin toss) or no. */
+    rematchReply: async (client: Client, message: { accept?: boolean }) => {
+      const m = this.member(client);
+      if (!m || this.stage !== "over" || !this.rematchFrom || this.rematchFrom === m.seat) return;
+      if (message?.accept === false) {
+        const asker = this.members.find((x) => x.seat === this.rematchFrom);
+        this.rematchFrom = null;
+        if (asker) this.clientOf(asker)?.send("error", { message: `${m.account.username} declined the rematch.` });
+        this.publish();
+        return;
+      }
+      await this.beginRematch();
+    },
+
+    /** The player who asked changes their mind. */
+    cancelRematch: (client: Client) => {
+      const m = this.member(client);
+      if (!m || this.stage !== "over" || this.rematchFrom !== m.seat) return;
+      this.rematchFrom = null;
+      clearTimeout(this.botTimer);
+      this.publish();
     },
 
     /** A browser that has just joined (or reconnected) asks where things stand, once it is ready to listen. */
@@ -499,6 +567,12 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       return;
     }
     if (this.stage === "over") {
+      if (this.series && !this.series.decided) {
+        this.series.decided = true; // nobody to play the next game with
+        clearTimeout(this.nextTimer);
+        for (const x of this.members) this.release(x.account.id);
+        this.forget();
+      }
       this.members = this.members.filter((x) => x !== m);
       this.release(m.account.id);
       this.publish();
@@ -590,6 +664,8 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       coin: this.coin,
       winner: this.winner,
       endReason: this.endReason,
+      rematch: this.stage === "over" && this.members.length === 2 ? this.rematchFrom : null,
+      series: this.series && this.series.bestOf > 1 ? { bestOf: this.series.bestOf, game: this.series.game, wins: { ...this.series.wins }, decided: this.series.decided, ready: [...this.series.ready] } : null,
       spectators: this.spectators.size,
       ...(spectating ? { spectating: true } : {}),
     };
@@ -646,6 +722,78 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     };
   }
 
+  /** Between the games of a series: the computer is ready at once, and the next game starts by itself after a minute. */
+  private scheduleNextGame() {
+    const s = this.series;
+    if (!s) return;
+    s.ready.clear();
+    clearTimeout(this.nextTimer);
+    const bot = this.bot;
+    if (bot) s.ready.add(bot.seat);
+    this.nextTimer = setTimeout(() => void this.startNextGame(), 60_000);
+  }
+
+  /** The next game of the series: the same decks, and the player who lost the last game goes first. */
+  private async startNextGame() {
+    const s = this.series;
+    if (this.stage !== "over" || !s || s.decided || this.members.length !== 2) return;
+    clearTimeout(this.nextTimer);
+    s.game++;
+    s.ready.clear();
+    const first: PlayerId = this.winner === "p1" ? "p2" : this.winner === "p2" ? "p1" : this.replay?.starting === "p1" ? "p2" : "p1";
+    this.game = null;
+    this.winner = null;
+    this.endReason = null;
+    this.endingTurn = null;
+    this.botRun++;
+    await this.startGame(first);
+  }
+
+  /** The rematch was accepted: the same two players choose their decks again, then the coin is tossed, then a new game begins. */
+  private async beginRematch() {
+    if (this.stage !== "over" || !this.rematchFrom || this.members.length !== 2) return;
+    const bot = this.bot;
+    if (bot && MatchRoom.botRooms.size >= LIMITS.maxBotGames() && !MatchRoom.botRooms.has(this.roomId)) {
+      this.rematchFrom = null;
+      for (const m of this.members) this.clientOf(m)?.send("error", { message: "The computer opponents are all busy right now. Try again in a moment." });
+      this.publish();
+      return;
+    }
+    // each player holds a seat in one room again (a player who has since opened or joined another room can't take part)
+    for (const m of this.members) {
+      if (m.isBot) continue;
+      try {
+        await this.claim(m.account.id);
+      } catch {
+        this.rematchFrom = null;
+        for (const x of this.members) this.clientOf(x)?.send("error", { message: `${m.account.username} is in another room, so there is no rematch.` });
+        this.publish();
+        return;
+      }
+      this.claimed.add(m.account.id);
+      void this.presence.set(acctKey(m.account.id), this.roomId);
+    }
+    if (this.stage !== "over" || this.members.length !== 2) return; // (someone left while the claims were made)
+    if (bot) MatchRoom.botRooms.add(this.roomId);
+    clearTimeout(this.botTimer);
+    this.botRun++;
+    this.rematchFrom = null;
+    this.game = null;
+    this.replay = null;
+    this.coin = null;
+    this.winner = null;
+    this.endReason = null;
+    this.endingTurn = null;
+    this.deckNames = { p1: "", p2: "" };
+    this.ended = false;
+    if (this.series) this.series = { bestOf: this.series.bestOf, game: 1, wins: { p1: 0, p2: 0 }, decided: false, ready: new Set() };
+    this.members.forEach((x) => ((x.vote = null), (x.deck = null)));
+    this.mismatch = false;
+    this.size = DECK_SIZE;
+    this.stage = "decks";
+    this.publish();
+  }
+
   /** The coin waits for the guest to call it (the host already started the vote); the "call" message flips it. */
   private startCoin() {
     this.coin = { caller: "p2", call: null, result: null, winner: null, chose: null };
@@ -698,6 +846,10 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     this.stage = "playing";
     this.publish();
     for (const m of this.members) this.sendGame(m, true);
+    for (const id of this.spectators.keys()) {
+      const watcher = this.clientById(id);
+      if (watcher) this.sendGameToSpectator(watcher);
+    }
     this.scheduleBot();
   }
 
@@ -852,7 +1004,19 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     }
     this.winner = winner;
     this.endReason = reason;
+    this.rematchFrom = null;
     this.stage = "over";
+    const series = this.series;
+    if (series && series.bestOf > 1) {
+      if (winner !== "draw") series.wins[winner]++;
+      series.decided = reason !== null || (winner !== "draw" && series.wins[winner] >= Math.ceil(series.bestOf / 2));
+      if (!series.decided) {
+        // the series goes on: nothing is saved yet, the players keep their seats and decks, and the next game follows
+        this.scheduleNextGame();
+        this.publish();
+        return;
+      }
+    }
     MatchRoom.botRooms.delete(this.roomId);
     for (const m of this.members) this.release(m.account.id); // a finished game no longer holds the players to this room
     this.forget(); // the result is recorded below; there is nothing left to bring back
@@ -880,6 +1044,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
   onDispose() {
     clearTimeout(this.botTimer);
+    clearTimeout(this.nextTimer);
     clearTimeout(this.idleTimer);
     this.botRun++;
     MatchRoom.botRooms.delete(this.roomId);

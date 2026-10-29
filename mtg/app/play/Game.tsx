@@ -5,7 +5,6 @@ import { useRouter } from "next/navigation";
 import { flushSync } from "react-dom";
 import {
   applyAction,
-  createGame,
   getCastable,
   getDamageAssignments,
   getLegalActions,
@@ -30,8 +29,9 @@ import { useStacked, useTouch } from "./useMedia";
 import CardView from "./CardView";
 import { liveCardProps } from "./stats";
 import RotateHint from "./RotateHint";
+import ChainFx from "./ChainFx";
+import VotePopup from "../lobby/VotePopup";
 import type { Inspected } from "./CardDetail";
-import CoinFlip from "./CoinFlip";
 import EnterBattlefield from "./EnterBattlefield";
 import { attackersIn, isCombatPlaying, playCombat } from "./combatFx";
 import { playCasts, playEffects, playLeaving } from "./effectFx";
@@ -75,8 +75,6 @@ import type { CastPlan } from "./castInfo";
 import { AttackTargetsPanel, DamagePanel } from "./CombatPanels";
 import CommandBar, { primaryAction } from "./CommandBar";
 import HandRow from "./HandRow";
-import HotSeatSetup, { useHotSeatDecks } from "./HotSeatSetup";
-import type { DeckPair } from "./HotSeatSetup";
 import { ManaText } from "./ManaSymbols";
 import { KeepRandomDecks } from "./SaveDeck";
 import type { PlayedDeck } from "./SaveDeck";
@@ -85,7 +83,6 @@ import { playGameSounds } from "./gameSounds";
 import { useBattleFullscreen, useFullscreen } from "./useBattleFullscreen";
 import { useOnlineMatch } from "./useOnlineMatch";
 
-const newSeed = () => Date.now() % 2_147_483_647;
 
 /** One way to pay Phyrexian mana: "Pay with mana: {B}{B}", "Pay 2 life and {B}", "Pay 4 life". */
 function phyrexianLabel(choice: { life: number; mana: string }): React.ReactNode {
@@ -107,7 +104,16 @@ const REMIND_DONE_MS = 6000;
  * so without the key a new match would open on the last match's board and end popup.
  */
 export function OnlineGame() {
-  const { matchId, game } = useOnline();
+  const { matchId, game, snapshot } = useOnline();
+  const gameNo = snapshot?.series?.game ?? 1; // (each game of a best of 3 or 5 starts on a fresh board)
+  // A rematch: the same two players choose their decks and the coin is tossed again, on this page; then a new game starts on a fresh board.
+  const choosing = !!snapshot && !snapshot.spectating && (snapshot.stage === "decks" || snapshot.stage === "coin");
+  const [rounds, setRounds] = useState(0);
+  const [wasChoosing, setWasChoosing] = useState(false);
+  if (choosing !== wasChoosing) {
+    setWasChoosing(choosing);
+    if (choosing) setRounds(rounds + 1);
+  }
   // One "visit" per match. The match id arrives a moment after this screen opens (a while, on a slow connection): that
   // must not restart the loading screen or the board, so only leaving a match, or moving to another one, starts a new visit.
   const [seen, setSeen] = useState<string | null>(null);
@@ -116,11 +122,18 @@ export function OnlineGame() {
     setSeen(matchId);
     if (seen !== null) setVisit(visit + 1); // (from a match to none, or to a different match; from none to a match is the same visit)
   }
+  if (choosing && snapshot) {
+    return (
+      <main className="battlefield-bg min-h-[calc(100dvh-2.6rem)]">
+        <VotePopup room={snapshot} />
+      </main>
+    );
+  }
   return (
     <>
-      <Game key={`game-${visit}`} online />
+      <Game key={`game-${visit}-${rounds}-${gameNo}`} online />
       {/* the loading screen: up until the match has arrived from the server, then it fades */}
-      <EnterBattlefield key={`enter-${visit}`} ready={game !== null} names={game?.names} />
+      <EnterBattlefield key={`enter-${visit}-${rounds}-${gameNo}`} ready={game !== null} names={game?.names} />
     </>
   );
 }
@@ -132,7 +145,6 @@ export function OnlineGame() {
  */
 export default function Game({ online = false }: { online?: boolean } = {}) {
   const [localGame, setGame] = useState<GameState | null>(null);
-  const [entered, setEntered] = useState(0); // hot-seat: how many times a match has begun, for the loading screen
   const net = useOnline();
   /** The game on screen: hot-seat, the one this screen has been updating, or (right after joining) the server's first view. */
   const game = localGame ?? (online ? (net.game?.view ?? null) : null);
@@ -141,8 +153,21 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const won = !!game?.winner;
   const [endShown, setEndShown] = useState(false); // the result screen waits for the last life points to count down
   useEffect(() => {
-    const wait = won ? lifeSettling() : 0; // (a game that ends without a hit, like a resignation, shows it at once)
-    const t = setTimeout(() => setEndShown(won), wait > 0 ? wait + 900 : 0);
+    if (!won) {
+      const off = setTimeout(() => setEndShown(false), 0);
+      return () => clearTimeout(off);
+    }
+    // Every attacker has to finish its attack, and the life total has to finish counting (below zero too): only then does the result come up.
+    // (A game that ends without a hit, like a resignation, shows it at once.)
+    let t: ReturnType<typeof setTimeout>;
+    let waited = false;
+    const check = () => {
+      if (isCombatPlaying() || lifeSettling() > 0) {
+        waited = true;
+        t = setTimeout(check, 150);
+      } else t = setTimeout(() => setEndShown(true), waited ? 900 : 0);
+    };
+    check();
     return () => clearTimeout(t);
   }, [won]);
   const router = useRouter();
@@ -228,14 +253,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [welcome, setWelcome] = useState(false); // "Welcome to the Battle Field, Now Duel!" while it is on screen
   const [turnSplash, setTurnSplash] = useState(0); // online: counts "Your turn" splashes, 0 while none is on screen
 
-  const [loading, setLoading] = useState(false);
-  // Decks and cards are loaded, and the players are flipping the coin before the game is created.
-  const [pending, setPending] = useState<DeckPair | null>(null);
-  const [localDeckNames, setDeckNames] = useState<Record<PlayerId, string>>({ p1: "", p2: "" });
-  const deckNames = online && net.game ? net.game.deckNames : localDeckNames; // shown on each library
-  const [localDecks, setLocalDecks] = useState<Partial<Record<PlayerId, PlayedDeck>>>({});
+  const deckNames = net.game ? net.game.deckNames : { p1: "", p2: "" }; // shown on each library
   const [savedDecks, setSavedDecks] = useState<Partial<Record<PlayerId, string>>>({}); // random decks kept in My decks: the copy's id
-  const hotSeat = useHotSeatDecks(!online);
 
   useEffect(() => {
     gameRef.current = game;
@@ -264,20 +283,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   }, [chain]);
 
   useOnlineMatch(online, game, seat, gameRef, commitRef, openingDeal);
-
-  async function startGame() {
-    setLoading(true);
-    setError(null);
-    try {
-      const decks = await hotSeat.load();
-      setGame(null);
-      setPending(decks);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Could not load cards.");
-    } finally {
-      setLoading(false);
-    }
-  }
 
   // The "Your turn" splash goes away by itself.
   useEffect(() => {
@@ -329,41 +334,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     );
   }
 
-  if (!game && pending) {
-    return (
-      <CoinFlip
-        caller="p1"
-        onBack={() => setPending(null)}
-        onDone={(first, summary) => {
-          const fresh = createGame(pending.decks, newSeed(), pending.cards, { startingPlayer: first, mulligan: true, shuffleStep: true, ...(pending.sides ? { sideboards: pending.sides } : {}) });
-          stageDoneRef.current = false;
-          flushSync(() => {
-            setStageSeen(false);
-            setStageDone(false);
-            setIntro(true);
-            setGame(fresh);
-            setLog([summary]);
-            setChat([]);
-            setInspected(null);
-            setEndNote(null);
-            setResigning(null);
-            resetSelection();
-            setPending(null);
-            setEntered((n) => n + 1);
-            setDeckNames(pending.names);
-            setLocalDecks({ p1: { name: pending.names.p1, ids: pending.decks.p1 }, p2: { name: pending.names.p2, ids: pending.decks.p2 } });
-            setSavedDecks({});
-            setHistory([]);
-            setAnnouncements([]);
-          });
-          // The opening seven are dealt from the library into the hand.
-          void openingDeal(handDraws(fresh, seat), true, fresh);
-        }}
-      />
-    );
-  }
-
-  if (!game) return <HotSeatSetup decks={hotSeat} loading={loading} error={error} onStart={startGame} look={look} />;
+  if (!game) return null; // (the match arrives from the game server: the screen above covers the wait)
 
   const state = game;
   if (shufflePending(state) && !stageSeen) setStageSeen(true); // the shuffle step starts
@@ -372,7 +343,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const mine = !online || (!watching && playerToAct(state) === actor);
   const other = OPPONENT[actor];
   // Online the server only tells each player their own deck.
-  const playedDecks: Partial<Record<PlayerId, PlayedDeck>> = online ? (net.game?.deck ? { [actor]: net.game.deck } : {}) : localDecks;
+  const playedDecks: Partial<Record<PlayerId, PlayedDeck>> = net.game?.deck ? { [actor]: net.game.deck } : {};
   const keepDeck = (who: PlayerId, id: string) => setSavedDecks((s) => ({ ...s, [who]: id }));
   // Someone who is only watching can do nothing, so none of what could be done is worked out for them (these rules checks run after every move).
   const legal = watching ? [] : getLegalActions(state, actor);
@@ -935,6 +906,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           showEndTurn={showEndTurn}
           onlyLandsLeft={onlyLandsLeft}
           onEndTurn={endTurn}
+          series={online && !watching ? net.snapshot?.series : null}
         />
         {!state.winner && watching && (
           <div className="flex shrink-0 items-center gap-2 rounded-xl border border-sky-300/50 bg-sky-950/60 px-3 py-2 text-sm text-sky-100 shadow-sm">
@@ -1179,6 +1151,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       )}
 
       <RotateHint />
+      {!watching && <ChainFx state={state} actor={actor} />}
+      {watching && <ChainFx state={state} actor="p1" />}
       {welcome && <WelcomeSplash />}
       {stageSeen && !stageDone && !intro && !welcome && state.opening?.shuffled && (
         <ShuffleStage
@@ -1207,7 +1181,23 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       {state.winner && endShown && <VictoryDialog
           winner={state.winner}
           reason={endNote ?? (online ? net.snapshot?.endReason ?? null : null)}
-          onPlayAgain={startGame}
+          series={
+            online && !watching && net.snapshot?.series
+              ? { ...net.snapshot.series, you: actor, opponent: playerName(other), onReady: () => netSend("nextGame") }
+              : undefined
+          }
+          rematch={
+            online && !watching && net.snapshot && net.snapshot.players.length === 2 && !(net.snapshot.series && !net.snapshot.series.decided)
+              ? {
+                  state: net.snapshot.rematch === null ? "none" : net.snapshot.rematch === actor ? "sent" : "incoming",
+                  opponent: playerName(other),
+                  onAsk: () => netSend("rematch"),
+                  onCancel: () => netSend("cancelRematch"),
+                  onAccept: () => netSend("rematchReply", { accept: true }),
+                  onDecline: () => netSend("rematchReply", { accept: false }),
+                }
+              : undefined
+          }
           you={online && !watching ? actor : undefined}
           keep={
             <KeepRandomDecks
@@ -1228,7 +1218,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
               : undefined
           }
         />}
-      {!online && entered > 0 && <EnterBattlefield key={entered} />}
     </main>
   );
 }

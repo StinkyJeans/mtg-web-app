@@ -4,6 +4,7 @@ import LiveWallpaper from "./LiveWallpaper";
 import Lobby from "./lobby/Lobby";
 import FriendsPanel from "./friends/FriendsPanel";
 import ProfileButton from "./profile/ProfileButton";
+import CreateRoomButton from "./lobby/CreateRoomButton";
 
 // small line icons, drawn here so the buttons need no icon library
 const icon = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true } as const;
@@ -30,12 +31,7 @@ export default function Home() {
         </p>
         </div>
         <div className="hero-rise mt-2 flex flex-wrap justify-center gap-3" style={{ animationDelay: "0.24s" }}>
-          <Link href="/play" className="hero-btn hero-btn-primary">
-            <svg viewBox="0 0 24 24" {...icon}>
-              <path d="M7 4.5v15l12-7.5z" fill="currentColor" />
-            </svg>
-            Play (hot-seat)
-          </Link>
+          <CreateRoomButton />
           <Link href="/decks" className="hero-btn">
             <svg viewBox="0 0 24 24" {...icon}>
               <rect x="8" y="3" width="12" height="16" rx="2" />

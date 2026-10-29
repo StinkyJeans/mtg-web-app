@@ -1,0 +1,229 @@
+"use client";
+
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import type { CardDef, GameState, PlayerId } from "@mtg/engine";
+import { cardImageUrl } from "@/lib/cards";
+import { useAnimationsOn } from "@/lib/motion";
+import { itemName, readable, targetName } from "./cardText";
+import { ManaText } from "./ManaSymbols";
+import { stackCard } from "./ResolveZone";
+import { liteMode } from "./perfTier";
+
+/**
+ * The chain: every spell and ability on the stack is a big card with its chain number, linked to the one under it by a chain. A new
+ * one slams in with a burst of light (and "CHAIN" sweeps across once there are two); as the stack resolves, the top card flashes and
+ * is gone, then the next one. Every card stays long enough to be read, however fast the game moves on. Only transform and opacity
+ * are animated, and nothing here takes a click.
+ */
+interface Link {
+  id: string;
+  n: number; // chain link number: the bottom of the stack is 1
+  def?: CardDef;
+  name: string;
+  text: string;
+  target: string;
+  mine: boolean;
+  gone: boolean; // no longer on the stack (it stays on screen until it has been seen)
+  leaving: boolean; // playing its exit
+  fresh: number; // order of arrival in the same update (they land one after the other)
+}
+
+const MIN_SHOW_MS = 4800; // a card (and what it says) is on screen at least this long after it arrives
+const EXIT_GAP_MS = 2000; // cards that leave together leave one after the other, newest first, slowly
+const LEAVE_MS = 2000; // (the fade-out below takes this long)
+const STAGGER_MS = 260;
+const MAX_SHOWN = 6;
+const MAX_PHONE = 4; // a phone lists them one under the other, each with its text beside it
+const TILT = [-7, 4, -3, 6, -5, 3];
+
+const subscribe = (cb: () => void) => {
+  window.addEventListener("resize", cb);
+  return () => window.removeEventListener("resize", cb);
+};
+
+export default function ChainFx({ state, actor }: { state: GameState; actor: PlayerId }) {
+  const on = useAnimationsOn();
+  const sizeKey = useSyncExternalStore(subscribe, () => `${window.innerWidth}x${window.innerHeight}`, () => "1200x800");
+  const [links, setLinks] = useState<Link[]>([]);
+  const [seenIds, setSeenIds] = useState("");
+  const [banner, setBanner] = useState<number | null>(null);
+  const born = useRef(new Map<string, number>()); // when each card arrived
+  const planned = useRef(new Set<string>()); // cards whose exit is already scheduled
+
+  // What is on the stack changed: new cards arrive; cards that are not on it any more are marked (their exit comes later).
+  const ids = state.stack.map((i) => i.id).join(",");
+  if (ids !== seenIds) {
+    setSeenIds(ids);
+    const live = new Map(state.stack.map((item, i) => [item.id, { item, n: i + 1 }]));
+    const next: Link[] = links.map((l) => (l.gone || live.has(l.id) ? l : { ...l, gone: true }));
+    let fresh = 0;
+    for (const [id, { item, n }] of live) {
+      if (links.some((l) => l.id === id)) continue;
+      next.push({
+        id,
+        n,
+        def: stackCard(state, item),
+        name: itemName(state, item),
+        text: item.kind === "ability" ? readable(item.text, item.sourceName) : (state.cards[item.card.defId]?.text ?? ""),
+        target: item.targets.length > 0 ? item.targets.map((t) => targetName(state, t)).join(", ") : "",
+        mine: item.controller === actor,
+        gone: false,
+        leaving: false,
+        fresh: fresh++,
+      });
+    }
+    next.sort((a, b) => a.n - b.n);
+    setLinks(next);
+    if (fresh > 0 && live.size >= 2) setBanner((b) => (b ?? 0) + 1);
+  }
+
+  // Note when a card arrived, and plan the exit of the ones that are gone: after they had their time on screen, newest first.
+  useEffect(() => {
+    const now = performance.now();
+    for (const l of links) if (!born.current.has(l.id)) born.current.set(l.id, now);
+    const waiting = links.filter((l) => l.gone && !l.leaving && !planned.current.has(l.id)).sort((a, b) => b.n - a.n);
+    waiting.forEach((l, i) => {
+      planned.current.add(l.id);
+      const wait = Math.max(0, MIN_SHOW_MS - (now - (born.current.get(l.id) ?? now))) + i * EXIT_GAP_MS;
+      // (these timers are keyed by card, not by this effect: they must still run when the list changes again)
+      setTimeout(() => setLinks((ls) => ls.map((x) => (x.id === l.id ? { ...x, leaving: true } : x))), wait);
+    });
+  }, [links]);
+  useEffect(() => {
+    if (!links.some((l) => l.leaving)) return;
+    const t = setTimeout(
+      () =>
+        setLinks((ls) => {
+          for (const l of ls) {
+            if (!l.leaving) continue;
+            born.current.delete(l.id);
+            planned.current.delete(l.id);
+          }
+          return ls.filter((l) => !l.leaving);
+        }),
+      LEAVE_MS,
+    );
+    return () => clearTimeout(t);
+  }, [links]);
+  useEffect(() => {
+    if (banner === null) return;
+    const t = setTimeout(() => setBanner(null), 1700);
+    return () => clearTimeout(t);
+  }, [banner]);
+
+  if (links.length === 0 || state.winner) return null;
+
+  const [vw, vh] = sizeKey.split("x").map(Number);
+  const phone = vw < 1024;
+  const rowH = Math.round(Math.min(vh * 0.17, 122));
+  const H = phone ? Math.round(rowH * 0.9) : Math.round(Math.min(vh * 0.36, 320));
+  const cw = Math.round(H * 0.716);
+  const shown = links.slice(-(phone ? MAX_PHONE : MAX_SHOWN));
+  const m = shown.length;
+  const wide = Math.round(Math.min(vw * 0.94, 440)); // (phone) the width the card and its text share
+  const stepX = m > 1 ? Math.min(H * 0.64, (vw * 0.8 - cw) / (m - 1)) : 0;
+  const stepY = H * 0.24;
+  // A wide screen: the cards cascade, each with its text under it. A phone: one under the other, each with its text beside it.
+  const at = shown.map((_, i) =>
+    phone ? { x: Math.round(-wide / 2 + cw / 2), y: Math.round((i - (m - 1) / 2) * rowH) } : { x: Math.round((i - (m - 1) / 2) * stepX), y: Math.round((i - (m - 1) / 2) * stepY) },
+  );
+  const noteW = phone ? wide - cw - 12 : m > 1 ? Math.max(120, Math.min(cw + 24, stepX - 26)) : 280;
+  const live = links.some((l) => !l.leaving);
+  const lite = liteMode();
+
+  return (
+    <div className="pointer-events-none fixed inset-0 z-[80]">
+      <p className="sr-only" role="status">
+        Chain: {links.filter((l) => !l.leaving).map((l) => `${l.n}, ${l.name}`).join("; ")}
+      </p>
+      <div className="absolute inset-0 bg-black transition-opacity duration-700" style={{ opacity: live ? 0.3 : 0 }} />
+      <div className="absolute" style={{ left: "50%", top: phone ? "44%" : "42%" }}>
+        {/* the chains between a card and the one before it (over the older card, under the newer one) */}
+        {shown.map((l, i) => {
+          if (i === 0) return null;
+          const a = at[i - 1];
+          const b = at[i];
+          const len = Math.hypot(b.x - a.x, b.y - a.y);
+          const angle = (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
+          return (
+            <div
+              key={`link-${l.id}`}
+              className={`chain-link ${on && !l.leaving ? "chain-link-in" : ""} ${l.leaving ? "chain-link-out" : ""}`}
+              style={{ width: len, zIndex: 21 + 2 * l.n, transform: `translate(${a.x}px, ${a.y}px) rotate(${angle}deg)`, animationDelay: `${420 + l.fresh * STAGGER_MS}ms` }}
+            />
+          );
+        })}
+        {shown.map((l, i) => {
+          const image = l.def?.image ? cardImageUrl(l.def.image) : null;
+          const glow = l.mine ? "34, 211, 238" : "251, 113, 133";
+          return (
+            <div
+              key={l.id}
+              className={`chain-card ${on ? (l.leaving ? "chain-out" : "chain-in") : ""}`}
+              style={
+                {
+                  width: cw,
+                  height: H,
+                  marginLeft: -cw / 2,
+                  marginTop: -H / 2,
+                  zIndex: 20 + 2 * l.n,
+                  "--x": `${at[i].x}px`,
+                  "--y": `${at[i].y}px`,
+                  "--r": `${phone ? [-2, 1.5, -1.5, 2][i % 4] : TILT[i % TILT.length]}deg`,
+                  "--ex": `${Math.round(vw * 0.28)}px`,
+                  "--ey": `${Math.round(vh * 0.3)}px`,
+                  "--glow": glow,
+                  animationDelay: l.leaving ? undefined : `${l.fresh * STAGGER_MS}ms`,
+                } as React.CSSProperties
+              }
+            >
+              {on && !l.leaving && !lite && <span className="chain-rays" style={{ animationDelay: `${l.fresh * STAGGER_MS}ms` }} />}
+              {/* a card frame with its name and text: what shows until the picture has loaded (or when there is no picture) */}
+              <div className="chain-face chain-frame">
+                <div className="chain-frame-name">{l.def?.name ?? l.name}</div>
+                {l.def?.manaCost && (
+                  <div className="chain-frame-cost">
+                    <ManaText text={l.def.manaCost} />
+                  </div>
+                )}
+                <div className="chain-frame-text">{l.text}</div>
+              </div>
+              {image && <div className="chain-face chain-art" style={{ backgroundImage: `url(${image})` }} />}
+              <span className="chain-flash" />
+              <span className="chain-num" style={{ animationDelay: `${l.fresh * STAGGER_MS + 300}ms` }}>
+                {l.n}
+              </span>
+              {/* what this card does: it goes with the card, and fades with it */}
+              <div
+                className={`chain-note ${on ? "chain-note-in" : ""}`}
+                style={
+                  {
+                    "--nx": phone ? "0px" : "-50%",
+                    left: phone ? "calc(100% + 10px)" : "50%",
+                    top: phone ? 0 : "calc(100% + 10px)",
+                    width: noteW,
+                    ...(phone ? { maxHeight: H } : {}),
+                    animationDelay: `${l.fresh * STAGGER_MS + 450}ms`,
+                  } as React.CSSProperties
+                }
+              >
+                <div className="chain-note-name">{l.name}</div>
+                {l.text && (
+                  <p className="chain-note-text">
+                    <ManaText text={l.text} />
+                  </p>
+                )}
+                {l.target && <p className="chain-note-target">Target: {l.target}</p>}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+      {on && banner !== null && (
+        <div key={banner} className="chain-text" aria-hidden="true">
+          CHAIN
+        </div>
+      )}
+    </div>
+  );
+}

@@ -4,8 +4,6 @@ import { memo, useState } from "react";
 import type { CardDef, GameState, StackItem } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
 import { animationsEnabled } from "@/lib/motion";
-import { itemName, readable, targetName } from "./cardText";
-import { playerName } from "./log";
 import type { Announcement } from "./log";
 import { PlayLines } from "./Announcements";
 
@@ -55,7 +53,7 @@ const label = (e: Entry) => (e.status === "casting" ? (e.kind === "spell" ? "Cas
 const statusOf = (a: Announcement): Status => (a.kind === "trigger" ? "triggered" : a.done === "fizzled" || a.done === "countered" ? a.done : "resolved");
 
 /** The card a stack item came from: the spell itself, or the permanent whose ability it is. */
-function stackCard(state: GameState, item: StackItem): CardDef | undefined {
+export function stackCard(state: GameState, item: StackItem): CardDef | undefined {
   if (item.kind === "spell") return state.cards[item.card.defId];
   const perm = Object.values(state.players)
     .flatMap((p) => p.battlefield)
@@ -84,17 +82,6 @@ function ResolveZoneInner({
   onZoom: (def: CardDef) => void;
 }) {
   const entries: Entry[] = [
-    ...[...state.stack].reverse().map((item): Entry => ({
-      key: `stack-${item.id}`,
-      status: "stack",
-      kind: item.kind,
-      def: stackCard(state, item),
-      title: `${playerName(item.controller)}: ${itemName(state, item)}`,
-      lines: [
-        ...(item.kind === "ability" ? [readable(item.text, item.sourceName)] : []),
-        ...(item.targets.length > 0 ? [`Target: ${item.targets.map((t) => targetName(state, t)).join(", ")}`] : []),
-      ],
-    })),
     ...(revealing?.items ?? []).map((a): Entry => {
       const def = a.defId ? revealing?.cards[a.defId] : undefined;
       return { key: `played-${a.id}`, status: "casting", kind: a.kind, def, title: a.title, lines: a.kind === "ability" ? a.lines.slice(0, 1) : [] };
@@ -107,7 +94,7 @@ function ResolveZoneInner({
   // The player can close the panel when it is in the way. It stays closed for exactly what it shows now; anything new put on the stack opens it again.
   const [closedFor, setClosedFor] = useState<string | null>(null);
   const signature = entries.map((e) => e.key).join("|");
-  if (entries.length === 0) return null;
+  if (entries.length === 0 || state.stack.length > 0) return null; // (while something is on the stack, the chain on screen shows it)
   const list = entries.map((e) => (
         <div key={e.key} className={`announce-in pointer-events-auto flex items-start gap-2.5 rounded-lg bg-white p-2 text-zinc-900 shadow-2xl shadow-black/50 ring-2 ${LOOK[e.status].ring}`}>
           <button

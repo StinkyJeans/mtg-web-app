@@ -14,6 +14,20 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
   const iAmHost = room.you === room.host;
   const host = room.players.find((p) => p.seat === room.host);
   const full = room.players.length === 2;
+  const votes = room.players.map((p) => p.voted);
+  const agreed = full && votes.every((v) => v !== null) && new Set(votes).size === 1;
+  const MODES = [1, 3, 5] as const;
+  const modeName = (n: number) => (n === 1 ? "Single game" : `Best of ${n}`);
+  const mine = room.players.find((p) => p.seat === room.you)?.voted ?? null;
+  const status = !full
+    ? "Pick a game mode. The other player votes when they join."
+    : agreed
+      ? `You both voted: ${modeName(votes[0] as number)}.`
+      : votes.every((v) => v === null)
+        ? "Both of you vote on the game mode."
+        : votes.some((v) => v === null)
+          ? `Waiting for ${room.players.filter((p) => p.voted === null).map((p) => p.name).join(" and ")} to vote.`
+          : "You voted differently. Agree on one game mode to go on.";
 
   return (
     <div role="dialog" aria-modal="true" aria-label={`Room ${room.name}`} className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
@@ -86,18 +100,43 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
           })}
         </section>
 
+        {/* the game mode: both players vote, and they have to agree */}
+        <section aria-label="Game mode" className="flex flex-col gap-2">
+          <h3 className="font-display text-xs font-bold uppercase tracking-[0.25em] text-slate-300">Game mode: vote together</h3>
+          <div className="grid grid-cols-3 gap-2">
+            {MODES.map((n) => (
+              <button
+                key={n}
+                onClick={() => send("format", { bestOf: n })}
+                aria-pressed={mine === n}
+                className={`rounded-xl border px-2 py-2.5 text-sm font-bold transition ${mine === n ? "border-amber-300 bg-amber-400 text-black" : "border-white/25 bg-white/10 text-white hover:bg-white/20"}`}
+              >
+                {modeName(n)}
+              </button>
+            ))}
+          </div>
+          <ul className="flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-200">
+            {room.players.map((p) => (
+              <li key={p.seat}>
+                <span className="font-semibold">{p.name}</span>: {p.voted === null ? "not voted yet" : modeName(p.voted)}
+              </li>
+            ))}
+          </ul>
+          <p className={`text-sm font-semibold ${agreed ? "text-[#a7f3d0]" : "text-[#fde68a]"}`}>{status}</p>
+        </section>
+
         {/* only the host moves the room on to choosing decks */}
         <footer className="flex flex-col items-center gap-2">
           {iAmHost ? (
             <>
               <button
                 onClick={() => send("startVote")}
-                disabled={!full}
+                disabled={!full || !agreed}
                 className="w-full rounded-2xl bg-gradient-to-b from-amber-300 to-amber-500 px-8 py-3 text-lg font-extrabold text-black shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-40 sm:w-auto"
               >
                 Choose decks
               </button>
-              <p className="text-sm text-slate-300">{full ? "Both players choose a 60-card deck." : "This turns on when a second player has joined, or add a bot."}</p>
+              <p className="text-sm text-slate-300">{!full ? "This turns on when a second player has joined, or add a bot." : agreed ? "Both players choose a 60-card deck." : "This turns on when you both voted for the same game mode."}</p>
             </>
           ) : (
             <p className="rounded-xl bg-white/10 px-4 py-2 text-[15px] text-slate-100">Waiting for {host?.name ?? "the host"} to start choosing decks…</p>

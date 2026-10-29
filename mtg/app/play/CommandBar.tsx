@@ -106,10 +106,12 @@ interface Props {
   showEndTurn: boolean;
   onlyLandsLeft: boolean;
   onEndTurn: () => void;
+  /** Online, best of 3 or 5: the games so far. */
+  series?: { bestOf: number; game: number; wins: Record<PlayerId, number> } | null;
 }
 
 /** The command bar: whose turn, which step, and the one big button to move on. */
-export default function CommandBar({ state, actor, mine, primary, skipping, confirmSkip, onConfirmSkip, onAct, noCombatYet, showEndTurn, onlyLandsLeft, onEndTurn }: Props) {
+export default function CommandBar({ state, actor, mine, primary, skipping, confirmSkip, onConfirmSkip, onAct, noCombatYet, showEndTurn, onlyLandsLeft, onEndTurn, series }: Props) {
   const mulligansTaken = state.opening?.taken[actor] ?? 0;
   return (
     <section className={`shrink-0 overflow-hidden rounded-xl border bg-white shadow-md ${PLAYER_STYLE[actor].border}`}>
@@ -125,6 +127,14 @@ export default function CommandBar({ state, actor, mine, primary, skipping, conf
             <div className="mt-0.5 text-xs font-semibold text-zinc-800">{PHASE_TEXT[state.phase] ?? "to act"}</div>
           </div>
         </div>
+        {series && (
+          <div className="rounded-lg border border-amber-300/60 bg-amber-400/15 px-2 py-0.5 text-center leading-tight text-amber-100" title={`Best of ${series.bestOf}: first to ${Math.ceil(series.bestOf / 2)} wins`}>
+            <div className="text-[11px] font-bold uppercase tracking-wider">Best of {series.bestOf} · Game {series.game}</div>
+            <div className="text-sm font-extrabold tabular-nums">
+              You {series.wins[actor]} – {series.wins[OPPONENT[actor]]} {playerName(OPPONENT[actor])}
+            </div>
+          </div>
+        )}
         <PhaseSteps phase={state.phase} />
         <div className="ml-auto flex flex-wrap items-center gap-2">
           {primary &&

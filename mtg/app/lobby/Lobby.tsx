@@ -8,6 +8,7 @@ import { Skeleton } from "../Skeleton";
 import LiveMatches from "./LiveMatches";
 import RoomPopup from "./RoomPopup";
 import VotePopup from "./VotePopup";
+import CreateRoomDialog from "./CreateRoomDialog";
 
 const ASIDE = "z-10 order-last flex w-full max-w-md flex-col gap-3 xl:order-none xl:fixed xl:right-4 xl:top-14 xl:w-[min(26rem,calc(100vw-2rem))] xl:max-w-none";
 
@@ -38,7 +39,7 @@ export default function Lobby() {
   const router = useRouter();
   const online = useOnline();
   const [username, setUsername] = useState<string | null>(null);
-  const [password, setPassword] = useState(""); // for the next room created; empty means open to anyone
+  const [creating, setCreating] = useState(false); // the "Create room" window is open
   const room = online.snapshot;
 
   // Who am I? Then listen to the lobby for as long as this page is open.
@@ -58,6 +59,20 @@ export default function Lobby() {
     };
   }, []);
 
+  // The Create room button on the home page: open the window (or, with a match going on, go back to it).
+  const inMatch = room?.stage === "playing" || room?.stage === "over";
+  const hasRoom = room !== null;
+  useEffect(() => {
+    const open = () => (inMatch ? router.push("/play/online") : hasRoom ? undefined : setCreating(true));
+    window.addEventListener("mtg-create-room", open);
+    return () => window.removeEventListener("mtg-create-room", open);
+  }, [inMatch, hasRoom, router]);
+  const [hadRoom, setHadRoom] = useState(hasRoom);
+  if (hasRoom !== hadRoom) {
+    setHadRoom(hasRoom);
+    if (hasRoom) setCreating(false); // (the window has done its job: the room's own pop-up takes over)
+  }
+
   // When the match begins, both players go to the play screen: once per match, as soon as both the room update and the game itself have arrived.
   const sent = useRef(false);
   useEffect(() => {
@@ -73,7 +88,6 @@ export default function Lobby() {
   }, [room?.stage, online.game, router]);
 
   if (!username) return <LobbySkeleton />;
-  const inMatch = room?.stage === "playing" || room?.stage === "over";
 
   return (
     <>
@@ -87,44 +101,7 @@ export default function Lobby() {
           >
             ▶ {room?.spectating ? "Return to the match you are watching" : "Return to your match"}
           </button>
-        ) : (
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              void createRoom(`${username}'s room`, password);
-              setPassword("");
-            }}
-            className="flex flex-col gap-2"
-          >
-            <label className="tool-field !rounded-2xl !bg-slate-950/60 !px-4 !py-3 text-[15px]">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <rect x="4.5" y="10.5" width="15" height="10" rx="2" />
-                <path d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
-              </svg>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                disabled={online.lobby !== "on" || room !== null || online.creating}
-                maxLength={40}
-                autoComplete="off"
-                placeholder="Password (optional)"
-                aria-label="Room password (optional)"
-                className="w-full disabled:opacity-50"
-              />
-            </label>
-            <button
-              type="submit"
-              disabled={online.lobby !== "on" || room !== null || online.creating}
-              aria-busy={online.creating}
-              className="btn-gold !w-full !rounded-2xl !py-3.5 !text-base"
-            >
-              <svg viewBox="0 0 24 24" width="17" height="17" fill="none" stroke="currentColor" strokeWidth="2.8" strokeLinecap="round" aria-hidden="true" className={online.creating ? "animate-spin" : ""}>
-                {online.creating ? <path d="M12 3a9 9 0 1 0 9 9" /> : <path d="M12 5v14M5 12h14" />}
-              </svg>
-              {online.creating ? "Opening your room…" : <>Create {password ? "locked room" : "room"}</>}
-            </button>
-          </form>
-        )}
+        ) : null}
 
         {online.reconnecting && (
           <p role="status" className="rounded-xl border border-amber-300/40 bg-slate-950/70 px-3 py-2 text-[15px] text-amber-100">
@@ -138,6 +115,17 @@ export default function Lobby() {
         )}
       </aside>
 
+      {creating && room === null && (
+        <CreateRoomDialog
+          busy={online.creating}
+          ready={online.lobby === "on"}
+          error={online.error}
+          onClose={() => setCreating(false)}
+          onCreate={(password) => {
+            void createRoom(`${username}'s room`, password);
+          }}
+        />
+      )}
       {room?.stage === "waiting" && <RoomPopup room={room} />}
       {room && (room.stage === "vote" || room.stage === "decks" || room.stage === "coin") && <VotePopup room={room} />}
     </>

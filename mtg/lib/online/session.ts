@@ -160,7 +160,14 @@ function attach(room: Room, spectating = false) {
   // back in the same match (after a server restart): the screen keeps showing it until the server's copy arrives
   const same = room.roomId === state.matchId;
   set({ ...(same ? {} : { snapshot: null, game: null, chat: [] }), matchId: room.roomId, reconnecting: false, error: null });
-  room.onMessage("room", (s: RoomSnapshot) => set({ snapshot: s }));
+  room.onMessage("room", (s: RoomSnapshot) => {
+    // A rematch: the players choose their decks again, so the finished game goes (the new one arrives when the coin has been tossed).
+    const before = state.snapshot?.series?.game ?? 0;
+    if (!s.spectating && (s.stage === "decks" || s.stage === "coin") && state.game) set({ snapshot: s, game: null });
+    // the next game of a series: the finished board goes, the new one arrives in a moment
+    else if (!s.spectating && s.stage === "playing" && s.series && before > 0 && s.series.game > before && state.game) set({ snapshot: s, game: null });
+    else set({ snapshot: s });
+  });
   room.onMessage("start", (g: StartPayload) => {
     setPlayerNames(g.names); // the account names are used from the very first frame
     set({ game: g });
