@@ -25,5 +25,8 @@ RUN cd mtg && npm run build
 
 WORKDIR /app/mtg
 ENV NODE_ENV=production
+# A phone that signed in long ago can still hold an old, oversized login cookie (profile pictures used to be stored inside it). Node refuses
+# requests with more than 16 KB of headers (HTTP 431) before the site can replace that cookie, so allow more: the next request refreshes it.
+ENV NODE_OPTIONS=--max-http-header-size=262144
 # Railway sets PORT; next start listens on it.
 CMD ["node_modules/.bin/next", "start"]
