@@ -164,13 +164,13 @@ export default function NotificationBell({ meId, meName }: { meId: string; meNam
       </button>
 
       {newest && !open && toastGone !== newest.key && (
-        <div role="status" className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-max max-w-[18rem] rounded-xl border border-amber-300/60 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-amber-100 shadow-xl shadow-black/40">
+        <div role="status" className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-max max-w-[18rem] max-md:fixed max-md:inset-x-3 max-md:top-14 max-md:mt-0 max-md:w-auto max-md:max-w-none rounded-xl border border-amber-300/60 bg-slate-950/90 px-3 py-2 text-sm font-semibold text-amber-100 shadow-xl shadow-black/40">
           🔔 {summary(newest)}
         </div>
       )}
 
       {open && (
-        <div role="dialog" aria-label="Notifications" style={{ background: "rgba(8, 12, 26, 0.97)" }} className="panel-glass absolute left-0 top-full z-30 mt-2 flex max-h-[70dvh] w-[min(24rem,calc(100vw-2rem))] flex-col gap-2 overflow-y-auto p-3 text-white">
+        <div role="dialog" aria-label="Notifications" style={{ background: "rgba(8, 12, 26, 0.97)" }} className="panel-glass absolute left-0 top-full z-30 mt-2 flex max-h-[70dvh] w-[min(24rem,calc(100vw-2rem))] max-md:fixed max-md:inset-x-3 max-md:top-14 max-md:mt-0 max-md:w-auto flex-col gap-2 overflow-y-auto p-3 text-white">
           <h2 className="px-1 font-title text-xs font-extrabold uppercase tracking-[0.2em] text-[#ffe29a]">Notifications</h2>
           {items.length === 0 && <p className="empty-note px-1 py-3 text-center text-[15px]">You&apos;re all caught up.</p>}
           {items.map((i) => (

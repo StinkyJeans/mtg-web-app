@@ -843,7 +843,12 @@ body.mtg-cursor :is(input:not([type="checkbox"]):not([type="range"]), textarea) 
   border-bottom: 1px solid rgba(255, 255, 255, 0.12);
   box-shadow: 0 1px 0 rgba(244, 180, 61, 0.28), 0 8px 24px rgba(0, 0, 0, 0.35);
 }
-@media (max-width: 479px) { .topbar { gap: 0.5rem; padding: 0 0.6rem; } .topbar .brand { font-size: 0.85rem; letter-spacing: 0.1em; } .topbar .bar-btn { padding: 0.28rem 0.55rem; } }
+@media (max-width: 479px) {
+  .topbar { gap: 0.4rem; padding: 0 0.5rem; font-size: 0.8rem; }
+  .topbar > a { min-width: 0; flex-shrink: 1; }
+  .topbar .brand { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 0.74rem; letter-spacing: 0.05em; }
+  .topbar .bar-btn { padding: 0.28rem 0.42rem; }
+}
 .topbar .brand { font-family: var(--font-cinzel), "Cinzel", Georgia, serif; font-weight: 800; font-size: 1rem; letter-spacing: 0.16em; background: linear-gradient(180deg, #fffbe9, #f4b743); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .topbar .bar-btn { white-space: nowrap; border-radius: 0.6rem; padding: 0.28rem 0.7rem; font-weight: 600; color: #f1f5f9; background: rgba(255, 255, 255, 0.08); border: 1px solid rgba(255, 255, 255, 0.2); transition: background 0.15s, border-color 0.15s; }
 .topbar .bar-btn:hover { background: rgba(255, 255, 255, 0.16); border-color: rgba(253, 224, 138, 0.55); }

@@ -33,13 +33,13 @@ export default function VotePopup({ room }: { room: RoomSnapshot }) {
   const guest = room.you === room.host ? room.players.find((p) => p.seat !== room.host) : undefined; // the host may still remove the guest
 
   return (
-    <div role="dialog" aria-modal="true" aria-label="Vote" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-      <div className={`flex max-h-[calc(100dvh-2rem)] w-full flex-col gap-5 overflow-y-auto rounded-3xl ${room.stage === "decks" ? "max-w-[88rem] p-7" : "max-w-lg p-6"}  border border-white/25 bg-slate-950/95 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]`}>
+    <div role="dialog" aria-modal="true" aria-label="Vote" className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-2 sm:p-4">
+      <div className={`flex max-h-[calc(100dvh-1rem)] w-full min-w-0 flex-col gap-4 overflow-x-hidden overflow-y-auto rounded-2xl sm:max-h-[calc(100dvh-2rem)] sm:gap-5 sm:rounded-3xl ${room.stage === "decks" ? "max-w-[88rem] p-3 sm:p-7" : "max-w-lg p-3 sm:p-6"}  border border-white/25 bg-slate-950/95 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]`}>
         <header className="flex items-center gap-3">
           <ol className="flex flex-1 items-center gap-2" aria-label="Steps">
             {STEPS.map((s, i) => (
-              <li key={s.stage} className={`flex items-center gap-1.5 rounded-full px-3 py-1 text-sm font-bold ${i === at ? "bg-amber-400 text-black" : i < at ? "bg-emerald-400/20 text-[#a7f3d0]" : "bg-white/10 text-slate-300"}`}>
-                {i < at ? "✓" : i + 1} {s.label}
+              <li key={s.stage} className={`flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-1 text-sm font-bold max-sm:px-2.5 ${i === at ? "bg-amber-400 text-black" : i < at ? "bg-emerald-400/20 text-[#a7f3d0]" : "bg-white/10 text-slate-300"}`}>
+                {i < at ? "✓" : i + 1} <span className={i === at ? "" : "max-sm:hidden"}>{s.label}</span>
               </li>
             ))}
           </ol>
@@ -117,8 +117,8 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
     <section className="grid gap-x-7 gap-y-4 text-center lg:grid-cols-[minmax(0,1.25fr)_minmax(0,1fr)] lg:text-left">
       <div className="flex flex-col gap-4 lg:col-start-1 lg:row-start-1">
         <div>
-        <h2 className="text-3xl font-extrabold">Choose your deck</h2>
-        <p className="mt-1 text-lg text-slate-200">
+        <h2 className="text-2xl font-extrabold sm:text-3xl">Choose your deck</h2>
+        <p className="mt-1 text-base text-slate-200 sm:text-lg">
           {size} cards. {room.players.some((p) => p.bot) ? "The bot plays a random deck." : "Your opponent does not see which one you pick."}
         </p>
         </div>
@@ -141,7 +141,7 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
       <button
         onClick={() => void confirm()}
         disabled={ready || busy || options === null}
-        className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-500 px-8 py-4 text-xl font-extrabold text-black shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-50"
+        className="rounded-2xl bg-gradient-to-b from-amber-300 to-amber-500 px-8 py-3.5 text-lg font-extrabold sm:py-4 sm:text-xl text-black shadow-lg shadow-amber-500/30 transition hover:-translate-y-0.5 disabled:translate-y-0 disabled:opacity-50"
       >
         {ready ? "Ready ✓" : busy ? "Preparing…" : "Ready"}
       </button>

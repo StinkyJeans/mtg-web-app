@@ -10,7 +10,7 @@ const icon = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinec
 
 export default function Home() {
   return (
-    <main className="relative flex flex-1 flex-col items-center justify-center gap-7 overflow-x-clip p-5 text-white sm:p-8">
+    <main className="relative flex flex-1 flex-col items-center justify-center gap-7 overflow-x-clip p-5 text-white max-md:justify-start max-md:gap-5 max-md:pt-3 sm:p-8">
       <LiveWallpaper />
       <ProfileButton />
       <FriendsPanel />

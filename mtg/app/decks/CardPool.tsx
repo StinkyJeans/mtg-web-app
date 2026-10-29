@@ -73,7 +73,7 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
       {!result && <CardSkeletons count={CARDS_PAGE_SIZE} size="md" className="flex flex-wrap gap-2" />}
       <div className={`flex flex-wrap gap-2 transition-opacity ${loading ? "opacity-50" : ""}`}>
         {result?.cards.map((def) => (
-          <div key={def.id} onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
+          <div key={def.id} {...zoom.on(def)}>
             <CardView def={def} note={entries[def.id] ? `×${entries[def.id]}` : undefined} onClick={() => onAdd(def)} onZoom={() => onZoom(def)} />
           </div>
         ))}

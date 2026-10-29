@@ -63,7 +63,7 @@ export default function DeckPicker({
         <div className={`relative flex w-full items-center gap-3 ${wide ? "px-6 py-5" : "px-4 py-3"}`}>
           <div className="min-w-0 flex-1">
             <p className={`font-bold uppercase tracking-[0.25em] text-[#ffe29a] ${wide ? "text-sm" : "text-[10px]"}`}>Your deck</p>
-            <p className={`truncate font-display font-extrabold leading-tight ${wide ? "text-3xl" : "text-lg"}`}>{picked ? picked.name : `Random ${size}-card deck`}</p>
+            <p className={`truncate font-display font-extrabold leading-tight ${wide ? "text-xl sm:text-3xl" : "text-lg"}`}>{picked ? picked.name : `Random ${size}-card deck`}</p>
             <p className={`text-slate-300 ${wide ? "text-base" : "text-xs"}`}>
               {picked ? [`${size} cards`, picked.official ? "Ready-made" : "Your deck", setName(picked.code ?? null)].filter(Boolean).join(" · ") : "A new mix every game"}
             </p>
@@ -83,14 +83,14 @@ export default function DeckPicker({
 
       {/* search and tabs */}
       <div className="flex flex-wrap items-center gap-2">
-        <div role="tablist" aria-label="Which decks" className="flex gap-1 rounded-full border border-white/15 bg-white/5 p-0.5">
+        <div role="tablist" aria-label="Which decks" className="flex max-w-full gap-1 overflow-x-auto rounded-full border border-white/15 bg-white/5 p-0.5">
           {tabs.map((t) => (
             <button
               key={t.id}
               role="tab"
               aria-selected={tab === t.id}
               onClick={() => setTab(t.id)}
-              className={`rounded-full font-bold transition ${wide ? "px-5 py-2 text-base" : "px-3 py-1 text-xs"} ${tab === t.id ? "bg-amber-400 text-black" : "text-slate-200 hover:bg-white/10"}`}
+              className={`whitespace-nowrap rounded-full font-bold transition ${wide ? "px-3 py-1.5 text-sm sm:px-5 sm:py-2 sm:text-base" : "px-3 py-1 text-xs"} ${tab === t.id ? "bg-amber-400 text-black" : "text-slate-200 hover:bg-white/10"}`}
             >
               {t.label}{" "}
               {skeleton ? <Skeleton className="inline-block h-3.5 w-5 align-middle" /> : <span className={tab === t.id ? "opacity-70" : "text-slate-400"}>{t.count}</span>}
@@ -103,12 +103,12 @@ export default function DeckPicker({
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search decks…"
           aria-label="Search decks"
-          className={`min-w-0 flex-1 rounded-full border border-white/20 bg-white/10 text-slate-100 placeholder:text-slate-400 focus:border-amber-300/70 focus:outline-none ${wide ? "px-5 py-2.5 text-base" : "px-3.5 py-1.5 text-sm"}`}
+          className={`min-w-0 flex-1 max-[520px]:basis-full rounded-full border border-white/20 bg-white/10 text-slate-100 placeholder:text-slate-400 focus:border-amber-300/70 focus:outline-none ${wide ? "px-5 py-2.5 text-base" : "px-3.5 py-1.5 text-sm"}`}
         />
       </div>
 
       {/* the decks */}
-      <ul role="listbox" aria-label="Decks" className={`grid overflow-y-auto pr-1 ${wide ? "max-h-[24rem] gap-3" : "max-h-[17rem] gap-2"} ${compact ? "grid-cols-1" : "grid-cols-2"}`}>
+      <ul role="listbox" aria-label="Decks" className={`grid overflow-y-auto pr-1 ${wide ? "max-h-[24rem] gap-3" : "max-h-[17rem] gap-2"} ${compact ? "grid-cols-1" : "grid-cols-1 min-[440px]:grid-cols-2"}`}>
         <li role="presentation">
           <Tile selected={value === randomId} disabled={disabled} onPick={() => onChange(randomId)} emoji="🎲" wide={wide}>
             <span className="min-w-0 flex-1">

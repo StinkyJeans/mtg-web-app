@@ -46,7 +46,7 @@ export default function DeckSidebar({ rows, groups, entries, status, emptyText, 
       {rows.length === 0 && <p className="text-sm text-slate-400">{emptyText}</p>}
       <ul className="flex max-h-[50vh] flex-col gap-1 overflow-y-auto">
         {rows.map((def) => (
-          <li key={def.id} className="flex items-center gap-2 rounded bg-white/10 px-2 py-1 text-sm" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
+          <li key={def.id} className="flex items-center gap-2 rounded bg-white/10 px-2 py-1 text-sm" {...zoom.on(def)}>
             <span className="flex w-6 justify-center">
               <ManaSymbol symbol={String(def.cost)} />
             </span>

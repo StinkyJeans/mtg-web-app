@@ -101,13 +101,13 @@ export default function AudioMenu() {
       >
         <span aria-hidden="true">♫</span>
         <span className="font-semibold text-amber-100 max-[479px]:hidden">{on ? track.name : "Music off"}</span>
-        <span aria-hidden="true" className="text-xs">
+        <span aria-hidden="true" className="text-xs max-[479px]:hidden">
           ▾
         </span>
       </button>
 
       {hint && !open && (
-        <div role="status" className="absolute right-0 top-full z-50 mt-2 w-64 rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-950 shadow-xl">
+        <div role="status" className="absolute right-0 top-full z-50 mt-2 w-64 max-md:fixed max-md:inset-x-3 max-md:top-[3rem] max-md:mt-0 max-md:w-auto rounded-lg border border-amber-300 bg-amber-50 p-2.5 text-sm text-amber-950 shadow-xl">
           <div className="absolute -top-1.5 right-6 h-3 w-3 rotate-45 border-l border-t border-amber-300 bg-amber-50" aria-hidden="true" />
           <p>
             Now playing <span className="font-semibold">{track.name}</span>. Click here to pick another tune or change the volume.
@@ -116,7 +116,7 @@ export default function AudioMenu() {
       )}
 
       {open && (
-        <div role="dialog" aria-label="Music and sound" className="absolute right-0 top-full z-50 mt-2 flex w-80 flex-col gap-3 rounded-xl border border-white/20 bg-slate-900/95 p-3 text-slate-100 shadow-2xl backdrop-blur">
+        <div role="dialog" aria-label="Music and sound" className="absolute right-0 top-full z-50 mt-2 flex w-80 flex-col gap-3 max-md:fixed max-md:inset-x-3 max-md:top-[3rem] max-md:mt-0 max-md:max-h-[calc(100dvh-4rem)] max-md:w-auto max-md:overflow-y-auto rounded-xl border border-white/20 bg-slate-900/95 p-3 text-slate-100 shadow-2xl backdrop-blur">
           <section className="flex flex-col gap-1.5">
             <h2 className={heading}>Music</h2>
             <div role="radiogroup" aria-label="Music" className="flex flex-col gap-1">

@@ -99,7 +99,7 @@ export default function CardBrowser() {
       {!result && <CardSkeletons count={CARDS_PAGE_SIZE} size="md" className="glass cards-fit p-3" />}
       <div className={`glass cards-fit p-3 transition-opacity ${loading ? "opacity-50" : ""}`}>
         {result?.cards.map((def, i) => (
-          <div key={def.id} className="card-tile glass-tile" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide} {...onIntent(() => preloadImage(cardDetailImageUrl(def, "large")))}>
+          <div key={def.id} className="card-tile glass-tile" {...zoom.on(def)} {...onIntent(() => preloadImage(cardDetailImageUrl(def, "large")))}>
             <CardView def={def} size="md" onClick={() => (zoom.hide(), setZoomedIdx(i))} />
             {def.playable === false ? <span className="chip chip-meta !text-[10px]">Not playable yet</span> : <span className="chip chip-ok !text-[10px]">Playable</span>}
           </div>

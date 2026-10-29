@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import { useStacked } from "./useMedia";
 import { fizzleReason, OPPONENT, parseCard } from "@mtg/engine";
 import type { GameState, PlayerId, StackItem } from "@mtg/engine";
 import { playerName } from "./log";
@@ -96,7 +98,7 @@ function StackEntry({ state, item, next, actor }: { state: GameState; item: Stac
  * The stack, newest on top, with whose priority it is and what passing does, and what already happened in this chain.
  * Once a chain with something worth knowing is over (a counter, a spell that did nothing, a response) it is summed up until closed.
  */
-export function StackPanel({
+function StackPanelFull({
   state,
   actor,
   onPass,
@@ -156,6 +158,45 @@ export function StackPanel({
           <button onClick={onPass} className="rounded-lg bg-violet-600 px-4 py-2 text-base font-semibold text-white hover:bg-violet-500">
             {!top ? "Pass (go on)" : state.priority!.passes === 1 ? `Pass: ${top} resolves` : `Pass to ${playerName(OPPONENT[actor])}`}
           </button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+type StackProps = Parameters<typeof StackPanelFull>[0];
+
+/** On a phone the stack is one slim bar (what is waiting, and Pass); the whole panel opens from "Details" so it does not cover the board. */
+export function StackPanel(props: StackProps) {
+  const stacked = useStacked();
+  const [more, setMore] = useState(false);
+  const { state, actor, onPass, waiting } = props;
+  if (!stacked || (state.stack.length === 0 && !state.priority)) return <StackPanelFull {...props} />;
+  const deciding = state.pendingPick !== null || state.pendingChoice !== null;
+  const who = state.priority && !deciding ? priorityLine(state, actor, !!waiting) : null;
+  const top = state.stack.length > 0 ? itemName(state, state.stack[state.stack.length - 1]) : null;
+  return (
+    <section className="flex items-center gap-2 rounded-xl border border-violet-400/60 bg-violet-950/95 p-2 text-white" aria-live="polite">
+      <div className="min-w-0 flex-1 leading-snug">
+        <div className="truncate text-sm font-bold">{who?.title ?? "On the stack"}</div>
+        <div className="truncate text-xs text-violet-200">{top ? `${top}${state.stack.length > 1 ? ` +${state.stack.length - 1}` : ""} on the stack` : "Nothing on the stack"}</div>
+      </div>
+      <button onClick={() => setMore(true)} className="min-h-11 shrink-0 rounded-lg border border-white/30 px-3 text-sm font-semibold">
+        Details
+      </button>
+      {who?.mine && (
+        <button onClick={onPass} className="min-h-11 shrink-0 rounded-lg bg-violet-500 px-4 text-sm font-bold text-white">
+          Pass
+        </button>
+      )}
+      {more && (
+        <div role="dialog" aria-modal="true" aria-label="The stack" className="game-modal fixed inset-0 z-[60] flex items-center justify-center bg-black/70 p-3" onClick={() => setMore(false)}>
+          <div className="flex max-h-[85dvh] w-full max-w-sm flex-col gap-2 overflow-y-auto rounded-2xl bg-slate-950 p-2 text-zinc-900" onClick={(e) => e.stopPropagation()}>
+            <button onClick={() => setMore(false)} aria-label="Close" className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-white/30 text-2xl leading-none text-white">
+              ×
+            </button>
+            <StackPanelFull {...props} onPass={() => (setMore(false), onPass())} />
+          </div>
         </div>
       )}
     </section>

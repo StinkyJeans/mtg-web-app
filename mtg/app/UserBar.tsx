@@ -54,7 +54,7 @@ export default function UserBar() {
         aria-label={`Animations: ${animations ? "on" : "off"}`}
         className="bar-btn"
       >
-        <span className="min-[480px]:hidden" aria-hidden="true">✨ </span><span className="max-[479px]:hidden">Animations: </span><span className={animations ? "font-semibold text-[#6ee7b7]" : "font-semibold text-slate-400"}>{animations ? "On" : "Off"}</span>
+        <span className={`min-[480px]:hidden ${animations ? "" : "opacity-40 grayscale"}`} aria-hidden="true">✨</span><span className="max-[479px]:hidden">Animations: </span><span className={`max-[479px]:hidden ${animations ? "font-semibold text-[#6ee7b7]" : "font-semibold text-slate-400"}`}>{animations ? "On" : "Off"}</span>
       </button>
       <AudioMenu />
       <span className="hidden sm:inline">

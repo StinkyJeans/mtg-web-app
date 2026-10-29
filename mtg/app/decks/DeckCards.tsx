@@ -56,7 +56,7 @@ export default function DeckCards({
           </h3>
           <div className="flex flex-wrap gap-3">
             {g.cards.map((def) => (
-              <div key={def.id} className="flex flex-col items-center gap-1" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
+              <div key={def.id} className="flex flex-col items-center gap-1" {...zoom.on(def)}>
                 <CardView
                   def={def}
                   size="md"

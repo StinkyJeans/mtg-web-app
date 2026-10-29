@@ -142,7 +142,7 @@ export default function DeckPreview({
               </h3>
               <div className="flex flex-wrap gap-2.5">
                 {s.entries.map(({ def, qty }, ei) => (
-                  <div key={def.id} className="card-tile !items-stretch" onMouseEnter={(e) => zoom.show(def, e.currentTarget)} onMouseLeave={zoom.hide}>
+                  <div key={def.id} className="card-tile !items-stretch" {...zoom.on(def)}>
                     <CardView
                       def={def}
                       size="md"

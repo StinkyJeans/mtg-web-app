@@ -210,7 +210,7 @@ export default function FriendsPanel() {
       <section
         aria-label="Friends"
         className={`panel-glass z-10 flex w-full max-w-[20rem] flex-col gap-2.5 self-start p-3.5 text-white ${
-          sheet ? "max-md:fixed max-md:inset-x-3 max-md:bottom-4 max-md:top-16 max-md:z-50 max-md:!max-w-none max-md:overflow-y-auto max-md:!bg-[#0b1020] max-md:!backdrop-blur-none" : "max-md:hidden"
+          sheet ? "max-md:fixed max-md:inset-x-3 max-md:top-14 max-md:z-50 max-md:max-h-[80dvh] max-md:w-auto max-md:!max-w-none max-md:overflow-y-auto max-md:!bg-[#0b1020] max-md:!backdrop-blur-none" : "max-md:hidden"
         } xl:fixed xl:left-4 xl:top-[7.6rem] xl:max-h-[calc(100dvh-9rem)]`}
       >
         <header className="flex items-center gap-2">
@@ -552,7 +552,7 @@ function AddFriends({
       aria-modal="true"
       aria-label="Add friends"
       onClick={onClose}
-      className="fixed inset-0 z-40 flex items-start justify-center bg-black/55 p-4 pt-[14vh] backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-start justify-center bg-black/55 p-4 pt-[14vh] backdrop-blur-sm"
     >
       <div
         onClick={(e) => e.stopPropagation()}

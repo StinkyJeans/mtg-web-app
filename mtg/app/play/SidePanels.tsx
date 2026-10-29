@@ -117,7 +117,7 @@ function PlayersPanelInner({
                 <span title={playerName(id)} className={`font-display min-w-0 max-w-[34%] truncate rounded-full px-2.5 py-0.5 text-[15px] font-bold ${style.chip}`}>
                   {playerName(id)}
                 </span>
-                {acting && <span className="shrink-0 whitespace-nowrap rounded bg-amber-400 px-1.5 py-0.5 text-[11px] font-extrabold uppercase font-display tracking-wide text-black">to act</span>}
+                {/* (the amber ring already says whose turn it is: no room for the badge on a phone) */}
                 <span className="ml-auto flex shrink-0 items-center gap-1.5">
                   <span className="flex gap-1 text-[13px] text-zinc-600">
                     <span className="rounded bg-emerald-50 px-1" title="Cards in hand">✋<b>{p.hand.length}</b></span>
