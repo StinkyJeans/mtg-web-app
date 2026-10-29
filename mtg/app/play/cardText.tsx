@@ -1,10 +1,10 @@
 "use client";
 
-import { countFor } from "@mtg/engine";
+import { countFor, toughnessOf } from "@mtg/engine";
 import type { CardDef, Effect, GameState, PlayerId, StackItem, TargetChoice } from "@mtg/engine";
 import { helpFor } from "./glossary";
 import { playerName } from "./players";
-import { nameWithStats } from "./stats";
+import { isCreatureNow, nameWithStats } from "./stats";
 
 /** A short plain-English explanation of what some rules text does (see glossary.ts). */
 export function Help({ text, max = 3, large }: { text: string; max?: number; large?: boolean }) {
@@ -44,7 +44,7 @@ export function itemName(state: GameState, item: StackItem): string {
   return item.kind === "spell" ? state.cards[item.card.defId].name : `${item.sourceName} ability`;
 }
 
-const SELF = /\bthis (?:creature|artifact|token|enchantment|land|vehicle|permanent)\b/gi;
+const SELF = /\bthis (?:creature|artifact|token|enchantment|land|vehicle|permanent|card)\b/gi;
 
 /** The card's own wording of a line the engine reads in lower case, so it keeps its capitals ("Blood tokens", "-X/-X", "Activate only as a sorcery"). */
 export function printedLine(text: string, def: CardDef | undefined): string {
@@ -81,14 +81,33 @@ export function pumpNow(state: GameState, controller: PlayerId, effects: Effect[
   return `Right now: ${signed(pump.power)}/${signed(pump.toughness)}${what ? ` (${what.charAt(0).toUpperCase()}${what.slice(1)} ×${n})` : ""}${n === 0 ? ": it would do nothing" : ""}`;
 }
 
+/** Witch's Oven ("if the sacrificed creature's toughness was 4 or greater, create two Food tokens instead"): what sacrificing a creature this tough makes. */
+export function madeFor(effects: Effect[], toughness: number): string | null {
+  const branch = effects.find((e) => e.type === "ifSacrificedToughness");
+  if (branch?.type !== "ifSacrificedToughness") return null;
+  const made = (toughness >= branch.atLeast ? branch.then : branch.otherwise).flatMap((e) => (e.type === "createToken" && typeof e.amount === "number" ? [`${e.amount} ${e.token.name}`] : []));
+  return made.length > 0 ? made.join(" and ") : null;
+}
+
+/** A card or permanent that could pay a cost, told apart from the others: "Hill Giant 3/3 → 1 Food", "Food (tapped)". */
+export function payWithLabel(state: GameState, iid: string, effects: Effect[]): string {
+  const perm = Object.values(state.players).flatMap((p) => p.battlefield).find((p) => p.card.iid === iid);
+  if (!perm) return cardAt(state, iid)?.def.name ?? "a card";
+  const made = isCreatureNow(state, perm) ? madeFor(effects, toughnessOf(state, perm)) : null;
+  return `${nameWithStats(state, perm)}${perm.tapped ? " (tapped)" : ""}${made ? ` → ${made}` : ""}`;
+}
+
 /** What a spell does only when its optional extra cost (waterbend, kicker) was paid: "Whenever a creature dies this turn, you gain 1 life." */
 export function paidPart(text: string): string | null {
   const m = /if this spell's additional cost was paid, ([^.]+\.)/i.exec(text);
   return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1) : null;
 }
 
+/** Artifact token types the engine reads in lower case, named as the cards do: "a Food", "Treasure tokens". */
+export const tokenNames = (text: string) => text.replace(/\b(food|treasure|blood|clue)(s?)\b/g, (_, t: string, s: string) => `${t.charAt(0).toUpperCase()}${t.slice(1)}${s}`);
+
 /** Rules text as the engine reads it ("~", lowercase) made readable: the card's name back in, first letter capital. */
 export function readable(text: string, cardName: string): string {
-  const t = text.replace(/~/g, cardName).replace(/\{([a-z0-9]+)\}/g, (_, x: string) => `{${x.toUpperCase()}}`);
+  const t = tokenNames(text.replace(/~/g, cardName).replace(/\{([a-z0-9]+)\}/g, (_, x: string) => `{${x.toUpperCase()}}`));
   return t.charAt(0).toUpperCase() + t.slice(1);
 }

@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { applyAction, getActivatable, getCastable, playerToAct } from "@mtg/engine";
+import { applyAction, getActivatable, getCastable, parseCard, playerToAct } from "@mtg/engine";
 import type { Action, CardDef, GameState } from "@mtg/engine";
 import { PickPanel } from "@/app/play/PickPanel";
 import { LandFacePanel } from "@/app/play/ChoicePanels";
@@ -12,7 +12,7 @@ import { StackPanel } from "@/app/play/StackPanel";
 import { PlayersPanel } from "@/app/play/SidePanels";
 import { AbilityPanel } from "@/app/play/AbilityPanel";
 import { describeEvents } from "@/app/play/log";
-import { readable } from "@/app/play/cardText";
+import { payWithLabel, readable } from "@/app/play/cardText";
 import { board, permanent } from "./fixtures";
 
 const LESSON: CardDef = { id: "lesson", name: "Abandon Attachments", type: "instant", cost: 2, manaCost: "{1}{U/R}", typeLine: "Instant — Lesson", text: "You may discard a card. If you do, draw two cards." };
@@ -42,7 +42,7 @@ const DECORUM: CardDef = {
   id: "decorum", name: "Decorum Dissertation", type: "sorcery", cost: 5, manaCost: "{3}{B}{B}", typeLine: "Sorcery — Lesson", keywords: ["paradigm"],
   text: "Target player draws two cards and loses 2 life.\nParadigm (Then exile this spell. After you first resolve a spell with this name, you may cast a copy of it from exile without paying its mana cost at the beginning of each of your first main phases.)",
 };
-const plainText = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
+const plainText = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/&quot;/g, '"').replace(/\s+/g, " ");
 
 test("paradigm: the free copy is asked with the card in view, its target says what it does, and the log names the copy", () => {
   let g: GameState = board({ mine: Array.from({ length: 5 }, () => permanent("swamp", "p1")), hand: ["decorum"] });
@@ -162,6 +162,48 @@ test("Blood: the token and Bloodtithe Harvester read in the card's words, -X/-X 
   assert.deepEqual(log, ["Player 1 paid {B}: Swamp {B}.", "Player 1 discards Shock.", "Player 1 sacrificed Blood.", "Player 1 used Blood: {1}, {T}, Discard a card, Sacrifice Blood: Draw a card."]);
   assert.match(stack(), /\{1\}, \{T\}, Discard a card, Sacrifice Blood: Draw a card/);
   for (let i = 0; i < 20 && g.stack.length > 0; i++) step({ type: "passPriority" });
-  assert.deepEqual(log.slice(4), ["Player 1 drew a card."], "the draw is said once");
+  assert.deepEqual(log.slice(4), ["Player 1's Blood ability resolves.", "Player 1 drew a card."], "the draw is said once");
   assert.match(abilities(), /Right now: -0\/-0 \(Blood ×0\): it would do nothing/);
+});
+
+const OVEN: CardDef = {
+  id: "oven", name: "Witch's Oven", type: "artifact", cost: 1, manaCost: "{1}", typeLine: "Artifact",
+  text: '{T}, Sacrifice a creature: Create a Food token. If the sacrificed creature\'s toughness was 4 or greater, create two Food tokens instead. (They\'re artifacts with "{2}, {T}, Sacrifice this token: You gain 3 life.")',
+};
+const FAMILIAR: CardDef = {
+  id: "familiar", name: "Cauldron Familiar", type: "creature", cost: 1, manaCost: "{B}", power: 1, toughness: 1, typeLine: "Creature — Cat",
+  text: "When this creature enters, each opponent loses 1 life and you gain 1 life.\nSacrifice a Food: Return this card from your graveyard to the battlefield.",
+};
+
+test("Food: the Oven's choice says how many Food each creature makes, the stack and log say which made what, Familiar reads 'Sacrifice a Food'", () => {
+  let g: GameState = board({ mine: [permanent("swamp", "p1"), permanent("swamp", "p1"), permanent("oven", "p1"), permanent("giant", "p1"), permanent("spider", "p1")], theirs: [permanent("mountain", "p2")], hand: [] });
+  g.cards.swamp = { id: "swamp", name: "Swamp", type: "land", cost: 0, typeLine: "Basic Land — Swamp" };
+  g.cards.oven = OVEN;
+  g.cards.familiar = FAMILIAR;
+  g.players.p1.graveyard = [{ iid: "fam", defId: "familiar", owner: "p1" }];
+  g.players.p2.hand = [{ iid: "p2-shock", defId: "shock", owner: "p2" }];
+  const log: string[] = [];
+  const step = (a: Action) => {
+    const r = applyAction(g, playerToAct(g), a);
+    assert.ok(r.ok, r.ok ? "" : r.error);
+    g = r.state;
+    log.push(...describeEvents(r.events, g));
+  };
+  const stack = () => plainText(renderToStaticMarkup(createElement(StackPanel, { state: g, actor: "p1", onPass: () => {} })));
+  const oven = getActivatable(g, "p1").find((a) => a.iid.startsWith("oven"))!;
+  const choices = oven.costChoices!.map((iid) => payWithLabel(g, iid, parseCard(OVEN).activated[0].effects));
+  assert.deepEqual(choices, ["Hill Giant 3/3 → 1 Food", "Giant Spider 2/4 → 2 Food"]);
+
+  step({ type: "activateAbility", iid: oven.iid, index: oven.index, targets: [], payWith: oven.costChoices![1] });
+  assert.match(stack(), /The sacrificed creature's toughness was 4: it makes 2 Food/);
+  assert.match(stack(), /ⓘ Food: an artifact token with "\{2\}, \{T\}, Sacrifice this artifact: You gain 3 life\."/);
+  for (let i = 0; i < 20 && g.stack.length > 0; i++) step({ type: "passPriority" });
+  assert.deepEqual(log, ["Player 1 sacrificed Giant Spider.", "Player 1 used Witch's Oven: {T}, Sacrifice a creature: Create a Food token. If the sacrificed creature's toughness was 4 or greater, create two Food tokens instead.", "Player 1's Witch's Oven ability resolves.", "Player 1 creates 2 Food tokens."]);
+
+  const panel = plainText(renderToStaticMarkup(createElement(AbilityPanel, { state: g, abilities: getActivatable(g, "p1"), onUse: () => {} })));
+  assert.match(panel, /Cauldron Familiar from graveyard Sacrifice a Food ➜ Return Cauldron Familiar from your graveyard to the battlefield/);
+  assert.match(panel, /Food ⟳ Tap Sacrifice Food ➜ You gain 3 life/);
+  const food = g.players.p1.battlefield.find((p) => g.cards[p.card.defId].name === "Food")!;
+  food.tapped = true;
+  assert.equal(payWithLabel(g, food.card.iid, []), "Food (tapped)", "a tapped Food is the one to give up: it can't be eaten");
 });

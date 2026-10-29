@@ -44,6 +44,7 @@ const RULES: Rule[] = [
   { match: /\bfirebending \d+/i, help: "Firebending N: whenever this creature attacks, you add N red mana. It lasts until end of combat." },
   { match: /\bparadigm\b/i, help: "Paradigm: after it resolves the spell is exiled. At the beginning of each of your first main phases after that, you may cast a copy of it for free." },
   { match: /\blevel \d\b/i, help: "Class: pay a level's cost (as a sorcery, one level at a time) and the Class gains that level's ability, on top of the ones before it." },
+  { match: /\bfood\b/i, help: "Food: an artifact token with \"{2}, {T}, Sacrifice this artifact: You gain 3 life.\" Some cards sacrifice a Food for something else (Cauldron Familiar comes back from the graveyard)." },
   { match: /\bblood token\b/i, help: "Blood token: an artifact with \"{1}, {T}, Discard a card, Sacrifice this artifact: Draw a card.\"" },
   { match: /\bflurry\b/i, help: "Flurry: triggers when you cast your second spell each turn." },
   { match: /\badventure\b/i, help: "Adventure: you may cast the spell printed beside the creature instead. When it resolves, the card goes into exile, and later you may cast the creature from exile. If the Adventure is countered, the card goes to the graveyard." },

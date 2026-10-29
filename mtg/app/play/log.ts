@@ -96,7 +96,7 @@ export function describeEvents(events: GameEvent[], state: GameState): string[] 
       case "resolved":
         if (e.fizzled) lines.push(`${playerName(e.controller)}'s ${e.name} does nothing (it fizzles): ${e.fizzled}.`);
         else if (e.trigger) lines.push(`${playerName(e.controller)}'s ${e.name.replace(/'s ability$/, "")} triggered.`);
-        else if (!e.ability) lines.push(`${playerName(e.controller)}'s ${e.name} resolves.`);
+        else lines.push(`${playerName(e.controller)}'s ${e.name.replace(/'s ability$/, " ability")} resolves.`);
         lines.push(...(e.did ?? []).filter((o) => !LOGGED_ELSEWHERE.has(o.k) && !(o.k === "left" && o.to === "graveyard")).map((o) => `${outcomeLine(o)}.`));
         break;
       case "manaPaid":
