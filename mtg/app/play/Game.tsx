@@ -54,7 +54,7 @@ import { useAppearance } from "@/lib/playmat";
 import { useCustomCursor } from "@/lib/cursor";
 import BlockPanel from "./BlockPanel";
 import { attackHint, blockHint, canBlock } from "./combatHints";
-import { readable } from "./cardText";
+import { cardAt, printedLine, pumpNow, readable } from "./cardText";
 import { ChoicePanel, LandFacePanel, XPanel } from "./ChoicePanels";
 import { PickPanel, ResolvingNotice } from "./PickPanel";
 import { StackPanel } from "./StackPanel";
@@ -657,10 +657,14 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   }
 
   function startAbility(a: Activatable, payWith?: string, x?: number) {
+    const at = cardAt(state, a.iid);
+    const name = at?.def.name ?? cardNameAnywhere(state, a.iid);
+    const words = splitAbility(printedLine(a.text, at?.def), name);
+    const cost = words.cost ? readable(words.cost, name) : undefined;
     // "Discard a card" / "Sacrifice a creature" as a cost: ask which one first.
     if (a.costChoices && payWith === undefined) {
       setLifeConfirm({
-        text: `${cardNameAnywhere(state, a.iid)}: choose ${a.costLabel ?? "a card"}`,
+        text: `${name}: choose ${a.costLabel ?? "a card"}${cost ? ` (${cost} ➜ ${words.effect})` : ""}`,
         options: a.costChoices.map((iid) => ({ label: cardNameAnywhere(state, iid), go: () => startAbility(a, iid, undefined) })),
       });
       return;
@@ -678,7 +682,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       act({ type: "activateAbility", iid: a.iid, index: a.index, targets: [], ...extra });
     } else {
       setChosen([]);
-      setTargeting({ title: readable(a.text, cardNameAnywhere(state, a.iid)), cost: splitAbility(a.text, cardNameAnywhere(state, a.iid)).cost ?? undefined, specs: a.specs, build: (targets) => ({ type: "activateAbility", iid: a.iid, index: a.index, targets, ...extra }) });
+      const now = at ? pumpNow(state, at.player, parseCard(at.def).activated[a.index]?.effects ?? []) : null;
+      setTargeting({ title: `${name}: ${words.effect}`, cost, ...(now ? { detail: now } : {}), specs: a.specs, build: (targets) => ({ type: "activateAbility", iid: a.iid, index: a.index, targets, ...extra }) });
     }
   }
 

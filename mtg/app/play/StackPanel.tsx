@@ -3,7 +3,7 @@
 import { fizzleReason, OPPONENT, parseCard } from "@mtg/engine";
 import type { GameState, PlayerId, StackItem } from "@mtg/engine";
 import { playerName } from "./log";
-import { Help, targetName, itemName, paidPart, readable } from "./cardText";
+import { defNamed, Help, targetName, itemName, paidPart, printedLine, pumpNow, readable } from "./cardText";
 import type { ChainStep } from "./chain";
 
 const STEP_MARK: Record<ChainStep["tone"], { mark: string; className: string }> = {
@@ -66,6 +66,7 @@ function StackEntry({ state, item, next, actor }: { state: GameState; item: Stac
   const aimedAtIt = state.stack.filter((other) => other.targets.some((t) => t.kind === "stack" && t.id === item.id));
   const mine = item.controller === actor;
   const waterbend = waterbendLine(state, item);
+  const now = pumpNow(state, item.controller, item.effects);
   return (
     <li className={`rounded-lg border bg-white px-3 py-2 ${next ? "border-violet-500 ring-1 ring-violet-400" : "border-violet-200"}`}>
       <div className="flex flex-wrap items-center gap-2">
@@ -74,7 +75,8 @@ function StackEntry({ state, item, next, actor }: { state: GameState; item: Stac
         <span className={`rounded px-1.5 text-sm font-medium ${mine ? "bg-emerald-100 text-emerald-800" : "bg-rose-100 text-rose-800"}`}>{playerName(item.controller)}</span>
       </div>
       {item.targets.length > 0 && <div className="text-[15px] text-zinc-700">→ {item.targets.map((t) => targetName(state, t)).join(", ")}</div>}
-      {item.kind === "ability" && <div className="text-[15px] text-zinc-700">{readable(item.text, item.sourceName)}</div>}
+      {item.kind === "ability" && <div className="text-[15px] text-zinc-700">{readable(printedLine(item.text, defNamed(state, item.sourceName)), item.sourceName)}</div>}
+      {now && <div className="text-[15px] font-medium text-violet-800">{now}</div>}
       {waterbend && <div className={`text-[15px] ${waterbend.paid ? "font-medium text-sky-800" : "text-zinc-600"}`}>💧 {waterbend.text}</div>}
       {aimedAtIt.map((other) => (
         <div key={other.id} className="text-[15px] font-medium text-orange-700">

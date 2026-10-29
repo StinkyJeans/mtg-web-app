@@ -1,5 +1,6 @@
 import { OPPONENT } from "@mtg/engine";
 import type { GameEvent, GameState, Outcome, PlayerId } from "@mtg/engine";
+import { defNamed, printedLine, readable } from "./cardText";
 import { outcomeLine, paymentLine } from "./outcomeText";
 import { playerName, setPlayerNames } from "./players";
 
@@ -27,8 +28,22 @@ function castName(state: GameState, e: Extract<GameEvent, { type: "spellCast" | 
   return copyOf ? `a copy of ${state.cards[copyOf]?.name ?? "a spell"}` : nameOf(state, e.iid);
 }
 
+const sentence = (s: string) => (/[.!?]$/.test(s) ? s : `${s}.`);
+
+/** "Player 1 sacrificed Blood." / "Grizzly Bears died." / "Witch's Oven was put into the graveyard." */
+function diedLine(state: GameState, e: Extract<GameEvent, { type: "creatureDied" }>): string {
+  const name = e.name ?? nameOf(state, e.iid);
+  if (e.sacrificed) return `${playerName(e.player)} sacrificed ${name}.`;
+  return e.noncreature ? `${name} was put into the graveyard.` : `${name} died.`;
+}
+
+/** "Player 1 draws 2 cards." said right after those cards were drawn: each is in the log already ("drew a card"). */
+const drawsAgain = (events: GameEvent[]) =>
+  new Set(events.filter((e, i) => e.type === "effect" && /^Player [12] draws \d+ cards?\.$/.test(e.text) && events[i - 1]?.type === "cardDrawn"));
+
 export function describeEvents(events: GameEvent[], state: GameState): string[] {
   const lines: string[] = [];
+  const drawSummed = drawsAgain(events);
   for (const e of events) {
     switch (e.type) {
       case "mulliganTaken":
@@ -57,7 +72,7 @@ export function describeEvents(events: GameEvent[], state: GameState): string[] 
         lines.push(`${playerName(e.player)} cast ${castName(state, e)}.`);
         break;
       case "abilityActivated":
-        lines.push(`${playerName(e.player)} used ${e.name}: ${e.text}`);
+        lines.push(`${playerName(e.player)} used ${e.name}: ${sentence(readable(printedLine(e.text, defNamed(state, e.name)), e.name))}`);
         break;
       case "permanentEntered":
         break;
@@ -73,7 +88,7 @@ export function describeEvents(events: GameEvent[], state: GameState): string[] 
         lines.push(`${playerName(e.player)} gets ${e.amount} poison counter${e.amount === 1 ? "" : "s"} (${state.players[e.player].poison ?? 0} of 10).`);
         break;
       case "effect":
-        lines.push(e.text);
+        if (!drawSummed.has(e)) lines.push(e.text);
         break;
       case "countered":
         lines.push(`${playerName(e.controller)}'s ${e.name} is countered${e.by ? ` by ${e.by}` : ""}.`);
@@ -113,7 +128,7 @@ export function describeEvents(events: GameEvent[], state: GameState): string[] 
         lines.push(`${playerName(e.player)} gains ${e.amount} life.`);
         break;
       case "creatureDied":
-        lines.push(`${nameOf(state, e.iid)} died.`);
+        lines.push(diedLine(state, e));
         break;
       case "gameWon":
         lines.push(`${playerName(e.player)} wins!`);

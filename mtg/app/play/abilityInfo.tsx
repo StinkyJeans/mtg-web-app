@@ -3,6 +3,7 @@ import type { GameState, PlayerId } from "@mtg/engine";
 import { ManaText } from "./ManaSymbols";
 import { CostChips, splitAbility } from "./abilityText";
 import { preparedSpell } from "./castInfo";
+import { printedLine } from "./cardText";
 
 /** Why an exiled card may be played: warp, Lightstall Inquisitor ("exiled" from hand), airbend, plot, an Adventure, or exiled from the library for a while or in turns its source attacked. */
 export type ExileReason = "warp" | "exiled" | "airbend" | "plot" | "adventure" | "thisTurn" | "untilEndStep" | "untilNextTurn" | "attacked";
@@ -69,7 +70,7 @@ export function lockedAbilities(state: GameState, actor: PlayerId) {
       if (usable.some((u) => u.iid === perm.card.iid && u.index === index)) return;
       // the engine says exactly which condition is not met (tapped, mana, timing, life...)
       const reason = !hasPriority ? "wait for your turn to respond" : (abilityLockReason(state, actor, perm, index) ?? "can't be used right now");
-      out.push({ key: `${perm.card.iid}-${index}`, where: "battlefield", label: <span><span className="font-semibold">{def.name}</span>{(() => { const p = splitAbility(ability.text, def.name); return <span className="block pt-1">{p.cost && <CostChips cost={p.cost} cardName={def.name} />} {p.effect}</span>; })()}</span>, reason, help: ability.text });
+      out.push({ key: `${perm.card.iid}-${index}`, where: "battlefield", label: <span><span className="font-semibold">{def.name}</span>{(() => { const p = splitAbility(printedLine(ability.text, def), def.name); return <span className="block pt-1">{p.cost && <CostChips cost={p.cost} cardName={def.name} />} {p.effect}</span>; })()}</span>, reason, help: ability.text });
     });
   }
   const cyclable = getCyclable(state, actor);

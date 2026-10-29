@@ -97,7 +97,7 @@ export type GameEvent =
   | { type: "resolved"; name: string; controller: PlayerId; iid: string; ability?: true; trigger?: true; text?: string; fizzled?: string; did?: Outcome[] }
   /** Mana was paid: each mana made, and the permanent that made it (named, as a Treasure is gone once it is used). */
   | { type: "manaPaid"; player: PlayerId; made: { iid: string; name: string; color: ManaColor }[] }
-  | { type: "creatureDied"; player: PlayerId; iid: string }
+  | { type: "creatureDied"; player: PlayerId; iid: string; /** Its name (a token is gone by then). */ name?: string; /** An artifact or enchantment going to the graveyard. */ noncreature?: true; sacrificed?: true }
   | { type: "cardsDiscarded"; player: PlayerId; iids: string[] }
   | { type: "conceded"; player: PlayerId }
   | { type: "gameWon"; player: PlayerId }

@@ -1,8 +1,9 @@
 "use client";
 
-import type { GameState, StackItem, TargetChoice } from "@mtg/engine";
+import { countFor } from "@mtg/engine";
+import type { CardDef, Effect, GameState, PlayerId, StackItem, TargetChoice } from "@mtg/engine";
 import { helpFor } from "./glossary";
-import { playerName } from "./log";
+import { playerName } from "./players";
 import { nameWithStats } from "./stats";
 
 /** A short plain-English explanation of what some rules text does (see glossary.ts). */
@@ -41,6 +42,43 @@ export function targetName(state: GameState, t: TargetChoice): string {
 
 export function itemName(state: GameState, item: StackItem): string {
   return item.kind === "spell" ? state.cards[item.card.defId].name : `${item.sourceName} ability`;
+}
+
+const SELF = /\bthis (?:creature|artifact|token|enchantment|land|vehicle|permanent)\b/gi;
+
+/** The card's own wording of a line the engine reads in lower case, so it keeps its capitals ("Blood tokens", "-X/-X", "Activate only as a sorcery"). */
+export function printedLine(text: string, def: CardDef | undefined): string {
+  if (!def?.text) return text;
+  const self = (s: string) => s.replace(SELF, "~").split(def.name).join("~");
+  const plain = (s: string) => self(s).replace(/\.$/, "").toLowerCase();
+  const line = def.text
+    .split("\n")
+    .map((l) => l.replace(/\s*\([^)]*\)/g, "").trim())
+    .find((l) => plain(l) === plain(text));
+  return line ? self(line).replace(/\.$/, "") : text;
+}
+
+/** A card by its name: for an ability whose source is gone (a sacrificed Blood token). */
+export const defNamed = (state: GameState, name: string): CardDef | undefined => Object.values(state.cards).find((d) => d.name === name);
+
+/** The card a permanent, or a card in a hand or graveyard, is, and who has it. */
+export function cardAt(state: GameState, iid: string): { def: CardDef; player: PlayerId } | null {
+  for (const p of Object.values(state.players)) {
+    const card = [...p.battlefield.map((x) => x.card), ...p.hand, ...p.graveyard].find((c) => c.iid === iid);
+    if (card) return { def: state.cards[card.defId], player: p.id };
+  }
+  return null;
+}
+
+/** A pump "for each" of something, worked out as things stand: "Right now: -2/-2 (Blood ×1)", or "...: it would do nothing" with none. */
+export function pumpNow(state: GameState, controller: PlayerId, effects: Effect[]): string | null {
+  const pump = effects.find((e) => e.type === "pump" && e.per !== undefined);
+  if (pump?.type !== "pump" || !pump.per) return null;
+  const n = countFor(state, controller, pump.per);
+  const signed = (each: number) => `${each < 0 ? "-" : "+"}${Math.abs(each * n)}`;
+  const per = pump.per;
+  const what = per.kind !== "permanents" ? null : per.what === "subtype" ? per.subtype : per.what === "landType" ? per.landType : per.what;
+  return `Right now: ${signed(pump.power)}/${signed(pump.toughness)}${what ? ` (${what.charAt(0).toUpperCase()}${what.slice(1)} ×${n})` : ""}${n === 0 ? ": it would do nothing" : ""}`;
 }
 
 /** What a spell does only when its optional extra cost (waterbend, kicker) was paid: "Whenever a creature dies this turn, you gain 1 life." */

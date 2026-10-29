@@ -5,8 +5,8 @@ import { readable } from "./cardText";
 export function splitAbility(text: string, cardName: string): { cost: string | null; effect: string } {
   const at = text.indexOf(": ");
   // a colon inside a loyalty cost ("+1: ...") or a mode list is not a cost separator
-  if (at <= 0 || /^[+-]?\d+$/.test(text.slice(0, at)) || at > 80) return { cost: null, effect: readable(text, cardName).replace(/x/g, "X") };
-  return { cost: text.slice(0, at), effect: readable(text.slice(at + 2), cardName).replace(/x/g, "X") };
+  if (at <= 0 || /^[+-]?\d+$/.test(text.slice(0, at)) || at > 80) return { cost: null, effect: readable(text, cardName).replace(/\bx\b/g, "X") };
+  return { cost: text.slice(0, at), effect: readable(text.slice(at + 2), cardName).replace(/\bx\b/g, "X") };
 }
 
 /** What you pay, as small chips: mana symbols, "Tap", "Sacrifice ~", "Discard a card"... Reads left to right, then an arrow to the effect. */

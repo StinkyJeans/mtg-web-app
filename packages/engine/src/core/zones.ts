@@ -90,7 +90,7 @@ export const isToken = (card: CardInstance) => (card.printed ?? card.defId).star
 const printedCard = (card: CardInstance): CardInstance => (card.printed ? { iid: card.iid, defId: card.printed, owner: card.owner } : card);
 
 /** A creature dies: it goes to its owner's graveyard and its "when this dies" abilities trigger. */
-export function putIntoGraveyard(state: GameState, perm: Permanent, controller: PlayerId, events: GameEvent[]): void {
+export function putIntoGraveyard(state: GameState, perm: Permanent, controller: PlayerId, events: GameEvent[], sacrificed = false): void {
   const battlefield = state.players[controller].battlefield;
   const at = battlefield.indexOf(perm);
   if (at < 0) return;
@@ -110,7 +110,7 @@ export function putIntoGraveyard(state: GameState, perm: Permanent, controller: 
   creatureMoved(state, perm, controller, "leaves");
   releaseHeld(state, perm);
   if (!isToken(perm.card)) state.players[perm.card.owner].graveyard.push(printedCard(perm.card));
-  events.push({ type: "creatureDied", player: controller, iid: perm.card.iid });
+  events.push({ type: "creatureDied", player: controller, iid: perm.card.iid, name: getCard(state, perm.card.defId).name, ...(creature ? {} : { noncreature: true as const }), ...(sacrificed ? { sacrificed: true as const } : {}) });
   queueTriggers(state, perm.card, controller, "dies", { died: lki }); // as it was on the battlefield ("if it was a creature")
   // "Whenever a Vampire you control dies" / "whenever this creature or another creature you control dies": the dying creature looks back too.
   if (creature) for (const other of [perm, ...battlefield]) queueTriggers(state, other.card, controller, "allyDies", { subtypes: types, self: other === perm });
@@ -228,7 +228,7 @@ function queueDeathLife(state: GameState): void {
 export function sacrificePermanent(state: GameState, perm: Permanent, controller: PlayerId, events: GameEvent[]): void {
   const token = isToken(perm.card);
   const watchers = Object.values(state.players).flatMap((pl) => pl.battlefield.map((p) => ({ card: p.card, owner: pl.id })));
-  putIntoGraveyard(state, perm, controller, events);
+  putIntoGraveyard(state, perm, controller, events, true);
   for (const { card, owner } of watchers) {
     queueTriggers(state, card, owner, "anySacrifice");
     if (owner === controller) queueTriggers(state, card, owner, "youSacrifice", { token });

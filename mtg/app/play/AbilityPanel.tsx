@@ -1,8 +1,9 @@
 "use client";
 
+import { parseCard } from "@mtg/engine";
 import type { Activatable, Crewable, Cyclable, GameState, LoyaltyOption } from "@mtg/engine";
 import { ManaText } from "./ManaSymbols";
-import { Help, readable } from "./cardText";
+import { cardAt, Help, printedLine, pumpNow, readable } from "./cardText";
 import { CostChips, lockHint, splitAbility } from "./abilityText";
 import type { ExileReason } from "./abilityInfo";
 
@@ -11,6 +12,20 @@ const cardName = (state: GameState, iid: string) => {
   const card = [...state.players.p1.hand, ...state.players.p2.hand].find((c) => c.iid === iid);
   return card ? state.cards[card.defId].name : "a card";
 };
+
+/** An ability as the card words it: what it costs as chips, then what it does, and a "for each" worked out as things stand. */
+function AbilityWords({ state, a }: { state: GameState; a: Activatable }) {
+  const at = cardAt(state, a.iid);
+  const name = at?.def.name ?? "a card";
+  const parts = splitAbility(printedLine(a.text, at?.def), name);
+  const now = at ? pumpNow(state, at.player, parseCard(at.def).activated[a.index]?.effects ?? []) : null;
+  return (
+    <span className="block pt-1">
+      {parts.cost && <CostChips cost={parts.cost} cardName={name} />} <span>{parts.effect}</span>
+      {now && <span className="block text-[15px] font-medium text-emerald-800">{now}</span>}
+    </span>
+  );
+}
 
 /** Abilities the player can use right now (tap to ping, pump, and so on). */
 export function AbilityPanel({
@@ -181,16 +196,7 @@ export function AbilityPanel({
             {Object.values(state.players).some((p) => p.hand.some((c) => c.iid === a.iid)) && <span className="ml-1 rounded bg-sky-100 px-1.5 text-sm text-sky-800">from hand</span>}
             {Object.values(state.players).some((p) => p.graveyard.some((c) => c.iid === a.iid)) && <span className="ml-1 rounded bg-stone-200 px-1.5 text-sm text-stone-700">from graveyard</span>}
             {a.maxX !== undefined && <span className="ml-1 rounded bg-orange-100 px-1.5 text-sm text-orange-800">you choose X (up to {a.maxX})</span>}
-            <span className="block pt-1">
-              {(() => {
-                const parts = splitAbility(a.text, nameOfPerm(a.iid));
-                return (
-                  <>
-                    {parts.cost && <CostChips cost={parts.cost} cardName={nameOfPerm(a.iid)} />} <span>{parts.effect}</span>
-                  </>
-                );
-              })()}
-            </span>
+            <AbilityWords state={state} a={a} />
             {warnings[`${a.iid}-${a.index}`] && <span className="ml-2 rounded bg-amber-100 px-1.5 py-0.5 text-sm font-semibold text-amber-800">⚠ {warnings[`${a.iid}-${a.index}`]}</span>}
             <Help text={a.text} large />
           </button>
