@@ -5,6 +5,7 @@ import type { CardDef, GameState, PlayerId } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
 import { useAnimationsOn } from "@/lib/motion";
 import { itemName, readable, targetName } from "./cardText";
+import { helpFor } from "./glossary";
 import { ManaText } from "./ManaSymbols";
 import { stackCard } from "./ResolveZone";
 import { liteMode } from "./perfTier";
@@ -22,6 +23,10 @@ interface Link {
   def?: CardDef;
   name: string;
   text: string;
+  /** What the special words in the text mean, in plain English (Flash, Ward, Landfall...). */
+  help: string[];
+  /** How and when this kind of card can be played, in one sentence. */
+  kind?: string;
   target: string;
   mine: boolean;
   gone: boolean; // no longer on the stack (it stays on screen until it has been seen)
@@ -51,6 +56,17 @@ export interface Flash {
 
 const FLASH_SHOW_MS = 3600;
 
+/** One plain sentence about the kind of thing this is, for someone who does not know the rules yet. */
+function kindLine(state: GameState, item: GameState["stack"][number]): string | undefined {
+  if (item.kind === "ability") return item.trigger ? "A triggered ability: it happens by itself when its condition is met, and goes on the stack above whatever is there." : "An ability: it is used by paying its cost, and it can be answered before it resolves.";
+  const def = state.cards[item.card.defId];
+  const kicked = item.kicked ? " (kicked: it does more)" : "";
+  if (def?.type === "instant") return `An instant${kicked}: it can be cast any time you have priority. The newest card on the chain happens first.`;
+  if (def?.type === "sorcery") return `A sorcery${kicked}: normally only in your own main phase, with nothing else on the stack.`;
+  if (def?.type === "creature") return "A creature spell: when it resolves it enters the battlefield. It can be countered while it is on the chain.";
+  return undefined;
+}
+
 export default function ChainFx({ state, actor, extra }: { state: GameState; actor: PlayerId; extra?: Flash | null }) {
   const on = useAnimationsOn();
   const sizeKey = useSyncExternalStore(subscribe, () => `${window.innerWidth}x${window.innerHeight}`, () => "1200x800");
@@ -75,7 +91,9 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
         n,
         def: stackCard(state, item),
         name: itemName(state, item),
-        text: item.kind === "ability" ? readable(item.text, item.sourceName) : (state.cards[item.card.defId]?.text ?? ""),
+        text: item.kind === "ability" ? readable(item.text, item.sourceName) : readable(state.cards[item.card.defId]?.text ?? "", state.cards[item.card.defId]?.name ?? ""),
+        help: helpFor(item.kind === "ability" ? item.text : (state.cards[item.card.defId]?.text ?? ""), 2),
+        kind: kindLine(state, item),
         target: item.targets.length > 0 ? item.targets.map((t) => targetName(state, t)).join(", ") : "",
         mine: item.controller === actor,
         gone: false,
@@ -99,7 +117,9 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
         n: top + items.length - i, // (the first to resolve was the top of the chain)
         def: a.defId ? state.cards[a.defId] : undefined,
         name: a.title,
-        text: [...(a.kind === "spell" && a.defId && state.cards[a.defId]?.text ? [state.cards[a.defId].text as string] : a.lines), ...(a.result ?? [])].join("\n"),
+        text: [...(a.kind === "spell" && a.defId && state.cards[a.defId]?.text ? [readable(state.cards[a.defId].text as string, state.cards[a.defId].name)] : a.lines), ...(a.result ?? [])].join("\n"),
+        help: helpFor([...a.lines, ...(a.defId ? [state.cards[a.defId]?.text ?? ""] : [])].join(" "), 2),
+        kind: a.kind === "trigger" ? "A triggered ability: it happens by itself when its condition is met, and goes on the stack above whatever is there." : undefined,
         target: "",
         mine: a.player === actor,
         gone: true,
@@ -162,7 +182,10 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
   const at = shown.map((_, i) =>
     phone ? { x: Math.round(-wide / 2 + cw / 2), y: Math.round((i - (m - 1) / 2) * rowH) } : { x: Math.round((i - (m - 1) / 2) * stepX), y: Math.round((i - (m - 1) / 2) * stepY) },
   );
-  const noteW = phone ? wide - cw - 12 : m > 1 ? Math.max(120, Math.min(cw + 24, stepX - 26)) : 280;
+  // A wide screen: the notes sit in one row under the cards (each as wide as the room allows); a phone: beside each card.
+  const noteW = phone ? wide - cw - 12 : Math.max(150, Math.min(270, Math.floor((vw * 0.92) / m) - 12));
+  const rowY = Math.round(Math.max(...at.map((a) => a.y), 0) + H / 2 + 16);
+  const originTop = vh * (phone ? 0.44 : 0.42);
   const live = links.some((l) => !l.leaving);
   const lite = liteMode();
 
@@ -233,13 +256,13 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
         })}
         {/* what each card does: its own flat layer (text inside a tilted, scaling card is drawn small and then stretched: blurry) */}
         {shown.map((l, i) => {
-          const x = phone ? Math.round(at[i].x + cw / 2 + 10) : Math.round(at[i].x - noteW / 2);
-          const y = phone ? Math.round(at[i].y - H / 2) : Math.round(at[i].y + H / 2 + 12);
+          const x = phone ? Math.round(at[i].x + cw / 2 + 10) : Math.round((i - (m - 1) / 2) * (noteW + 12) - noteW / 2);
+          const y = phone ? Math.round(at[i].y - H / 2) : rowY;
           return (
             <div
               key={`note-${l.id}`}
               className={`chain-note ${on ? (l.leaving ? "chain-note-out" : "chain-note-in") : ""}`}
-              style={{ width: noteW, transform: `translate(${x}px, ${y}px)`, zIndex: 40 + l.n, ...(phone ? { maxHeight: H } : {}), animationDelay: l.leaving ? undefined : `${l.fresh * STAGGER_MS + 450}ms` }}
+              style={{ width: noteW, transform: `translate(${x}px, ${y}px)`, zIndex: 40 + l.n, maxHeight: phone ? H : Math.max(120, Math.floor(vh - originTop - y - 12)), animationDelay: l.leaving ? undefined : `${l.fresh * STAGGER_MS + 450}ms` }}
             >
               <div className="chain-note-name">{l.name}</div>
               {l.text && (
@@ -248,6 +271,12 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
                 </p>
               )}
               {l.target && <p className="chain-note-target">Target: {l.target}</p>}
+              {l.kind && <p className="chain-note-kind">{l.kind}</p>}
+              {l.help.map((h, k) => (
+                <p key={k} className="chain-note-help">
+                  ⓘ {h}
+                </p>
+              ))}
             </div>
           );
         })}

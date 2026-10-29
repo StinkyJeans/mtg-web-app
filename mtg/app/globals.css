@@ -1282,3 +1282,7 @@ body:has(.game-modal, .victory-backdrop) .castable-glow::after { animation-play-
 .chain-note-text { display: -webkit-box; margin-top: 0.25rem; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 7; font-size: 15px; font-weight: 500; line-height: 1.4; white-space: pre-line; }
 .chain-note-target { margin-top: 0.25rem; font-size: 14px; font-weight: 700; color: #fde68a; }
 @media (max-width: 1023px) { .chain-note-name { font-size: 16px; } .chain-note-text { -webkit-line-clamp: 4; font-size: 14px; } }
+
+.chain-note-kind { margin-top: 0.35rem; border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 0.3rem; font-size: 13px; line-height: 1.35; color: #bae6fd; }
+.chain-note-help { display: -webkit-box; margin-top: 0.25rem; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; font-size: 13px; line-height: 1.35; color: #e2e8f0; }
+@media (max-width: 1023px) { .chain-note-kind { display: none; } .chain-note-help { -webkit-line-clamp: 3; } }
