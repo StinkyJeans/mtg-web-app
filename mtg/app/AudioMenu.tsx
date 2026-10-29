@@ -100,7 +100,7 @@ export default function AudioMenu() {
         className="flex items-center gap-1.5 rounded-md border border-amber-300/60 bg-amber-400/15 px-2 py-1 transition hover:bg-amber-400/25"
       >
         <span aria-hidden="true">♫</span>
-        <span className="font-semibold text-amber-100">{on ? track.name : "Music off"}</span>
+        <span className="font-semibold text-amber-100 max-[479px]:hidden">{on ? track.name : "Music off"}</span>
         <span aria-hidden="true" className="text-xs">
           ▾
         </span>

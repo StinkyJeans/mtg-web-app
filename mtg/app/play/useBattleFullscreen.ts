@@ -3,7 +3,11 @@
 import { useEffect, useRef, useSyncExternalStore } from "react";
 
 const supported = () => typeof document !== "undefined" && document.fullscreenEnabled === true;
-const enter = () => document.documentElement.requestFullscreen({ navigationUI: "hide" });
+const enter = () =>
+  document.documentElement.requestFullscreen({ navigationUI: "hide" }).then(() => {
+    // A phone in full screen can also be held to portrait (the battle is laid out for it); browsers that cannot just carry on.
+    if (matchMedia("(hover: none) and (pointer: coarse)").matches) void (screen.orientation as ScreenOrientation & { lock?: (o: string) => Promise<void> }).lock?.("portrait")?.catch(() => undefined);
+  });
 
 /**
  * Takes the page full screen while a battle is on, on any screen size, and leaves it when the player goes elsewhere.

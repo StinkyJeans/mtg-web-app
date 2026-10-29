@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { flushSync } from "react-dom";
 import {
@@ -26,6 +26,8 @@ import { dismissNotice, leaveRoom, send as netSend, useOnline } from "@/lib/onli
 import { Lightbox } from "./CardDetail";
 import { HoverDetail, HoverPreview } from "./HoverPanels";
 import { PREVIEW_W, setInspected, setPreview } from "./hoverStore";
+import { useTouch } from "./useMedia";
+import RotateHint from "./RotateHint";
 import type { Inspected } from "./CardDetail";
 import CoinFlip from "./CoinFlip";
 import EnterBattlefield from "./EnterBattlefield";
@@ -162,6 +164,16 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const background = useBattlefieldBackground(); // the picture behind the battlefield
   const look = useAppearance(online ? (net.game?.looks ?? null) : null); // each player's card sleeves and playmat (online: what each chose before the match)
   const [lookOpen, setLookOpen] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false); // phones: the side panels (chat, log, looks) are a menu over the board
+  const [peek, setPeek] = useState(false); // phones: the choice sheet is tucked away to see the board under it
+  // a new panel in the sheet (a different question) always opens it
+  const watchSheet = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const watch = new MutationObserver(() => setPeek(false));
+    watch.observe(el, { childList: true });
+    return () => watch.disconnect();
+  }, []);
+  const touch = useTouch(); // no mouse: nothing is "under" it, so no card is shown big on hover
   const [cursorOn, setCursorOn] = useCustomCursor();
   useBattleFullscreen(game !== null); // the battle fills the whole screen, whatever its size
   const fullscreen = useFullscreen();
@@ -785,6 +797,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
   /** Shows the card big next to the element the mouse is over: above it when there is room, otherwise below. */
   function showPreview(def: CardDef, el: HTMLElement) {
+    if (touch) return; // (a tap also "hovers" on a touch screen, and the big card would stay: a long press enlarges a card instead)
     const r = el.getBoundingClientRect();
     const h = PREVIEW_W * 1.4;
     const top = r.top - 8 - h >= 8 ? r.top - 8 - h : Math.min(r.bottom + 8, window.innerHeight - h - 8);
@@ -801,11 +814,21 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
 
   return (
     <main
-      className="battlefield-bg flex flex-col gap-2 p-2 text-zinc-900 lg:[--card-h:clamp(74px,11.8dvh,150px)] lg:h-[calc(100dvh-2.5rem)] lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_17rem] lg:overflow-hidden"
+      className="battlefield-bg flex h-[calc(100dvh-2.6rem)] flex-col gap-1.5 overflow-hidden p-1.5 text-zinc-900 [--card-h:clamp(60px,9.5dvh,110px)] lg:gap-2 lg:p-2 lg:[--card-h:clamp(74px,11.8dvh,150px)] lg:h-[calc(100dvh-2.5rem)] lg:grid lg:grid-cols-[15rem_minmax(0,1fr)_17rem]"
+      data-peek={peek ? "1" : undefined}
       style={{ "--bf-image": background.css, "--bf-dim": background.dim } as React.CSSProperties}
     >
       {/* Left: players, chat, log */}
-      <aside className="flex flex-col gap-2 lg:min-h-0 lg:overflow-y-auto">
+      <aside className="contents lg:flex lg:min-h-0 lg:flex-col lg:gap-2 lg:overflow-y-auto">
+        {/* On a phone these are a menu that covers the board; on a big screen they are the left column. */}
+        <div className={`${menuOpen ? "fixed inset-x-0 bottom-0 top-[2.6rem] z-40 flex flex-col gap-2 overflow-y-auto bg-slate-950/95 p-3" : "hidden"} lg:contents`}>
+        <div className="flex items-center justify-between lg:hidden">
+          <h2 className="font-display text-base font-bold uppercase tracking-widest text-white">Menu</h2>
+          <button onClick={() => setMenuOpen(false)} aria-label="Close the menu" className="flex h-11 w-11 items-center justify-center rounded-full border border-white/30 bg-white/10 text-2xl leading-none text-white">
+            ×
+          </button>
+        </div>
+        <p className="rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-slate-100 lg:hidden">Tip: press and hold any card to see it big.</p>
         <button
           onClick={() => setLookOpen(true)}
           className="flex w-full items-center justify-between rounded-xl border border-white/40 bg-slate-950/55 px-3 py-2 text-left font-display text-xs font-bold uppercase tracking-wide text-white shadow-sm hover:bg-slate-900/70"
@@ -835,17 +858,34 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           />
         )}
         <LogPanel lines={log} />
+        <div className="lg:hidden">
+          <KeepRandomDecks decks={{ [actor]: playedDecks[actor] }} saved={savedDecks} onSaved={keepDeck} label={() => "Save my random deck"} />
+        </div>
+        {!watching && !state.winner && (
+          <button onClick={() => (setMenuOpen(false), setResigning(actor))} className="rounded-xl border border-red-400/60 bg-red-950/40 px-3 py-2.5 text-sm font-bold text-red-200 lg:hidden">
+            Resign
+          </button>
+        )}
+        </div>
         {/* You: bottom left */}
-        <div className="shrink-0">
-          <PlayersPanel state={state} order={[actor]} actor={actor} onResign={watching ? undefined : setResigning} heading={watching ? "Player" : "You"} manaNotes={manaNote} />
-          <KeepRandomDecks className="mt-2" decks={{ [actor]: playedDecks[actor] }} saved={savedDecks} onSaved={keepDeck} label={() => "Save my random deck"} />
+        <div className="order-3 flex shrink-0 items-stretch gap-1.5 lg:order-none lg:block">
+          <div className="min-w-0 flex-1">
+            <PlayersPanel state={state} order={[actor]} actor={actor} onResign={watching ? undefined : setResigning} heading={watching ? "Player" : "You"} manaNotes={manaNote} />
+            <div className="max-lg:hidden">
+              <KeepRandomDecks className="mt-2" decks={{ [actor]: playedDecks[actor] }} saved={savedDecks} onSaved={keepDeck} label={() => "Save my random deck"} />
+            </div>
+          </div>
+          <button onClick={() => setMenuOpen(true)} aria-label="Open the menu: chat, log and settings" className="flex w-12 shrink-0 flex-col items-center justify-center gap-0.5 rounded-lg border border-white/30 bg-slate-950/60 text-white lg:hidden">
+            <span className="text-xl leading-none" aria-hidden="true">☰</span>
+            <span className="text-[11px] font-bold uppercase tracking-wide">Menu</span>
+          </button>
         </div>
       </aside>
 
       {lookOpen && <AppearanceDialog look={look} cursor={{ on: cursorOn, set: setCursorOn }} onClose={() => setLookOpen(false)} first={actor} />}
 
       {/* Center: the battle */}
-      <section className="flex flex-col gap-1.5 lg:min-h-0 lg:[--hand-h:clamp(74px,11.8dvh,150px)] lg:has-[.action-box>*]:[--hand-h:clamp(58px,9dvh,110px)]">
+      <section className="order-2 flex min-h-0 flex-1 flex-col gap-1.5 lg:order-none lg:flex-initial lg:[--hand-h:clamp(74px,11.8dvh,150px)] lg:has-[.action-box>*]:[--hand-h:clamp(58px,9dvh,110px)]">
         <Battlefield
           owner={other}
           top
@@ -898,7 +938,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         {!watching && <StepBanner state={state} actor={actor} waiting={online && !mine} error={error} abilityCount={abilityCount} abilityLocked={abilityLocked} onOpenAbilities={() => setAbilitiesOpen(true)} />}
 
         {/* Panels that appear while something needs an answer. They share a box that scrolls on its own, so the board never moves. */}
-        <div className="action-box flex max-h-[34dvh] shrink-0 flex-col gap-1.5 overflow-y-auto empty:hidden">
+        <button onClick={() => setPeek((v) => !v)} className="peek-btn shrink-0 rounded-lg border border-white/30 bg-slate-950/70 py-1.5 text-sm font-bold text-white">
+          {peek ? "▴ Show the choices" : "▾ Hide the choices to see the board"}
+        </button>
+        <div ref={watchSheet} className="action-box flex max-h-[34dvh] shrink-0 flex-col gap-1.5 overflow-y-auto empty:hidden">
         {mine && state.phase === "blockers" && !state.priority && !state.pendingChoice && !state.pendingPick && <BlockPanel state={state} actor={actor} blocks={blocks} picked={picked} onChange={(b) => { setBlocks(b); setPicked(null); }} onPicked={setPicked} />}
 
         <AttackTargetsPanel state={state} actor={actor} attacking={attacking} targets={attackTargets} onChange={setAttackTargets} />
@@ -1003,7 +1046,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         {!watching && (
         // Only the hand gets smaller while a choice panel is open or in combat: the battlefields are fitted by FitToHeight, so making their
         // cards smaller too (as this once did) meant laying out the whole board again for every phase.
-        <div className="contents lg:[--card-h:var(--hand-h)]" style={state.phase === "attackers" ? ({ "--card-h": "clamp(60px, 10.5dvh, 130px)" } as React.CSSProperties) : state.phase === "blockers" ? ({ "--card-h": "clamp(56px, 9dvh, 110px)" } as React.CSSProperties) : undefined}>
+        <div className="contents [--card-h:clamp(66px,11dvh,120px)] lg:[--card-h:var(--hand-h)]" style={state.phase === "attackers" ? ({ "--card-h": "clamp(60px, 10.5dvh, 130px)" } as React.CSSProperties) : state.phase === "blockers" ? ({ "--card-h": "clamp(56px, 9dvh, 110px)" } as React.CSSProperties) : undefined}>
         <Side label={`${playerName(actor)}'s hand`} tone="emerald">
           <HandRow
             state={state}
@@ -1024,12 +1067,12 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       </section>
 
       {/* Right: the card under the mouse, big */}
-      <aside className="flex flex-col gap-2 lg:min-h-0">
+      <aside className="contents lg:flex lg:min-h-0 lg:flex-col lg:gap-2">
         {/* Your opponent: top right */}
-        <div className="shrink-0">
+        <div className="order-1 shrink-0 lg:order-none">
           <PlayersPanel state={state} order={[other]} actor={actor} onResign={online ? undefined : setResigning} heading={watching ? "Player" : "Opponent"} manaNotes={manaNote} />
         </div>
-        <div className="min-h-0 flex-1 lg:overflow-y-auto">
+        <div className="hidden min-h-0 flex-1 lg:block lg:overflow-y-auto">
           <HoverDetail />
         </div>
       </aside>
@@ -1102,6 +1145,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         </div>
       )}
 
+      <RotateHint />
       {welcome && <WelcomeSplash />}
       {stageSeen && !stageDone && !intro && !welcome && state.opening?.shuffled && (
         <ShuffleStage

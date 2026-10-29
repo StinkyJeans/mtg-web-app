@@ -18,21 +18,21 @@ export function Side({ label, children, player, tone, grow, mat, zones, overlay,
     return (
       <section
         data-mat={player}
-        className={`playmat relative flex flex-col gap-1 rounded-2xl border-2 border-black/60 px-3 py-1.5 text-white ${grow ? "min-h-0 flex-1 overflow-hidden" : "shrink-0"}`}
+        className={`playmat relative flex flex-col gap-1 rounded-2xl border-2 border-black/60 px-1.5 py-1 text-white lg:px-3 lg:py-1.5 ${grow ? "min-h-0 flex-1 overflow-hidden" : "shrink-0"}`}
         style={life !== undefined ? { background: "#0b0a0f" } : { background: `linear-gradient(rgba(0,0,0,0.2), rgba(0,0,0,0.2)), ${mat}` }}
       >
         {life !== undefined && <MatTear life={life} mat={mat} seed={player === "p2" ? 7 : 3} />}
-        <h2 className="relative z-[1] flex items-center gap-2 font-display text-sm font-bold uppercase tracking-widest text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.8)]">
+        <h2 className="relative z-[1] flex items-center gap-2 font-display text-sm max-lg:sr-only font-bold uppercase tracking-widest text-white [text-shadow:0_1px_3px_rgba(0,0,0,0.8)]">
           {style && <span className={`inline-block h-3 w-3 rounded-full ring-2 ring-white/70 ${style.bar}`} aria-hidden="true" />}
           {label}
         </h2>
         {/* Notices (what the other player just cast) float over the mat, so they never squeeze the cards. */}
-        {overlay && <div className="pointer-events-none absolute inset-x-4 top-9 z-20 flex flex-col gap-1.5 lg:right-48">{overlay}</div>}
-        <div className="relative z-[1] flex min-h-0 flex-1 gap-3">
+        {overlay && <div className="pointer-events-none absolute inset-x-2 top-2 z-20 lg:inset-x-4 lg:top-9 flex flex-col gap-1.5 lg:right-48">{overlay}</div>}
+        <div className="relative z-[1] flex min-h-0 flex-1 gap-1.5 lg:gap-3">
           <FitToHeight className="flex-1">{children}</FitToHeight>
           {zones && (
             // the library, graveyard and exile share the whole height of the mat, and scale with it (a choice panel makes the mat shorter, for example)
-            <div className="flex min-h-0 w-44 shrink-0 flex-col gap-1.5 rounded-xl border-2 border-dashed border-white/30 bg-black/25 p-1.5">{zones}</div>
+            <div className="flex min-h-0 w-[4.5rem] shrink-0 flex-col gap-1 rounded-xl border-2 border-dashed border-white/30 bg-black/25 p-1 lg:w-44 lg:gap-1.5 lg:p-1.5">{zones}</div>
           )}
         </div>
       </section>
@@ -41,11 +41,11 @@ export function Side({ label, children, player, tone, grow, mat, zones, overlay,
   const tray = tone === "emerald";
   return (
     <section
-      className={`relative flex flex-col gap-1.5 rounded-2xl border-2 px-3 py-2 shadow-lg ${grow ? "min-h-0 flex-1 overflow-y-auto" : "shrink-0"} ${
+      className={`relative flex flex-col gap-1.5 rounded-2xl border-2 px-1.5 py-1 shadow-lg lg:px-3 lg:py-2 ${grow ? "min-h-0 flex-1 overflow-y-auto" : "shrink-0"} ${
         tray ? "border-[#6ee7b7]/50 bg-slate-950/65 text-white" : style ? `${style.border} ${style.borderL} ${style.soft}` : "border-zinc-200 border-l-zinc-400 bg-white/70"
       }`}
     >
-      <h2 className={`flex items-center gap-2 font-display text-xs font-bold uppercase tracking-widest ${tray ? "text-[#a7f3d0]" : "text-zinc-600"}`}>
+      <h2 className={`flex items-center gap-2 font-display text-xs font-bold uppercase tracking-widest max-lg:sr-only ${tray ? "text-[#a7f3d0]" : "text-zinc-600"}`}>
         {style && <span className={`inline-block h-2.5 w-2.5 rounded-full ${style.bar}`} aria-hidden="true" />}
         {label}
       </h2>
@@ -56,7 +56,7 @@ export function Side({ label, children, player, tone, grow, mat, zones, overlay,
 
 /** The line between a player's creatures and lands, labelled on the side where the lands are. */
 export function LandsDivider({ landsBelow, onMat }: { landsBelow: boolean; onMat?: boolean }) {
-  const label = <span className={`font-display text-[10px] font-semibold uppercase tracking-widest ${onMat ? "text-white/70 [text-shadow:0_1px_2px_rgba(0,0,0,0.7)]" : "text-zinc-500"}`}>Lands &amp; artifacts</span>;
+  const label = <span className={`font-display text-[11px] font-semibold uppercase tracking-widest ${onMat ? "text-white/70 [text-shadow:0_1px_2px_rgba(0,0,0,0.7)]" : "text-zinc-500"}`}>Lands &amp; artifacts</span>;
   return (
     <div className="flex flex-col gap-0.5" role="separator" aria-label="Lands are on this side of the line">
       {!landsBelow && label}
@@ -246,7 +246,7 @@ export function Battlefield({
 function CombatZone({ perms, attackingSide, lane, interaction }: { perms: Permanent[]; attackingSide: boolean; lane: LaneContext; interaction: Interaction }) {
   return (
     <div className={`flex flex-col gap-1 rounded-lg border-2 border-dashed px-2 py-1 ${attackingSide ? "border-red-400 bg-[#450a0a]/45" : "border-sky-400 bg-[#082f49]/45"}`}>
-      <div className={`flex items-center gap-2 text-[10px] font-extrabold uppercase font-display tracking-widest ${attackingSide ? "text-[#fecaca]" : "text-[#bae6fd]"}`}>
+      <div className={`flex items-center gap-2 text-[11px] font-extrabold uppercase font-display tracking-widest ${attackingSide ? "text-[#fecaca]" : "text-[#bae6fd]"}`}>
         {attackingSide ? "⚔ Attack zone" : "🛡 Block zone"}
         {perms.length > 0 && <span>({perms.length})</span>}
         {perms.length === 0 && <span className="font-medium normal-case tracking-normal text-slate-200">{attackingSide ? "Click a glowing creature to move it here and attack with it." : "Click one of your creatures, then the attacker it should block."}</span>}

@@ -25,13 +25,13 @@ export default function StepBanner({ state, actor, waiting, error, abilityCount,
   if (state.winner) return null;
   const b = BANNER[bannerMode(state)];
   return (
-    <div className={`flex shrink-0 items-center gap-2.5 rounded-xl border px-3.5 py-2 shadow-sm ${b.box}`}>
-      <span className="text-2xl" aria-hidden="true">
+    <div className={`flex shrink-0 items-center gap-2 rounded-xl border px-2.5 py-1.5 shadow-sm lg:gap-2.5 lg:px-3.5 lg:py-2 ${b.box}`}>
+      <span className="text-xl lg:text-2xl" aria-hidden="true">
         {b.icon}
       </span>
-      <div className="min-w-0 flex-1 text-[15px] leading-snug">
-        <span className="mr-2.5 text-xs font-extrabold uppercase font-display tracking-widest">{b.label}</span>
-        <span className="font-semibold">{hintFor(state, actor, waiting)}</span>
+      <div className="min-w-0 flex-1 text-sm leading-snug lg:text-[15px]">
+        <span className="mr-2 text-xs font-extrabold uppercase font-display tracking-widest">{b.label}</span>
+        <span className="font-semibold max-lg:line-clamp-3">{hintFor(state, actor, waiting)}</span>
       </div>
       {error && (
         <span className="rounded-lg bg-red-600 px-3 py-1 text-sm font-semibold text-white shadow">
@@ -93,7 +93,9 @@ function LandsPlayed({ state, actor }: { state: GameState; actor: PlayerId }) {
     <Tip text={used ? `${playerName(actor)} already played a land this turn. Only ${MAX_LANDS_PER_TURN} land can be played per turn.` : `You can still play ${MAX_LANDS_PER_TURN - played} land this turn${hasLand ? "" : " (but there is no land in your hand)"}.`}>
       <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-bold ${used ? "bg-zinc-300 text-zinc-700" : hasLand ? "bg-emerald-100 text-emerald-800 ring-1 ring-emerald-400" : "bg-zinc-100 text-zinc-500"}`}>
         <i className="ms ms-land" aria-hidden="true" />
-        Land played: {played}/{MAX_LANDS_PER_TURN} {used ? "✓" : ""}
+        <span className="max-lg:hidden">Land played: </span>
+        <span className="lg:hidden">Land </span>
+        {played}/{MAX_LANDS_PER_TURN} {used ? "✓" : ""}
       </span>
     </Tip>
   );

@@ -32,11 +32,34 @@ function ManaPip({ source }: { source: ManaSource }) {
  * A player's mana: how much they can still spend, one pip per permanent that makes mana (faded once tapped, dashed while it can't
  * be used yet), and for a few seconds after it changes, by how much and why ("−2 paid for Become Immense").
  */
-export function ManaMeter({ state, id, note }: { state: GameState; id: PlayerId; note?: ManaNote }) {
+export function ManaMeter({ state, id, note, compact }: { state: GameState; id: PlayerId; note?: ManaNote; compact?: boolean }) {
   const sources = manaSources(state, id);
   const usable = sources.filter((s) => !s.sick);
   const ready = usable.filter((s) => !s.tapped).reduce((n, s) => n + s.amount, 0);
   const total = usable.reduce((n, s) => n + s.amount, 0);
+  if (compact) {
+    // one line: the number, then the pips (they scroll sideways when there are many)
+    return (
+      <div className="mt-1 flex items-center gap-1.5">
+        <span className="shrink-0 text-[13px] font-semibold text-zinc-700">Mana</span>
+        <span data-mana={id} className="font-display shrink-0 text-lg font-bold leading-none tabular-nums text-zinc-900">
+          {ready}
+        </span>
+        <span className="shrink-0 text-[13px] text-zinc-500">/ {total}</span>
+        <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto">
+          {sources.length === 0 && <span className="text-[13px] text-zinc-500">no mana sources yet</span>}
+          {sources.map((s) => (
+            <ManaPip key={s.iid} source={s} />
+          ))}
+        </div>
+        {note && (
+          <span key={note.key} className={`mana-note shrink-0 rounded px-1.5 py-0.5 text-[13px] font-bold ${note.delta < 0 ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700"}`}>
+            {note.delta > 0 ? `+${note.delta}` : `−${-note.delta}`}
+          </span>
+        )}
+      </div>
+    );
+  }
   return (
     <div className="mt-2 flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">

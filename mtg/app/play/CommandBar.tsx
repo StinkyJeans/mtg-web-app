@@ -114,13 +114,13 @@ export default function CommandBar({ state, actor, mine, primary, skipping, conf
   return (
     <section className={`shrink-0 overflow-hidden rounded-xl border bg-white shadow-md ${PLAYER_STYLE[actor].border}`}>
       <div className={`h-1 bg-gradient-to-r ${PLAYER_STYLE[actor].gradient}`} />
-      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1.5 px-3 py-1.5">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1 px-2 py-1 lg:gap-y-1.5 lg:px-3 lg:py-1.5">
         <div className="flex items-center gap-2">
           <div className="rounded-lg bg-slate-900 px-2.5 py-0.5 text-center text-white shadow">
             <div className="text-[8px] uppercase font-display tracking-widest text-zinc-400">Turn</div>
             <div className="text-lg font-extrabold leading-none">{state.turn}</div>
           </div>
-          <div className="leading-tight">
+          <div className="leading-tight max-lg:hidden">
             <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${PLAYER_STYLE[actor].chip}`}>{playerName(actor)}</span>
             <div className="mt-0.5 text-xs font-semibold text-zinc-800">{PHASE_TEXT[state.phase] ?? "to act"}</div>
           </div>
@@ -140,7 +140,7 @@ export default function CommandBar({ state, actor, mine, primary, skipping, conf
             ))}
           {showEndTurn && !state.winner && (
             <Tip text={onlyLandsLeft ? "Nothing but lands left to play: skip the rest of this turn and pass it to your opponent." : "Skip the rest of this turn and pass it to your opponent."}>
-              <button onClick={onEndTurn} className="rounded-xl border-2 border-zinc-300 bg-white px-3 py-1 text-sm font-semibold text-zinc-700 transition hover:border-zinc-400 hover:bg-zinc-50">
+              <button onClick={onEndTurn} className="rounded-xl border-2 border-zinc-300 bg-white px-3 py-1 text-sm font-semibold text-zinc-700 max-lg:min-h-11 transition hover:border-zinc-400 hover:bg-zinc-50">
                 {onlyLandsLeft ? "Pass turn" : "End turn"}
               </button>
             </Tip>
@@ -150,7 +150,7 @@ export default function CommandBar({ state, actor, mine, primary, skipping, conf
               <button
                 onClick={() => onAct({ type: "mulligan" })}
                 disabled={mulligansTaken >= MAX_MULLIGANS}
-                className="rounded-xl border-2 border-indigo-300 bg-white px-3 py-1 text-sm font-semibold text-indigo-800 transition hover:bg-indigo-50 disabled:opacity-40"
+                className="rounded-xl border-2 border-indigo-300 bg-white px-3 py-1 text-sm font-semibold text-indigo-800 max-lg:min-h-11 transition hover:bg-indigo-50 disabled:opacity-40"
               >
                 Mulligan
               </button>
@@ -172,7 +172,7 @@ function PhaseSteps({ phase }: { phase: GameState["phase"] }) {
         <li
           key={id}
           className={`font-display flex items-center gap-1 rounded-full px-2 py-0.5 text-[12.5px] font-semibold tracking-wide transition ${
-            i === at ? "bg-amber-400 text-black shadow ring-2 ring-amber-300" : i < at ? "bg-emerald-100 text-emerald-700" : "bg-zinc-100 text-zinc-400"
+            i === at ? "bg-amber-400 text-black shadow ring-2 ring-amber-300" : i < at ? "bg-emerald-100 text-emerald-700 max-lg:hidden" : "bg-zinc-100 text-zinc-400 max-lg:hidden"
           }`}
         >
           {i < at && <span aria-hidden="true">✓</span>}
@@ -188,7 +188,7 @@ function PrimaryButton({ primary, tip, disabled, onClick }: { primary: Primary; 
     <button
       onClick={onClick}
       disabled={disabled}
-      className="rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-4 py-1.5 text-sm font-extrabold text-black shadow-md shadow-amber-500/40 transition hover:-translate-y-0.5 hover:shadow-lg active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:translate-y-0"
+      className="rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-4 py-2 text-sm font-extrabold max-lg:min-h-11 text-black shadow-md shadow-amber-500/40 transition hover:-translate-y-0.5 hover:shadow-lg active:translate-y-px disabled:cursor-not-allowed disabled:opacity-40 disabled:shadow-none disabled:hover:translate-y-0"
     >
       {primary.label}
     </button>

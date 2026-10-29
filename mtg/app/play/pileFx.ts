@@ -178,8 +178,9 @@ function waitForPlayer(outer: HTMLElement, middle: { x: number; y: number }, fro
     const backdrop = document.createElement("div");
     Object.assign(backdrop.style, { position: "fixed", inset: "0", zIndex: "69", background: "rgba(0,0,0,.45)", cursor: "pointer" });
     const hint = document.createElement("div");
-    hint.textContent = "Click the card to see it big. Click anywhere else to put it in your hand.";
-    Object.assign(hint.style, { position: "fixed", left: "0", right: "0", bottom: "24px", textAlign: "center", color: "#fff", fontSize: "14px", textShadow: "0 1px 4px #000" });
+    const touch = window.matchMedia("(hover: none)").matches;
+    hint.textContent = touch ? "Tap the card to see it big. Tap anywhere else to put it in your hand." : "Click the card to see it big. Click anywhere else to put it in your hand.";
+    Object.assign(hint.style, { position: "fixed", left: "12px", right: "12px", bottom: "24px", margin: "0 auto", maxWidth: "30rem", padding: "10px 14px", borderRadius: "12px", background: "rgba(0,0,0,.72)", textAlign: "center", color: "#fff", fontSize: touch ? "16px" : "14px", lineHeight: "1.35", textShadow: "0 1px 4px #000" });
     backdrop.appendChild(hint);
     document.body.appendChild(backdrop);
 

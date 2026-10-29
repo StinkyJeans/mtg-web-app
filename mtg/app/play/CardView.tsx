@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, useRef } from "react";
 import type { CardDef } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
 import { isTokenDef, useTokenArt } from "@/lib/tokenArt";
@@ -66,6 +66,49 @@ interface Props {
   onZoom?: () => void;
 }
 
+const HOLD_MS = 450;
+
+/**
+ * Touch screens have no hover and no right-click: pressing a card and holding it (without moving, which would be a scroll) enlarges it,
+ * and the click that follows the release is not a click on the card. Everything else about the card is the same.
+ */
+function useHold(onZoom: (() => void) | undefined, onClick: (() => void) | undefined) {
+  const timer = useRef(0);
+  const start = useRef<{ x: number; y: number } | null>(null);
+  const held = useRef(false);
+  const stop = () => {
+    window.clearTimeout(timer.current);
+    start.current = null;
+  };
+  return {
+    onPointerDown: (e: React.PointerEvent) => {
+      if (e.pointerType !== "touch" || !onZoom) return;
+      held.current = false;
+      start.current = { x: e.clientX, y: e.clientY };
+      timer.current = window.setTimeout(() => {
+        held.current = true;
+        start.current = null;
+        navigator.vibrate?.(15);
+        onZoom();
+      }, HOLD_MS);
+    },
+    onPointerMove: (e: React.PointerEvent) => {
+      const from = start.current;
+      if (from && Math.hypot(e.clientX - from.x, e.clientY - from.y) > 10) stop();
+    },
+    onPointerUp: stop,
+    onPointerCancel: stop,
+    onPointerLeave: stop,
+    onClick: () => {
+      if (held.current) {
+        held.current = false;
+        return;
+      }
+      onClick?.();
+    },
+  };
+}
+
 /** "+1/+1 ×2", and "☣ Infected −1/−1 ×1" in poison green. */
 function CounterChips({ plus = 0, minus = 0, infected = false }: NonNullable<Props["counters"]>) {
   if (plus <= 0 && minus <= 0) return null;
@@ -90,6 +133,7 @@ function CounterChips({ plus = 0, minus = 0, infected = false }: NonNullable<Pro
 }
 
 function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness, tags, counters, castable, castLabel, dim, hint, ring = "", note, size = "sm", iid, attacking, onClick, onHover, onZoom }: Props) {
+  const hold = useHold(onZoom, onClick);
   const tokenArt = useTokenArt(def); // tokens have no stored art: it comes from Scryfall
   const imageUrl = def.image ? cardImageUrl(def.image) : tokenArt?.small || null;
   const tokenFrame = !imageUrl && isTokenDef(def); // a token Scryfall has no picture of: we draw the card ourselves
@@ -111,7 +155,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
   const badge = combat ? (
     <span className={`absolute left-1 top-1 z-10 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold shadow ${COMBAT_BADGE[combat.tone] ?? "bg-zinc-700 text-white"}`}>{combat.label}</span>
   ) : castable ? (
-    <span className={`absolute left-1 top-1 z-10 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white shadow ${castLabel ? "bg-amber-600" : "bg-emerald-500"}`}>{castLabel ?? "✓ Castable"}</span>
+    <span className={`absolute left-1 top-1 z-10 whitespace-nowrap rounded-full px-1.5 py-0.5 text-[10px] font-bold text-white shadow ${castLabel ? "bg-amber-600" : "bg-emerald-500"}`}>{castLabel ?? <><span aria-hidden="true">✓</span><span className="max-lg:sr-only"> Castable</span></>}</span>
   ) : null;
 
   // Real card art already shows name, cost, text and P/T: only add the live game status on top.
@@ -121,7 +165,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
         type="button"
         data-card-iid={iid}
         data-tint={def.colors?.[0]}
-        onClick={onClick}
+        {...hold}
         onMouseEnter={onHover}
         onContextMenu={onZoom && ((e) => (e.preventDefault(), onZoom()))}
         onFocus={onHover}
@@ -164,7 +208,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
       type="button"
       data-card-iid={iid}
       data-tint={def.colors?.[0]}
-      onClick={onClick}
+      {...hold}
       onMouseEnter={onHover}
       onContextMenu={onZoom && ((e) => (e.preventDefault(), onZoom()))}
       onFocus={onHover}

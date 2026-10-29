@@ -36,7 +36,7 @@ export function AttackTargetsPanel({
         const attacker = state.players[actor].battlefield.find((p) => p.card.iid === iid)!;
         return (
           <label key={iid} className="flex items-center gap-2 text-sm">
-            <span className="w-40 truncate font-semibold">{state.cards[attacker.card.defId].name}</span>
+            <span className="w-28 truncate font-semibold sm:w-40">{state.cards[attacker.card.defId].name}</span>
             <select
               value={targets[iid] ?? ""}
               onChange={(e) => onChange(e.target.value ? { ...targets, [iid]: e.target.value } : Object.fromEntries(Object.entries(targets).filter(([k]) => k !== iid)))}
@@ -97,7 +97,7 @@ export function DamagePanel({
               const label = b ? state.cards[b.card.defId].name : `${playerName(trampleTo!)} (trample)`;
               return (
                 <div key={id} className="flex items-center gap-2 text-sm">
-                  <span className="w-40 truncate">{label}</span>
+                  <span className="w-28 truncate sm:w-40">{label}</span>
                   {b && <span className="rounded bg-zinc-900 px-1.5 text-xs font-bold text-white" title="Power / toughness now">{ptText(state, b)}</span>}
                   {lethal !== null && <span className="text-xs text-zinc-500">{lethal} kills it</span>}
                   <button

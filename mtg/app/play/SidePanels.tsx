@@ -9,6 +9,7 @@ import type { ManaNote } from "./manaInfo";
 import { playerName } from "./log";
 import { lifeBusyUntil, registerLife } from "./lifeCount";
 import { useUnseenCards } from "./pileFx";
+import { useStacked } from "./useMedia";
 import { lifeColor, PLAYER_STYLE } from "./theme";
 
 export interface ChatMessage {
@@ -72,7 +73,7 @@ function LifeTotal({ id, value }: { id: PlayerId; value: number }) {
   return (
     <span ref={wrap} className="relative inline-flex items-center justify-center">
       {danger > 0 && <span aria-hidden="true" className={`life-halo ${danger === 2 ? "life-halo-red" : "life-halo-amber"} ${on ? "life-halo-moving" : ""}`} />}
-      <span ref={number} data-life={id} className={`font-display relative inline-block text-4xl font-bold tabular-nums ${danger === 2 ? "text-red-600 life-pump" : danger === 1 ? "text-amber-600" : "text-emerald-700"} ${danger === 2 && on ? "life-pump-moving" : ""}`}>
+      <span ref={number} data-life={id} className={`font-display relative inline-block text-3xl font-bold tabular-nums lg:text-4xl ${danger === 2 ? "text-red-600 life-pump" : danger === 1 ? "text-amber-600" : "text-emerald-700"} ${danger === 2 && on ? "life-pump-moving" : ""}`}>
         {shown}
       </span>
     </span>
@@ -99,6 +100,46 @@ function PlayersPanelInner({
   onResign?: (id: PlayerId) => void;
 }) {
   const unseen = { p1: useUnseenCards("p1"), p2: useUnseenCards("p2") }; // (the opening hands are dealt on screen: the libraries count down)
+  const stacked = useStacked();
+  if (stacked) {
+    // A phone has no room for a column of panels: each player is a short card (name and life, then mana, then the pile sizes).
+    return (
+      <div className="flex flex-col gap-1">
+        {order.map((id) => {
+          const p = state.players[id];
+          const style = PLAYER_STYLE[id];
+          const acting = id === actor;
+          return (
+            <div key={id} className={`rounded-xl border border-l-4 bg-white px-2.5 py-1.5 shadow-sm ${style.border} ${style.borderL} ${acting ? `shadow-lg ${style.glow} ring-2 ring-amber-300` : ""}`}>
+              <div className="flex items-center gap-1.5">
+                <span title={playerName(id)} className={`font-display min-w-0 max-w-[34%] truncate rounded-full px-2.5 py-0.5 text-[15px] font-bold ${style.chip}`}>
+                  {playerName(id)}
+                </span>
+                {acting && <span className="shrink-0 whitespace-nowrap rounded bg-amber-400 px-1.5 py-0.5 text-[11px] font-extrabold uppercase font-display tracking-wide text-black">to act</span>}
+                <span className="ml-auto flex shrink-0 items-center gap-1.5">
+                  <span className="flex gap-1 text-[13px] text-zinc-600">
+                    <span className="rounded bg-emerald-50 px-1" title="Cards in hand">✋<b>{p.hand.length}</b></span>
+                    <span className="rounded bg-amber-50 px-1" title="Cards in library">📚<b>{p.library.length + unseen[id]}</b></span>
+                    <span className="rounded bg-stone-100 px-1" title="Cards in graveyard">⚰️<b>{p.graveyard.length}</b></span>
+                  </span>
+                  {(p.poison ?? 0) > 0 && (
+                    <span data-poison={id} className={`rounded px-1.5 py-0.5 text-[13px] font-bold tabular-nums ${(p.poison ?? 0) >= 7 ? "bg-lime-200 text-lime-900" : "bg-lime-100 text-lime-800"}`}>
+                      ☠️ {p.poison}/10
+                    </span>
+                  )}
+                  <span className="text-xl" aria-hidden="true">
+                    ❤️
+                  </span>
+                  <LifeTotal id={id} value={p.life} />
+                </span>
+              </div>
+              <ManaMeter state={state} id={id} note={manaNotes[id]} compact />
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
   return (
     <section className={panel}>
       <h2 className={title}>{heading}</h2>
