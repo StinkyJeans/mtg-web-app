@@ -1,7 +1,7 @@
 "use client";
 
 import { MatTear } from "./MatTear";
-import { gainedKeywords } from "@mtg/engine";
+import { gainedKeywords, wardOf } from "@mtg/engine";
 import type { CardDef, GameState, Permanent, PlayerId } from "@mtg/engine";
 import type { Inspected } from "./CardDetail";
 import CardView from "./CardView";
@@ -75,6 +75,8 @@ const statusOf = (state: GameState, p: Permanent, creature: boolean) =>
     p.damage > 0 && `${p.damage} damage`,
     p.counters && `${p.counters} +1/+1 counter${p.counters === 1 ? "" : "s"}`,
     p.minusCounters && `${p.infected ? "Infected: " : ""}${p.minusCounters} -1/-1 counter${p.minusCounters === 1 ? "" : "s"}`,
+    p.stun && `${p.stun} stun counter${p.stun === 1 ? "" : "s"}: stays tapped through its next ${p.stun === 1 ? "untap" : `${p.stun} untaps`}`,
+    wardOf(state, p)?.text,
   ].filter(Boolean) as string[];
 
 /** One row of permanents (lands or creatures). */
@@ -113,7 +115,6 @@ export function Lane({
     const tags = [
       ...(host ? [`On: ${state.cards[host.card.defId].name}`] : []),
       ...attached.map((a) => `+ ${state.cards[a.card.defId].name}`),
-      ...(p.stun ? [`${p.stun}× stun`] : []),
       ...(p.prepared ? ["Prepared"] : []),
       ...(p.solved ? ["Solved"] : []),
       ...(p.finality ? ["Finality counter"] : []),

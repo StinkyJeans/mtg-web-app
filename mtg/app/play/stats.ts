@@ -1,6 +1,6 @@
 // A permanent as it is right now: power and toughness with pumps, counters, auras and anthems, and the damage it has taken.
 // Every place that shows a creature uses these, so the numbers match the board everywhere.
-import { powerOf, toughnessOf } from "@mtg/engine";
+import { powerOf, toughnessOf, wardOf } from "@mtg/engine";
 import type { GameState, Permanent } from "@mtg/engine";
 
 /** A creature right now: a creature card, or a crewed Vehicle. */
@@ -19,7 +19,8 @@ export function liveCardProps(state: GameState, p: Permanent) {
     power: creature ? powerOf(state, p) : undefined,
     toughness: creature ? toughnessOf(state, p) : undefined,
     damage: p.damage,
-    counters: { plus: p.counters, minus: p.minusCounters, infected: p.infected },
+    counters: { plus: p.counters, minus: p.minusCounters, infected: p.infected, stun: p.stun },
+    ward: wardOf(state, p)?.text,
     tapped: p.tapped,
   };
 }

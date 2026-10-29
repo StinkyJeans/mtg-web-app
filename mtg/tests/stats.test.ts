@@ -27,3 +27,19 @@ test("a creature on the battlefield always shows its power and toughness, even u
   assert.doesNotMatch(inHand, /Power 2/, "a card in hand or in a deck shows only its printed art");
   assert.match(renderToStaticMarkup(createElement(CardView, { def: art, ...liveCardProps(g, hurt) })), /Printed: 2\/2">1\/1</);
 });
+
+test("stun counters and ward show on the card", () => {
+  const faerie = permanent("faerie", "p1", { tapped: true, stun: 3 });
+  const g = board({ mine: [faerie] });
+  g.cards.faerie = {
+    id: "faerie", name: "Sleep-Cursed Faerie", type: "creature", cost: 1, manaCost: "{U}", power: 3, toughness: 3, typeLine: "Creature — Faerie Wizard", image: "faerie.jpg", keywords: ["flying", "ward"],
+    text: "Flying, ward {2}\nThis creature enters tapped with three stun counters on it.\n{1}{U}: Untap this creature.",
+  };
+  const props = liveCardProps(g, faerie);
+  assert.equal(props.ward, "Ward {2}");
+  const html = renderToStaticMarkup(createElement(CardView, { def: g.cards.faerie, ...props }));
+  assert.match(html, /❄ Stun ×3/);
+  assert.match(html, /next 3 untaps/);
+  assert.match(html, /Ward \{2\}: when an opponent/);
+  assert.equal(liveCardProps(g, permanent("bears", "p1")).ward, undefined, "no ward chip without ward");
+});

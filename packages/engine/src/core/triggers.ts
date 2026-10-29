@@ -387,14 +387,21 @@ export function queueWard(state: GameState, item: StackItem): void {
     if (found && isCreature(state, found.perm)) {
       for (const p of state.players[found.owner.id].battlefield) queueTriggers(state, p.card, found.owner.id, "allyTargeted", { byOpponent: item.controller !== found.owner.id, bySpell: item.kind === "spell", other: found.perm.card.iid });
     }
-    const parsed = found ? parseCard(getCard(state, found.perm.card.defId)) : undefined;
-    const ward = found ? (parsed?.ward ?? staticEffectsOn(state, found.perm).find((st) => st.ward)?.ward) : undefined;
-    if (!found || ward === undefined || found.owner.id === item.controller || (wardsOff && isCreature(state, found.perm))) return;
+    const ward = found ? wardOf(state, found.perm) : null;
+    if (!found || !ward || found.owner.id === item.controller || (wardsOff && isCreature(state, found.perm))) return;
     const name = getCard(state, found.perm.card.defId).name;
-    const life = parsed?.wardLife;
     state.triggerQueue.push({
       specs: [],
-      item: { kind: "ability", id: newId(state), controller: found.owner.id, source: found.perm.card.iid, sourceName: name, effects: [{ type: "wardCheck", cost: ward, itemId: item.id, ...(life ? { life } : {}) }], targets: [], specs: [], text: life ? `Ward—${ward ? `${ward}, ` : ""}Pay ${life} life` : `Ward ${ward}` },
+      item: { kind: "ability", id: newId(state), controller: found.owner.id, source: found.perm.card.iid, sourceName: name, effects: [{ type: "wardCheck", cost: ward.cost, itemId: item.id, ...(ward.life ? { life: ward.life } : {}) }], targets: [], specs: [], text: ward.text },
     });
   });
+}
+
+/** A permanent's ward, printed or given by another permanent: what it costs to target it ("{2}", and/or life), and "Ward {2}" to show. Null without ward. */
+export function wardOf(state: GameState, perm: Permanent): { cost: string; life?: number; text: string } | null {
+  const parsed = parseCard(getCard(state, perm.card.defId));
+  const cost = parsed.ward ?? staticEffectsOn(state, perm).find((st) => st.ward)?.ward;
+  if (cost === undefined) return null;
+  const life = parsed.wardLife;
+  return life ? { cost, life, text: `Ward—${cost ? `${cost}, ` : ""}Pay ${life} life` } : { cost, text: `Ward ${cost}` };
 }

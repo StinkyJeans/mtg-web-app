@@ -3,6 +3,7 @@ import type { CardDef } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
 import { isTokenDef, useTokenArt } from "@/lib/tokenArt";
 import TokenFrame from "./TokenFrame";
+import { ManaText } from "./ManaSymbols";
 
 type Size = "sm" | "md" | "lg";
 
@@ -47,7 +48,9 @@ interface Props {
   /** Small labels on the card, e.g. "On: Grizzly Bears" for an Aura, or the Auras attached to a creature. */
   tags?: string[];
   /** Counters on it. -1/-1 counters that infect put there make the card look infected. */
-  counters?: { plus?: number; minus?: number; infected?: boolean };
+  counters?: { plus?: number; minus?: number; infected?: boolean; stun?: number };
+  /** "Ward {2}": targeting it costs an opponent extra. */
+  ward?: string;
   /** Tailwind ring classes, e.g. "ring-2 ring-amber-400" */
   ring?: string;
   note?: string;
@@ -110,10 +113,26 @@ function useHold(onZoom: (() => void) | undefined, onClick: (() => void) | undef
 }
 
 /** "+1/+1 ×2", and "☣ Infected −1/−1 ×1" in poison green. */
-function CounterChips({ plus = 0, minus = 0, infected = false }: NonNullable<Props["counters"]>) {
-  if (plus <= 0 && minus <= 0) return null;
+function StatusChips({ plus = 0, minus = 0, infected = false, stun = 0, ward }: NonNullable<Props["counters"]> & { ward?: string }) {
+  if (plus <= 0 && minus <= 0 && stun <= 0 && !ward) return null;
   return (
     <div className="absolute left-1 top-1/2 z-10 flex -translate-y-1/2 flex-col items-start gap-1 text-[10px] font-bold leading-tight">
+      {stun > 0 && (
+        <span
+          title={`${stun} stun counter${stun === 1 ? "" : "s"}: when it would untap, a stun counter comes off instead. It stays tapped through its next ${stun === 1 ? "untap" : `${stun} untaps`}.`}
+          className="rounded-md bg-sky-950/90 px-1.5 py-0.5 text-sky-200 shadow ring-1 ring-sky-300/80"
+        >
+          ❄ Stun ×{stun}
+        </span>
+      )}
+      {ward && (
+        <span
+          title={`${ward}: when an opponent's spell or ability targets it, they pay the ward cost or their spell or ability is countered.`}
+          className="rounded-md bg-indigo-900/90 px-1.5 py-0.5 text-white shadow ring-1 ring-indigo-300/80"
+        >
+          <ManaText text={ward} />
+        </span>
+      )}
       {minus > 0 && (
         <span
           title={`${infected ? "Infected: " : ""}${minus} -1/-1 counter${minus === 1 ? "" : "s"}. ${minus === 1 ? "It stays" : "They stay"} on the creature.`}
@@ -132,7 +151,7 @@ function CounterChips({ plus = 0, minus = 0, infected = false }: NonNullable<Pro
   );
 }
 
-function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness, tags, counters, castable, castLabel, dim, hint, ring = "", note, size = "sm", iid, attacking, onClick, onHover, onZoom }: Props) {
+function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness, tags, counters, ward, castable, castLabel, dim, hint, ring = "", note, size = "sm", iid, attacking, onClick, onHover, onZoom }: Props) {
   const hold = useHold(onZoom, onClick);
   const tokenArt = useTokenArt(def); // tokens have no stored art: it comes from Scryfall
   const imageUrl = def.image ? cardImageUrl(def.image) : tokenArt?.small || null;
@@ -177,7 +196,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
         {tokenFrame && <TokenFrame def={def} art={tokenArt?.crop} power={nowPower} toughness={toughnessLeft} damaged={damage > 0} />}
         {infected && <span aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-t from-lime-500/45 via-lime-900/15 to-transparent" />}
         {badge}
-        {counters && <CounterChips {...counters} />}
+        {(counters || ward) && <StatusChips {...counters} ward={ward} />}
         <div className="absolute inset-x-0 bottom-0 flex flex-wrap gap-1 p-1 text-[10px] font-semibold">
           {note && <span className="rounded bg-sky-600 px-1 text-white">{note}</span>}
           {tags?.map((t, i) => (
@@ -216,7 +235,7 @@ function Card({ combat, def, tapped, summoningSick, damage = 0, power, toughness
       className={`${base} ${tint} flex flex-col justify-between p-2 text-white ${FRAME_SIZE[size]}`}
     >
       {badge}
-      {counters && <CounterChips {...counters} />}
+      {(counters || ward) && <StatusChips {...counters} ward={ward} />}
       <div className="flex justify-between gap-1 rounded bg-black/40 px-1">
         <span className="font-semibold leading-tight">{def.name}</span>
         {def.type === "creature" && <span className="text-amber-300">{def.cost}</span>}
