@@ -8,6 +8,7 @@ import { itemName, readable, targetName } from "./cardText";
 import { ManaText } from "./ManaSymbols";
 import { stackCard } from "./ResolveZone";
 import { liteMode } from "./perfTier";
+import type { Announcement } from "./log";
 
 /**
  * The chain: every spell and ability on the stack is a big card with its chain number, linked to the one under it by a chain. A new
@@ -26,6 +27,7 @@ interface Link {
   gone: boolean; // no longer on the stack (it stays on screen until it has been seen)
   leaving: boolean; // playing its exit
   fresh: number; // order of arrival in the same update (they land one after the other)
+  hold?: number; // how long it stays on screen at least (triggers: they were never on the stack long enough to be seen)
 }
 
 const MIN_SHOW_MS = 4800; // a card (and what it says) is on screen at least this long after it arrives
@@ -41,12 +43,21 @@ const subscribe = (cb: () => void) => {
   return () => window.removeEventListener("resize", cb);
 };
 
-export default function ChainFx({ state, actor }: { state: GameState; actor: PlayerId }) {
+/** Abilities that triggered and resolved inside one update (the stack was empty again before the screen could show them). */
+export interface Flash {
+  key: number;
+  items: Announcement[];
+}
+
+const FLASH_SHOW_MS = 3600;
+
+export default function ChainFx({ state, actor, extra }: { state: GameState; actor: PlayerId; extra?: Flash | null }) {
   const on = useAnimationsOn();
   const sizeKey = useSyncExternalStore(subscribe, () => `${window.innerWidth}x${window.innerHeight}`, () => "1200x800");
   const [links, setLinks] = useState<Link[]>([]);
   const [seenIds, setSeenIds] = useState("");
   const [banner, setBanner] = useState<number | null>(null);
+  const [seenFlash, setSeenFlash] = useState(0);
   const born = useRef(new Map<string, number>()); // when each card arrived
   const planned = useRef(new Set<string>()); // cards whose exit is already scheduled
 
@@ -77,6 +88,30 @@ export default function ChainFx({ state, actor }: { state: GameState; actor: Pla
     if (fresh > 0 && live.size >= 2) setBanner((b) => (b ?? 0) + 1);
   }
 
+  // Triggers that came and went within one update: shown as links of their own, newest on top, as they were resolved.
+  if (extra && extra.key !== seenFlash) {
+    setSeenFlash(extra.key);
+    const items = extra.items;
+    setLinks((ls) => {
+      const top = Math.max(0, ...ls.filter((l) => !l.gone).map((l) => l.n));
+      const added: Link[] = items.map((a, i) => ({
+        id: `trigger-${a.id}`,
+        n: top + items.length - i, // (the first to resolve was the top of the chain)
+        def: a.defId ? state.cards[a.defId] : undefined,
+        name: a.title,
+        text: [...a.lines, ...(a.result ?? [])].join("\n"),
+        target: "",
+        mine: a.player === actor,
+        gone: true,
+        leaving: false,
+        fresh: i,
+        hold: FLASH_SHOW_MS,
+      }));
+      return [...ls.filter((l) => !added.some((x) => x.id === l.id)), ...added].sort((x, y) => x.n - y.n);
+    });
+    if (items.length >= 2) setBanner((b) => (b ?? 0) + 1);
+  }
+
   // Note when a card arrived, and plan the exit of the ones that are gone: after they had their time on screen, newest first.
   useEffect(() => {
     const now = performance.now();
@@ -84,7 +119,7 @@ export default function ChainFx({ state, actor }: { state: GameState; actor: Pla
     const waiting = links.filter((l) => l.gone && !l.leaving && !planned.current.has(l.id)).sort((a, b) => b.n - a.n);
     waiting.forEach((l, i) => {
       planned.current.add(l.id);
-      const wait = Math.max(0, MIN_SHOW_MS - (now - (born.current.get(l.id) ?? now))) + i * EXIT_GAP_MS;
+      const wait = Math.max(0, (l.hold ?? MIN_SHOW_MS) - (now - (born.current.get(l.id) ?? now))) + i * EXIT_GAP_MS;
       // (these timers are keyed by card, not by this effect: they must still run when the list changes again)
       setTimeout(() => setLinks((ls) => ls.map((x) => (x.id === l.id ? { ...x, leaving: true } : x))), wait);
     });

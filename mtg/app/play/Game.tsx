@@ -30,6 +30,7 @@ import CardView from "./CardView";
 import { liveCardProps } from "./stats";
 import RotateHint from "./RotateHint";
 import ChainFx from "./ChainFx";
+import type { Flash } from "./ChainFx";
 import VotePopup from "../lobby/VotePopup";
 import type { Inspected } from "./CardDetail";
 import EnterBattlefield from "./EnterBattlefield";
@@ -251,6 +252,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const stageDoneRef = useRef(false);
   useEffect(() => () => (setInspected(null), setPreview(null)), []); // (what the mouse was over does not follow the player to another page)
   const [welcome, setWelcome] = useState(false); // "Welcome to the Battle Field, Now Duel!" while it is on screen
+  const [triggerFlash, setTriggerFlash] = useState<Flash | null>(null); // triggers that resolved at once: the chain shows them too
   const [turnSplash, setTurnSplash] = useState(0); // online: counts "Your turn" splashes, 0 while none is on screen
 
   const deckNames = net.game ? net.game.deckNames : { p1: "", p2: "" }; // shown on each library
@@ -480,6 +482,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       // Online: the opponent passed the turn. Said loudly, in case this player looked away while waiting.
       if (online && r.events.some((e) => e.type === "turnStarted" && e.player === viewer)) setTurnSplash((n) => n + 1);
       setRevealing(null);
+      const triggered = told.filter((a) => a.kind === "trigger" && a.done);
+      if (triggered.length > 0) setTriggerFlash((f) => ({ key: (f?.key ?? 0) + 1, items: triggered }));
       if (told.length > 0) {
         setAnnouncements((a) => mergeAnnouncements(a, told).slice(-4));
         setHistory((h) => mergeAnnouncements(h, told).slice(-40));
@@ -878,7 +882,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           overlay={
             <ResolveZone
               state={state}
-              played={announcements.filter((a) => a.player === other || worthTelling(a))}
+              played={announcements.filter((a) => a.kind !== "trigger" && (a.player === other || worthTelling(a)))}
               revealing={revealing}
               onClose={(id) => setAnnouncements((l) => l.filter((x) => x.id !== id))}
               onZoom={setZoomed}
@@ -1151,8 +1155,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       )}
 
       <RotateHint />
-      {!watching && <ChainFx state={state} actor={actor} />}
-      {watching && <ChainFx state={state} actor="p1" />}
+      {!watching && <ChainFx state={state} actor={actor} extra={triggerFlash} />}
+      {watching && <ChainFx state={state} actor="p1" extra={triggerFlash} />}
       {welcome && <WelcomeSplash />}
       {stageSeen && !stageDone && !intro && !welcome && state.opening?.shuffled && (
         <ShuffleStage
