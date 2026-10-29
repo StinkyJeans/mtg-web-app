@@ -1,9 +1,9 @@
 "use client";
 
-import { fizzleReason, OPPONENT } from "@mtg/engine";
+import { fizzleReason, OPPONENT, parseCard } from "@mtg/engine";
 import type { GameState, PlayerId, StackItem } from "@mtg/engine";
 import { playerName } from "./log";
-import { Help, targetName, itemName, readable } from "./cardText";
+import { Help, targetName, itemName, paidPart, readable } from "./cardText";
 import type { ChainStep } from "./chain";
 
 const STEP_MARK: Record<ChainStep["tone"], { mark: string; className: string }> = {
@@ -51,10 +51,21 @@ function priorityLine(state: GameState, actor: PlayerId, waiting: boolean): { ti
   };
 }
 
+/** A spell with waterbend: whether it was paid, and so whether the part that needs it happens. */
+function waterbendLine(state: GameState, item: StackItem): { paid: boolean; text: string } | null {
+  if (item.kind !== "spell" || item.copy) return null;
+  const def = state.cards[item.card.defId];
+  if (parseCard(def).kickerName !== "waterbend") return null;
+  const extra = paidPart(def.text ?? "");
+  if (item.kicked) return { paid: true, text: `Waterbend paid${extra ? `: ${extra}` : "."}` };
+  return { paid: false, text: `Waterbend not paid${extra ? `, so this won't happen: ${extra}` : "."}` };
+}
+
 function StackEntry({ state, item, next, actor }: { state: GameState; item: StackItem; next: boolean; actor: PlayerId }) {
   const fizzles = fizzleReason(state, item);
   const aimedAtIt = state.stack.filter((other) => other.targets.some((t) => t.kind === "stack" && t.id === item.id));
   const mine = item.controller === actor;
+  const waterbend = waterbendLine(state, item);
   return (
     <li className={`rounded-lg border bg-white px-3 py-2 ${next ? "border-violet-500 ring-1 ring-violet-400" : "border-violet-200"}`}>
       <div className="flex flex-wrap items-center gap-2">
@@ -64,6 +75,7 @@ function StackEntry({ state, item, next, actor }: { state: GameState; item: Stac
       </div>
       {item.targets.length > 0 && <div className="text-[15px] text-zinc-700">→ {item.targets.map((t) => targetName(state, t)).join(", ")}</div>}
       {item.kind === "ability" && <div className="text-[15px] text-zinc-700">{readable(item.text, item.sourceName)}</div>}
+      {waterbend && <div className={`text-[15px] ${waterbend.paid ? "font-medium text-sky-800" : "text-zinc-600"}`}>💧 {waterbend.text}</div>}
       {aimedAtIt.map((other) => (
         <div key={other.id} className="text-[15px] font-medium text-orange-700">
           ⚠ Targeted by {playerName(other.controller)}&apos;s {itemName(state, other)}{state.stack.indexOf(other) > state.stack.indexOf(item) ? ", which resolves first" : ""}

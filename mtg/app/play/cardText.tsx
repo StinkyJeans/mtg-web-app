@@ -43,6 +43,12 @@ export function itemName(state: GameState, item: StackItem): string {
   return item.kind === "spell" ? state.cards[item.card.defId].name : `${item.sourceName} ability`;
 }
 
+/** What a spell does only when its optional extra cost (waterbend, kicker) was paid: "Whenever a creature dies this turn, you gain 1 life." */
+export function paidPart(text: string): string | null {
+  const m = /if this spell's additional cost was paid, ([^.]+\.)/i.exec(text);
+  return m ? m[1].charAt(0).toUpperCase() + m[1].slice(1) : null;
+}
+
 /** Rules text as the engine reads it ("~", lowercase) made readable: the card's name back in, first letter capital. */
 export function readable(text: string, cardName: string): string {
   const t = text.replace(/~/g, cardName).replace(/\{([a-z0-9]+)\}/g, (_, x: string) => `{${x.toUpperCase()}}`);

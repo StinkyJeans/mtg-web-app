@@ -2,11 +2,14 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { applyAction, playerToAct } from "@mtg/engine";
+import { applyAction, getCastable, playerToAct } from "@mtg/engine";
 import type { Action, CardDef, GameState } from "@mtg/engine";
 import { PickPanel } from "@/app/play/PickPanel";
 import { LandFacePanel } from "@/app/play/ChoicePanels";
 import { GraveyardDialog } from "@/app/play/Piles";
+import CastPlanPanels from "@/app/play/CastPlanPanels";
+import { StackPanel } from "@/app/play/StackPanel";
+import { PlayersPanel } from "@/app/play/SidePanels";
 import { describeEvents } from "@/app/play/log";
 import { readable } from "@/app/play/cardText";
 import { board, permanent } from "./fixtures";
@@ -38,7 +41,7 @@ const DECORUM: CardDef = {
   id: "decorum", name: "Decorum Dissertation", type: "sorcery", cost: 5, manaCost: "{3}{B}{B}", typeLine: "Sorcery — Lesson", keywords: ["paradigm"],
   text: "Target player draws two cards and loses 2 life.\nParadigm (Then exile this spell. After you first resolve a spell with this name, you may cast a copy of it from exile without paying its mana cost at the beginning of each of your first main phases.)",
 };
-const plainText = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+const plainText = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/&#x27;/g, "'").replace(/\s+/g, " ");
 
 test("paradigm: the free copy is asked with the card in view, its target says what it does, and the log names the copy", () => {
   let g: GameState = board({ mine: Array.from({ length: 5 }, () => permanent("swamp", "p1")), hand: ["decorum"] });
@@ -65,4 +68,57 @@ test("paradigm: the free copy is asked with the card in view, its target says wh
   assert.ok(log.includes("Player 1 cast a copy of Decorum Dissertation."), log.join(" / "));
   const exile = plainText(renderToStaticMarkup(createElement(GraveyardDialog, { state: g, owner: "p1", zone: "exile", onClose: () => {}, onZoom: () => {} })));
   assert.match(exile, /Paradigm: a free copy each turn/);
+});
+
+const RUINOUS: CardDef = {
+  id: "ruinous", name: "Ruinous Waterbending", type: "sorcery", cost: 3, manaCost: "{1}{B}{B}", typeLine: "Sorcery — Lesson", keywords: ["waterbend"],
+  text: "As an additional cost to cast this spell, you may waterbend {4}. (While paying a waterbend cost, you can tap your artifacts and creatures to help. Each one pays for {1}.)\nAll creatures get -2/-2 until end of turn. If this spell's additional cost was paid, whenever a creature dies this turn, you gain 1 life.",
+};
+
+/** p1 with four Swamps, two Witch's Ovens and a Grizzly Bears that could attack; p2 with a Grizzly Bears, and a Shock to answer with (so the spell waits on the stack). */
+function waterbendBoard(): GameState {
+  const g = board({ mine: [...Array.from({ length: 4 }, () => permanent("swamp", "p1")), permanent("oven", "p1"), permanent("oven", "p1"), permanent("bears", "p1")], theirs: [permanent("bears", "p2"), permanent("mountain", "p2")], hand: ["ruinous"] });
+  g.cards.ruinous = RUINOUS;
+  g.cards.swamp = { id: "swamp", name: "Swamp", type: "land", cost: 0, typeLine: "Basic Land — Swamp" };
+  g.cards.oven = { id: "oven", name: "Witch's Oven", type: "artifact", cost: 1, manaCost: "{1}", typeLine: "Artifact" };
+  g.players.p2.hand = [{ iid: "p2-shock", defId: "shock", owner: "p2" }];
+  return g;
+}
+
+test("waterbend: the choice says what tapping pays and what paying adds, the stack says whether it was paid, the log how", () => {
+  let g = waterbendBoard();
+  const iid = g.players.p1.hand[0].iid;
+  const castable = getCastable(g, "p1").find((c) => c.iid === iid)!;
+  const plan = { iid, name: RUINOUS.name, castable };
+  const ask = plainText(renderToStaticMarkup(createElement(CastPlanPanels, { state: g, actor: "p1", plan, modePick: [], onModePick: () => {}, xValue: 0, onX: () => {}, onAdvance: () => {}, onCancel: () => {} })));
+  assert.match(ask, /Cast it normally, without: Whenever a creature dies this turn, you gain 1 life\./);
+  assert.match(ask, /tap Witch's Oven, Witch's Oven and Grizzly Bears \( each\) and pay with mana\./, ask);
+  assert.match(ask, /Then also: Whenever a creature dies this turn, you gain 1 life\./);
+  assert.match(ask, /Grizzly Bears can't attack this turn then/, "a creature that could attack is only tapped when the mana runs short, and says so");
+
+  const log: string[] = [];
+  const step = (a: Action) => {
+    const r = applyAction(g, playerToAct(g), a);
+    assert.ok(r.ok, r.ok ? "" : r.error);
+    g = r.state;
+    log.push(...describeEvents(r.events, g));
+  };
+  step({ type: "castSpell", iid, targets: [], kicked: true });
+  assert.deepEqual(log, ["Player 1 paid {B}{B}{B}{B}: Swamp {B}, Swamp {B}, Swamp {B}, Swamp {B}.", "Player 1 cast Ruinous Waterbending.", "Player 1 paid waterbend {4} for Ruinous Waterbending: tapped Witch's Oven, Witch's Oven and Grizzly Bears ({1} each) and {1} of mana."]);
+  const stack = plainText(renderToStaticMarkup(createElement(StackPanel, { state: g, actor: "p1", onPass: () => {} })));
+  assert.match(stack, /Waterbend paid: Whenever a creature dies this turn, you gain 1 life\./);
+  for (let i = 0; i < 20 && g.stack.length > 0; i++) step({ type: "passPriority" });
+  assert.equal(g.players.p1.life, 22, "both Bears died");
+  const players = plainText(renderToStaticMarkup(createElement(PlayersPanel, { state: g, order: ["p1", "p2"], actor: "p1" })));
+  assert.match(players, /Creature dies: \+1 life \(this turn\)/);
+});
+
+test("waterbend not paid: the stack says the part that needs it won't happen", () => {
+  let g = waterbendBoard();
+  g.players.p1.battlefield = g.players.p1.battlefield.filter((p) => p.card.defId === "swamp");
+  const r = applyAction(g, "p1", { type: "castSpell", iid: g.players.p1.hand[0].iid, targets: [] });
+  assert.ok(r.ok, r.ok ? "" : r.error);
+  g = r.state;
+  const stack = plainText(renderToStaticMarkup(createElement(StackPanel, { state: g, actor: "p2", onPass: () => {} })));
+  assert.match(stack, /Waterbend not paid, so this won't happen: Whenever a creature dies this turn, you gain 1 life\./);
 });

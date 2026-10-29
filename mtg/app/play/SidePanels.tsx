@@ -124,6 +124,7 @@ function PlayersPanelInner({
                     <span className="rounded bg-amber-50 px-1" title="Cards in library">📚<b>{p.library.length + unseen[id]}</b></span>
                     <span className="rounded bg-stone-100 px-1" title="Cards in graveyard">⚰️<b>{p.graveyard.length}</b></span>
                   </span>
+                  <DeathLife n={p.deathLife ?? 0} short />
                   {(p.poison ?? 0) > 0 && (
                     <span data-poison={id} className={`rounded px-1.5 py-0.5 text-[13px] font-bold tabular-nums ${(p.poison ?? 0) >= 7 ? "bg-lime-200 text-lime-900" : "bg-lime-100 text-lime-800"}`}>
                       ☠️ {p.poison}/10
@@ -167,11 +168,12 @@ function PlayersPanelInner({
                 </button>
               )}
             </div>
-            <div className="mt-2 flex items-center gap-2">
+            <div className="mt-2 flex flex-wrap items-center gap-2">
               <span className="text-2xl" aria-hidden="true">
                 ❤️
               </span>
               <LifeTotal id={id} value={p.life} />
+              <DeathLife n={p.deathLife ?? 0} />
               {(p.poison ?? 0) > 0 && (
                 <span data-poison={id} title="Poison counters: a player with ten or more loses the game" className={`rounded px-1.5 py-0.5 text-sm font-bold tabular-nums ${(p.poison ?? 0) >= 7 ? "bg-lime-200 text-lime-900" : "bg-lime-100 text-lime-800"}`}>
                   ☠️ {p.poison}/10
@@ -200,6 +202,16 @@ function PlayersPanelInner({
   );
 }
 
+/** Ruinous Waterbending with waterbend paid: "whenever a creature dies this turn, you gain 1 life", once for each such spell. */
+function DeathLife({ n, short }: { n: number; short?: boolean }) {
+  if (n === 0) return null;
+  return (
+    <span title={`This turn, whenever a creature dies, this player gains ${n} life (Ruinous Waterbending)`} className={`rounded bg-sky-100 px-1.5 py-0.5 font-semibold text-sky-800 ${short ? "text-[13px]" : "text-sm"}`}>
+      💧 {short ? `+${n}/death` : `Creature dies: +${n} life (this turn)`}
+    </span>
+  );
+}
+
 /** A phone's player panel is short; tapping it opens everything about that player in a sheet. */
 function PlayerDetail({ state, id, actor, unseen, note, onResign, onClose }: { state: GameState; id: PlayerId; actor: PlayerId; unseen: number; note?: ManaNote; onResign?: (id: PlayerId) => void; onClose: () => void }) {
   const p = state.players[id];
@@ -225,6 +237,11 @@ function PlayerDetail({ state, id, actor, unseen, note, onResign, onClose }: { s
           <span className="font-display text-5xl font-bold tabular-nums">{p.life}</span>
           {(p.poison ?? 0) > 0 && <span className="rounded bg-lime-100 px-2 py-1 text-base font-bold text-lime-800">☠️ {p.poison}/10 poison</span>}
         </div>
+        {(p.deathLife ?? 0) > 0 && (
+          <div className="mt-2">
+            <DeathLife n={p.deathLife ?? 0} />
+          </div>
+        )}
         <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-zinc-200" aria-hidden="true">
           <div className={`h-full rounded-full ${lifeColor(p.life)}`} style={{ width: `${Math.max(0, Math.min(100, (p.life / 20) * 100))}%` }} />
         </div>

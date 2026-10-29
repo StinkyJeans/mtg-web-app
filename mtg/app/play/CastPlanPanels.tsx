@@ -1,12 +1,13 @@
 "use client";
 
 import { powerOf } from "@mtg/engine";
-import type { GameState, PlayerId } from "@mtg/engine";
+import type { GameState, Permanent, PlayerId } from "@mtg/engine";
 import { useState } from "react";
 import type { CastPlan } from "./castInfo";
 import { ManaText } from "./ManaSymbols";
 import { ChoicePanel, XPanel } from "./ChoicePanels";
-import { nameWithStats } from "./stats";
+import { isCreatureNow, nameWithStats } from "./stats";
+import { paidPart } from "./cardText";
 
 interface Props {
   state: GameState;
@@ -108,6 +109,47 @@ function HarmonizePanel({ state, actor, plan, onAdvance, onCancel }: Pick<Props,
   );
 }
 
+const listed = (names: string[]) => (names.length < 2 ? names.join("") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`);
+
+/** Waterbend: what tapping pays and what's left for mana, a creature that then can't attack, and what paying it adds to the spell. */
+function WaterbendPanel({ state, actor, plan, onAdvance, onCancel }: Pick<Props, "state" | "actor" | "plan" | "onAdvance" | "onCancel">) {
+  const c = plan.castable;
+  const me = state.players[actor];
+  const taps = (c.waterbendTaps ?? []).map((iid) => me.battlefield.find((p) => p.card.iid === iid)).filter((p): p is Permanent => p !== undefined);
+  const nameOf = (p: Permanent) => state.cards[p.card.defId].name;
+  const rest = Number(/\d+/.exec(c.kicker ?? "")?.[0] ?? 0) - taps.length;
+  const attackers = state.active === actor && state.phase === "main1" ? taps.filter((p) => isCreatureNow(state, p) && !p.summoningSick) : [];
+  const card = [...me.hand, ...me.graveyard, ...me.exile].find((x) => x.iid === plan.iid);
+  const extra = card ? paidPart(state.cards[card.defId].text ?? "") : null;
+  const how =
+    taps.length === 0 ? (
+      <>, all with mana</>
+    ) : (
+      <>
+        : tap {listed(taps.map(nameOf))} (<ManaText text="{1}" /> each){rest > 0 && <> and pay <ManaText text={`{${rest}}`} /> with mana</>}
+      </>
+    );
+  return (
+    <ChoicePanel
+      title={`${plan.name}: you may waterbend ${c.kicker} (an additional cost)`}
+      options={[
+        { label: extra ? `Cast it normally, without: ${extra}` : "Cast it normally", onPick: () => onAdvance({ ...plan, kicked: false }) },
+        {
+          label: (
+            <>
+              Waterbend <ManaText text={c.kicker ?? ""} />
+              {how}.{extra && <span className="block font-medium text-indigo-900">Then also: {extra}</span>}
+              {attackers.length > 0 && <span className="block text-amber-800">⚠ {listed(attackers.map(nameOf))} can&apos;t attack this turn then.</span>}
+            </>
+          ),
+          onPick: () => onAdvance({ ...plan, kicked: true }),
+        },
+      ]}
+      onCancel={onCancel}
+    />
+  );
+}
+
 /** The question a spell being cast still needs answered, in order: creature or Adventure, modes, warp, the kicker (or offspring, or blight), X, delve, replicate, harmonize, then a creature to sacrifice or a card to discard. */
 export default function CastPlanPanels({ state, actor, plan, modePick, onModePick, xValue, onX, onAdvance, onCancel }: Props) {
   const c = plan.castable;
@@ -167,27 +209,7 @@ export default function CastPlanPanels({ state, actor, plan, modePick, onModePic
       />
     );
   }
-  if (!kickerDone && c.kickerName === "waterbend") {
-    const tapped = (c.waterbendTaps ?? []).map((iid) => state.cards[state.players[actor].battlefield.find((p) => p.card.iid === iid)?.card.defId ?? ""]?.name).filter(Boolean);
-    return (
-      <ChoicePanel
-        title={`${plan.name}: you may waterbend ${c.kicker} (an additional cost)`}
-        options={[
-          { label: "Cast it normally", onPick: () => onAdvance({ ...plan, kicked: false }) },
-          {
-            label: (
-              <>
-                Waterbend <ManaText text={c.kicker ?? ""} />
-                {tapped.length > 0 ? `: tap ${tapped.join(", ")} (each pays {1}), the rest with mana` : ", paid with mana"}
-              </>
-            ),
-            onPick: () => onAdvance({ ...plan, kicked: true }),
-          },
-        ]}
-        onCancel={onCancel}
-      />
-    );
-  }
+  if (!kickerDone && c.kickerName === "waterbend") return <WaterbendPanel state={state} actor={actor} plan={plan} onAdvance={onAdvance} onCancel={onCancel} />;
   if (!kickerDone) {
     const offspring = c.kickerName === "offspring";
     return (

@@ -249,7 +249,6 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   if (delved.length > full.generic) return `${def.name}: delve can only pay for the generic mana in its cost ({${full.generic}}).`;
   if (delved.some((id) => id === iid || !me.graveyard.some((c) => c.iid === id))) return `${def.name}: delve exiles cards from your graveyard.`;
   for (const p of [...teamed, ...(harmonizer ? [harmonizer] : []), ...bent]) tapPerm(state, p, player); // paid as part of the cost, before the mana (they can't also be tapped for mana)
-  if (bent.length > 0) events.push({ type: "effect", text: `${def.name}: waterbend taps ${bent.map((p) => getCard(state, p.card.defId).name).join(", ")}.` });
   const paid = payMana(state, player, withDelve(full, delved.length), def);
   if (!paid.ok) {
     const price = warp ? `warp ${parsed.warp}` : from === "graveyard" && !fromYard ? (parsed.flashback ? `flashback ${flashbackSac ? `(sacrifice a ${flashbackSac})` : parsed.flashback}` : `harmonize ${parsed.harmonize}`) : (cost.x ? `${def.manaCost} with X = ${x}` : (def.manaCost ?? String(def.cost))) + (kicked ? ` + kicker ${parsed.kicker}` : "") + (payInstead ? ` + ${parsed.extraSacrificeOrPay}` : "");
@@ -300,6 +299,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
       ? { type: "creatureCast", player, iid: card.iid, tapped: paid.tap }
       : { type: "spellCast", player, iid: card.iid, tapped: paid.tap, targets: own, ...(prepared ? { copyOf: card.defId } : {}) },
   );
+  if (kicked && parsed.kickerName === "waterbend") events.push({ type: "effect", text: waterbendPaid(state, player, def, parsed.kicker!, bent) });
   queueWard(state, state.stack[state.stack.length - 1]);
   pushCopies(state, player, card, effects, specs, targets.slice(specs.length), events, "replicate");
   // Storm (Ral's emblem): a copy for each spell cast before it this turn, by either player.
@@ -318,6 +318,16 @@ export function tapPair(state: GameState, player: PlayerId): [Permanent, Permane
     for (let j = i + 1; j < mine.length; j++) if (types(mine[i]).some((t) => types(mine[j]).includes(t))) return [mine[i], mine[j]];
   }
   return null;
+}
+
+/** "Player 1 paid waterbend {4} for Ruinous Waterbending: tapped Witch's Oven and Witch's Oven ({1} each) and {2} of mana." */
+function waterbendPaid(state: GameState, player: PlayerId, def: CardDef, kicker: string, bent: Permanent[]): string {
+  const paid = `${playerLabel(player)} paid waterbend ${kicker} for ${def.name}`;
+  if (bent.length === 0) return `${paid} with mana.`;
+  const names = bent.map((p) => getCard(state, p.card.defId).name);
+  const tapped = names.length === 1 ? names[0] : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+  const rest = (parseManaCost(kicker)?.generic ?? 0) - bent.length;
+  return `${paid}: tapped ${tapped} ({1} each)${rest > 0 ? ` and {${rest}} of mana` : ""}.`;
 }
 
 /**
