@@ -103,6 +103,7 @@ export function creatureEntered(state: GameState, card: CardInstance, controller
       const enteringDef = getCard(state, card.defId);
       if (trigger.subtypes && !trigger.orArtifact && !trigger.subtypes.some((t) => (t === "artifact" ? isArtifactDef(enteringDef) : t === "enchantment" ? isEnchantmentDef(enteringDef) : (entering ? subtypesOf(state, entering) : []).includes(t)))) continue;
       if (trigger.maxPower !== undefined && entering && powerOf(state, entering) > trigger.maxPower) continue;
+      if (trigger.minPower !== undefined && !(entering && powerOf(state, entering) >= trigger.minPower)) continue;
       if (trigger.cond?.enteringGreater && !(entering && (powerOf(state, entering) > powerOf(state, perm) || toughnessOf(state, entering) > toughnessOf(state, perm)))) continue;
       if (trigger.oncePerTurn && !claimOncePerTurn(perm, n)) continue;
       state.triggerQueue.push({
@@ -195,6 +196,7 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
     if (trigger.spellKeyword && !(extra?.spellKeywords ?? []).some((k) => k.toLowerCase() === trigger.spellKeyword)) continue;
     if (event === "anyDies" && trigger.nontoken && extra?.token) continue; // "another nontoken creature"
     if (trigger.tokenOnly && !extra?.token) continue; // "whenever you sacrifice a token"
+    if (trigger.ifNoCounters && (extra?.died?.counters ?? 0) > 0) continue; // undying
     if (!levelReached(state, card.iid, trigger.level)) continue;
     if (trigger.other && extra?.self) continue;
     if (trigger.selfOnly && !extra?.self) continue;

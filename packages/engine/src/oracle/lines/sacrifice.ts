@@ -1,6 +1,6 @@
 import type { Effect, ParsedCard } from "../../effects.js";
 import { parseManaCost } from "../../mana.js";
-import { toNumber } from "../words.js";
+import { COLOR_OF, toNumber } from "../words.js";
 import { newCtx } from "../targets.js";
 import { parseEffectText } from "../effectText.js";
 import { parseCreatureLine } from "../lines.js";
@@ -44,16 +44,16 @@ export function readTappedIfMoreLands(line: string, out: ParsedCard): boolean {
  * own: it can only attack while it is a creature.
  */
 export function readCreatureLandWithTrigger(line: string, out: ParsedCard): boolean {
-  const m = /^((?:\{[^}]+\})+): until end of turn, ~ becomes an? (\d+)\/(\d+) (?:(?:white|blue|black|red|green) )?([a-z ]+?) creature with "(when(?:ever)? ~ attacks, .+?)\.?"\.? it's still a land$/.exec(line);
+  const m = /^((?:\{[^}]+\})+): until end of turn, ~ becomes an? (\d+)\/(\d+) (?:(white|blue|black|red|green) )?([a-z ]+?) creature with "(when(?:ever)? ~ attacks, .+?)\.?"\.? it's still a land$/.exec(line);
   if (!m) return false;
   const quoted: ParsedCard = { ok: true, triggers: [], activated: [], unsupported: [] };
-  parseCreatureLine(m[5], quoted);
+  parseCreatureLine(m[6], quoted);
   if (!parseManaCost(m[1]) || quoted.unsupported.length > 0 || quoted.triggers.length !== 1) {
     out.unsupported.push(line);
     return true;
   }
   const what = { t: "self" as const };
-  const effects: Effect[] = [{ type: "becomeCreatureNow", what, subtypes: m[4].split(" ") }, { type: "setBase", what, power: Number(m[2]), toughness: Number(m[3]) }];
+  const effects: Effect[] = [{ type: "becomeCreatureNow", what, subtypes: m[5].split(" "), nonartifact: true, ...(m[4] ? { color: COLOR_OF[m[4]] } : {}) }, { type: "setBase", what, power: Number(m[2]), toughness: Number(m[3]) }];
   out.activated.push({ tap: false, mana: m[1], effects, targets: [], text: line });
   out.triggers.push(...quoted.triggers);
   return true;

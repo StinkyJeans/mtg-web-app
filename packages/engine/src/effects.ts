@@ -84,7 +84,7 @@ export type Effect =
   | { type: "noRegen" } // "it can't be regenerated": the destroy/damage of the same spell can't be saved by a shield
   | { type: "addCounters"; amount: Amount; what: Ref; kind?: "minus" } // +1/+1 counters (or -1/-1 with kind "minus")
   | { type: "fight"; a: Ref; b: Ref } // each deals damage equal to its power to the other
-  | { type: "bite"; from: Ref; to: Ref; times?: number } // "target creature you control deals damage equal to its power to target creature"
+  | { type: "bite"; from: Ref; to: Ref; times?: number; trampleExcess?: boolean } // "target creature you control deals damage equal to its power to target creature" (`trampleExcess`: with trample, the excess goes to that creature's controller instead)
   | { type: "gainControl"; what: Ref } // until end of turn
   | { type: "cantBlockThisTurn"; what: Ref }
   | { type: "crewed" } // this Vehicle becomes an artifact creature until end of turn
@@ -115,7 +115,8 @@ export type Effect =
   | { type: "yardCastable" } // creature cards in your graveyard gain "You may cast this card from your graveyard" until end of turn
   | { type: "solve" } // a Case becomes solved
   | { type: "airbend"; what: Ref } // exile it; its owner may cast it for {2} (rather than its mana cost) for as long as it stays exiled
-  | { type: "becomeCreatureNow"; what: Ref; subtypes?: string[] } // until end of turn it is an artifact creature (of these creature types)
+  | { type: "becomeCreatureNow"; what: Ref; subtypes?: string[]; color?: string; nonartifact?: boolean } // until end of turn it is an artifact creature (of these creature types, of this color; `nonartifact`: just a creature)
+  | { type: "loseSubtype"; what: Ref; subtype: string } // "... and isn't a Human" until end of turn
   | { type: "untargetable"; what: Ref } // "can't be the target of spells or abilities your opponents control this turn"
   | { type: "ifNow"; cond: "yourMainPhase" | "landEntered" | "ferocious" | "delirium" | "instantAndSorcery"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead", ferocious "... if you control a creature with power 4 or greater", delirium "if there are four or more card types among cards in your graveyard, ...", "if there is an instant card and a sorcery card in your graveyard, instead ..."
   | { type: "ifControlledTarget"; i: number; then: Effect[] } // "if you controlled that permanent, draw a card"
@@ -395,7 +396,10 @@ export type CountSpec =
   | { kind: "targetPower"; i: number } // the power of the i-th target
   | { kind: "otherToughness" } // the toughness of "that creature" (the one that entered)
   | { kind: "otherPower" }
-  | { kind: "ifOtherSubtype"; subtype: string; yes: number; no: number }; // "put a counter on it. If it's a Unicorn, two instead"
+  | { kind: "ifOtherSubtype"; subtype: string; yes: number; no: number } // "put a counter on it. If it's a Unicorn, two instead"
+  | { kind: "totalPower" } // the total power of creatures you control
+  | { kind: "greatestPower" } // the greatest power among creatures you control
+  | { kind: "devotion"; color: string }; // your devotion to a color: its mana symbols among the mana costs of permanents you control
 
 /** One choice of a "Choose one —" spell or ability: its effects, and what it targets. */
 export interface ModeSpec {
@@ -512,6 +516,10 @@ export interface TriggeredAbility {
   /** For "allyEnters": "another creature you control" (not itself), and "with power 2 or less". */
   other?: boolean;
   maxPower?: number;
+  /** "Whenever a creature you control with power 4 or greater enters". */
+  minPower?: number;
+  /** Undying: only if it had no +1/+1 counters on it as it died. */
+  ifNoCounters?: boolean;
   effects: Effect[];
   targets: TargetSpec[];
   text: string;

@@ -231,6 +231,8 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
     .replace(/you may have it connive\. do this only once each turn/g, "it connives") // the once-a-turn limit is read by the trigger
     .replace(/exile the top card of your library\. you may play that card until your next end step/g, "@@exiletopuntil@@")
     .replace(/~ becomes an? (\d+\/\d+) ([a-z ]+?) artifact creature( with [a-z ,]+?)? until end of turn\. it's still a land/g, "@@animateland $1 $2$3@@")
+    .replace(/~ becomes an? (\d+\/\d+) (white|blue|black|red|green) ([a-z ]+?) creature( with [a-z ,]+?)? until end of turn\. it's still a land/g, "@@animatecolored $1 $2 $3$4@@")
+    .replace(/target creature you control deals damage equal to its power to target creature you don't control\. if the creature you control has trample, excess damage is dealt to that creature's controller instead/g, "@@bitetrample@@")
     .replace(/exile the top card of your library\. until the end of your next turn, you may play that card/g, "@@exiletopnext@@")
     .replace(/each opponent exiles a card from their hand and may play that card for as long as it remains exiled\. each spell cast this way costs \{(\d+)\} more to cast\. each land played this way enters tapped/g, "@@exiletoplay $1@@")
     .replace(/you may tap any number of untapped creatures you control\. ~ gets \+1\/\+1 until end of turn for each creature tapped this way/g, "@@tapforbonus@@")

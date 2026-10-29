@@ -180,6 +180,11 @@ export interface Permanent {
   planCounters?: number;
   /** Until end of turn: creature types it has in addition to its own ("becomes a 1/1 Phyrexian Blinkmoth artifact creature"). */
   tempSubtypes?: string[];
+  /** Until end of turn: creature types it doesn't have ("isn't a Human"), and the colors it has instead of its own ("a 3/3 green Ape"). */
+  tempLostSubtypes?: string[];
+  tempColors?: string[];
+  /** Until end of turn it is a creature but not an artifact (Treetop Village), though it was made one like a crewed Vehicle. */
+  tempNonartifact?: boolean;
   /** This turn: players whose spells and abilities can't target it ("can't be the target of spells or abilities your opponents control this turn"). */
   untargetableBy?: PlayerId[];
   /** A Class: the level it has reached (1 as it enters). */

@@ -31,6 +31,7 @@ export {
   playerToAct,
   powerOf,
   qualityOfDef,
+  qualityOfPerm,
   shiftTargets,
   staticEffectsOn,
   subtypesOf,

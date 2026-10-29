@@ -394,14 +394,14 @@ export function readDiesReturnsToBattlefield(line: string, out: ParsedCard): boo
 
 // "Whenever another creature you control enters, you gain 1 life." / "...with power 2 or less enters..."
 export function readAllyEnters(line: string, out: ParsedCard): boolean {
-  const ally =/^whenever (~ or )?(another|a)( nontoken)? creature you control(?: with power (\d+) or less)? enters(?: the battlefield)?,? (.+)$/.exec(line);
+  const ally =/^whenever (~ or )?(another|a)( nontoken)? creature you control(?: with power (\d+) or (less|greater))? enters(?: the battlefield)?,? (.+)$/.exec(line);
   const allyTyped = /^when(?:ever)? (~ or )?(?:another|an?) ([a-z]+(?:(?:, or | or |, )[a-z]+)*) you control enters(?: the battlefield)?,? (.+)$/.exec(line);
   const creatureOrArtifact = allyTyped?.[2] === "creature or artifact"; // "~ or another creature or artifact you control"
   if (ally || (allyTyped && !/^(creature|nontoken creature)$/.test(allyTyped[2]))) {
     const ctx = newCtx(true);
     ctx.hasOther = true; // "that creature" is the one that entered
     ctx.itIsOther = true;
-    const body = ally ? ally[5] : allyTyped![3];
+    const body = ally ? ally[6] : allyTyped![3];
     const effects = parseEffectText(body, ctx);
     if (effects && effects.length > 0) {
       const withSelf = (ally ? ally[1] : allyTyped![1]) !== undefined; // "~ or another": the permanent itself counts too
@@ -409,7 +409,7 @@ export function readAllyEnters(line: string, out: ParsedCard): boolean {
         event: "allyEnters",
         ...(withSelf || (ally && ally[2] === "a") ? {} : { other: true }),
         ...(ally?.[3] ? { nontoken: true } : {}),
-        ...(ally?.[4] ? { maxPower: Number(ally[4]) } : {}),
+        ...(ally?.[4] ? (ally[5] === "less" ? { maxPower: Number(ally[4]) } : { minPower: Number(ally[4]) }) : {}),
         ...(/do this only once each turn$/.test(line) ? { oncePerTurn: true } : {}),
         ...(creatureOrArtifact ? { artifacts: true } : allyTyped && !ally ? { subtypes: allyTyped[2].split(/, or |, | or /).map((n) => singularType(n.trim())) } : {}),
         effects,

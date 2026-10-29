@@ -13,7 +13,7 @@ import {
   onBoard,
   powerOf,
   sacrificePermanent,
-  qualityOfDef,
+  qualityOfPerm,
   queueDamageDraws,
   queueTriggers,
   toughnessOf,
@@ -164,7 +164,7 @@ export function resolveCombat(state: GameState, events: GameEvent[], assigned: R
       const { source, target } = hit;
       let { amount } = hit;
       // Protection: damage from a source with the quality it is protected from is prevented.
-      if (preventable && !("battlefield" in target) && isProtectedFrom(state, target, qualityOfDef(getCard(state, source.card.defId)))) amount = 0;
+      if (preventable && !("battlefield" in target) && isProtectedFrom(state, target, qualityOfPerm(state, source))) amount = 0;
       if (preventable && !("battlefield" in target) && parseCard(getCard(state, target.card.defId)).preventDamageToSelf) amount = 0; // "Prevent all damage that would be dealt to ~"
       if (amount <= 0) continue; // rule 510.1a: 0 or less damage isn't dealt
       const toPlayer = "battlefield" in target;

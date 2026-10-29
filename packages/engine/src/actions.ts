@@ -20,6 +20,7 @@ import {
   playerToAct,
   powerOf,
   qualityOfDef,
+  qualityOfPerm,
   queueTriggers,
   staticEffectsOn,
   tapPerm,
@@ -381,7 +382,7 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
         if (kw(next, attackerPerm, "intimidate") && !isArtifact && !(blockerDef.colors ?? []).some((c) => (attackerDef.colors ?? []).includes(c))) {
           return fail(`${nameOf(next, perm)} can't block ${nameOf(next, attackerPerm)}: it has intimidate (only artifact creatures and creatures sharing a color can block it).`);
         }
-        if (isProtectedFrom(next, attackerPerm, qualityOfDef(blockerDef))) {
+        if (isProtectedFrom(next, attackerPerm, qualityOfPerm(next, perm))) {
           return fail(`${nameOf(next, perm)} can't block ${nameOf(next, attackerPerm)}: it has protection from it.`);
         }
         const only = parseCard(attackerDef).blockedOnlyBy;

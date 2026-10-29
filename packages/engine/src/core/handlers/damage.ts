@@ -1,7 +1,7 @@
 import { getCard } from "../../cards.js";
 import type { Permanent, PlayerId } from "../../types.js";
 import { isBasicLand } from "../../deck.js";
-import { canPrevent, findPermanentOrNull, isProtectedFrom, kw, nameOf, playerLabel, powerOf, qualityOfDef } from "../permanents.js";
+import { canPrevent, findPermanentOrNull, isProtectedFrom, kw, lethalFor, nameOf, playerLabel, powerOf, qualityOfDef, qualityOfPerm } from "../permanents.js";
 import { addPoison, changeLife } from "../zones.js";
 import { subjectsOf } from "../targets.js";
 import { dealDamage, type EffectHandlers, type EffectOf, type EffectRun } from "./shared.js";
@@ -17,13 +17,21 @@ function fightOrBite({ state, ctx, events, say }: EffectRun, effect: EffectOf<"f
   const second = subjectsOf(state, effect.type === "fight" ? effect.b : effect.to, ctx).find((x) => x.k === "perm");
   if (first?.k !== "perm" || second?.k !== "perm") return; // a target is gone: nothing happens
   const traitOf = (perm: Permanent, controller: PlayerId) => ({ name: nameOf(state, perm), controller, deathtouch: kw(state, perm, "deathtouch"), lifelink: kw(state, perm, "lifelink"), infect: kw(state, perm, "infect") });
-  const hit = (from: Permanent, fromOwner: PlayerId, to: Permanent) => {
-    const quality = qualityOfDef(getCard(state, from.card.defId));
+  const hit = (from: Permanent, fromOwner: PlayerId, to: Permanent, amount = Math.max(0, powerOf(state, from)) * (effect.type === "bite" ? (effect.times ?? 1) : 1)) => {
+    const quality = qualityOfPerm(state, from);
     if (isProtectedFrom(state, to, quality) && canPrevent(state)) return say(`${nameOf(state, to)} has protection: the damage is prevented.`);
-    dealDamage(state, traitOf(from, fromOwner), { k: "perm", perm: to }, Math.max(0, powerOf(state, from)) * (effect.type === "bite" ? (effect.times ?? 1) : 1), events);
+    dealDamage(state, traitOf(from, fromOwner), { k: "perm", perm: to }, amount, events);
   };
   const a = { perm: first.perm, owner: first.owner };
   const b = { perm: second.perm, owner: second.owner };
+  // Ram Through: with trample, the creature takes only what is lethal and the rest goes to its controller instead.
+  if (effect.type === "bite" && effect.trampleExcess && kw(state, a.perm, "trample")) {
+    const power = Math.max(0, powerOf(state, a.perm));
+    const lethal = Math.min(power, lethalFor(state, a.perm, b.perm));
+    hit(a.perm, a.owner, b.perm, lethal);
+    dealDamage(state, traitOf(a.perm, a.owner), { k: "player", id: b.owner }, power - lethal, events);
+    return;
+  }
   hit(a.perm, a.owner, b.perm);
   if (effect.type === "fight") hit(b.perm, b.owner, a.perm); // power doesn't change from damage, so the order doesn't matter
 }

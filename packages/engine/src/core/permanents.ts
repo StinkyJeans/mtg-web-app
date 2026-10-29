@@ -77,6 +77,9 @@ export const isEnchantmentDef = (def: CardDef) => def.type === "enchantment" || 
 
 /** What protection looks at: the colors of a source, and whether it is an artifact. */
 export const qualityOfDef = (def: CardDef): SourceQuality => ({ colors: def.colors ?? [], artifact: isArtifactDef(def) });
+/** A permanent's colors now: its card's, unless something made it another color until end of turn. */
+export const colorsOfPerm = (s: GameState, p: Permanent): string[] => p.tempColors ?? getCard(s, p.card.defId).colors ?? [];
+export const qualityOfPerm = (s: GameState, p: Permanent): SourceQuality => ({ colors: colorsOfPerm(s, p), artifact: isArtifactDef(getCard(s, p.card.defId)) });
 
 /** Is this permanent protected from sources with these qualities? ("Protection from red") */
 /** Can damage be prevented right now? Not this turn after "damage can't be prevented this turn", nor while a permanent says "Damage can't be prevented." */
@@ -109,8 +112,8 @@ export function subtypesOf(s: GameState, p: Permanent): string[] {
   const def = getCard(s, p.card.defId);
   const owner = s.players.p1.battlefield.includes(p) ? "p1" : "p2";
   const everyType = (parseCard(def).statics ?? []).some((st) => st.allTypes && st.scope === "self" && (st.cond?.yardCreatures === undefined || yardCreatureCards(s, owner) >= st.cond.yardCreatures));
-  if (everyType) return [...new Set([...printed, ...added, ...CREATURE_TYPES])];
-  return added.length ? [...printed, ...added] : printed;
+  const all = everyType ? [...new Set([...printed, ...added, ...CREATURE_TYPES])] : added.length ? [...printed, ...added] : printed;
+  return p.tempLostSubtypes ? all.filter((t) => !p.tempLostSubtypes!.includes(t)) : all;
 }
 
 /** How many creature cards are in a player's graveyard. */
@@ -194,6 +197,10 @@ export function dynamicCount(s: GameState, p: Permanent, spec: CountSpec): numbe
   return countFor(s, controllerOf(s, p), spec);
 }
 
+const creaturesOf = (s: GameState, me: PlayerId) => s.players[me].battlefield.filter((p) => isCreature(s, p));
+/** The mana symbols of a card's cost: "{1}{G}{G}" -> ["{1}", "{G}", "{G}"] (a hybrid "{R/G}" counts for both colors). */
+const manaSymbols = (def: CardDef) => def.manaCost?.match(/\{[^}]+\}/g) ?? [];
+
 /** The count for a player: "the number of Mountains you control". */
 export function countFor(s: GameState, me: PlayerId, spec: CountSpec, sourceIid?: string): number {
   if (spec.kind === "hand") return s.players[me].hand.length;
@@ -223,6 +230,9 @@ export function countFor(s: GameState, me: PlayerId, spec: CountSpec, sourceIid?
     const counted = s.players[me].battlefield.filter((p) => (spec.what === "subtype" ? subtypesOf(s, p).includes(spec.subtype ?? "?") : isArtifactDef(getCard(s, p.card.defId))));
     return Math.max(0, ...counted.map((p) => getCard(s, p.card.defId).cost));
   }
+  if (spec.kind === "totalPower") return creaturesOf(s, me).reduce((n, p) => n + Math.max(0, powerOf(s, p)), 0);
+  if (spec.kind === "greatestPower") return Math.max(0, ...creaturesOf(s, me).map((p) => powerOf(s, p)));
+  if (spec.kind === "devotion") return s.players[me].battlefield.reduce((n, p) => n + manaSymbols(getCard(s, p.card.defId)).filter((sym) => sym.includes(spec.color)).length, 0);
   if (spec.kind === "toughnessGtPower") return s.players[me].battlefield.filter((p) => isCreature(s, p) && toughnessOf(s, p) > powerOf(s, p)).length;
   if (spec.kind !== "permanents") return 0; // the other kinds need the context of the effect (see runEffects)
   let n = 0;

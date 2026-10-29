@@ -129,6 +129,9 @@ export function startNextTurn(state: GameState, events: GameEvent[]): void {
       perm.crewed = false; // a Vehicle stops being a creature at end of turn
       perm.crewedBy = undefined;
       perm.tempSubtypes = undefined;
+      perm.tempLostSubtypes = undefined;
+      perm.tempColors = undefined;
+      perm.tempNonartifact = undefined;
       perm.untargetableBy = undefined;
       perm.loyaltyUsed = false;
       perm.cantBlockTurn = false;

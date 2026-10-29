@@ -9,6 +9,8 @@ import { drawCards } from "../zones.js";
 import { isArtifactDef, isCreature, powerOf, toughnessOf, yardCreatureCards } from "../permanents.js";
 import type { EffectHandlers } from "./shared.js";
 
+const COLOR_NAME: Record<string, string> = { W: "white", U: "blue", B: "black", R: "red", G: "green" };
+
 const MAY_COST_PROMPT = {
   artifactOrCard: "You may sacrifice an artifact or discard a card",
   artifactOrNonland: "You may sacrifice an artifact or discard a nonland card",
@@ -102,8 +104,10 @@ export const MARVEL_EFFECTS = {
       if (s.k !== "perm") continue;
       s.perm.crewed = true; // a creature until end of turn (it stops at the cleanup, like a crewed Vehicle)
       if (effect.subtypes) s.perm.tempSubtypes = effect.subtypes;
-      const types = effect.subtypes ? `${effect.subtypes.map((t) => t.charAt(0).toUpperCase() + t.slice(1)).join(" ")} artifact creature` : "creature";
-      say(`${nameOf(state, s.perm)} is ${effect.subtypes ? `a ${types}` : "a creature"} until end of turn.`);
+      if (effect.color) s.perm.tempColors = [effect.color];
+      if (effect.nonartifact) s.perm.tempNonartifact = true;
+      const words = [effect.color ? COLOR_NAME[effect.color] : "", ...(effect.subtypes ?? []).map((t) => t.charAt(0).toUpperCase() + t.slice(1)), effect.nonartifact ? "" : "artifact", "creature"].filter(Boolean);
+      say(`${nameOf(state, s.perm)} is a ${words.join(" ")} until end of turn.`);
     }
   },
   powerFromHand({ state, ctx, say }) {

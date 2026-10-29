@@ -5,6 +5,7 @@ import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
 import type { CardInstance, GameState, Permanent, PlayerId } from "../types.js";
 import {
+  colorsOfPerm,
   defSubtypes,
   findPermanentOrNull,
   isArtifactDef,
@@ -50,7 +51,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
         // "enchant permanent", or "target nonland permanent an opponent controls", or "target creature or enchantment"
         if (spec.nonland && def.type === "land") return false;
         const creatureFits = () => (def.type === "creature" || found.perm.crewed === true) && (!spec.creatureWith || kw(state, found.perm, spec.creatureWith)); // "or creature with flying"
-        const fits = (t: string) => (t === "creature" ? creatureFits() : t === "artifact" ? isArtifactDef(def) || found.perm.crewed === true : t === "enchantment" ? isEnchantmentDef(def) : t === "vehicle" ? defSubtypes(def).includes("vehicle") : def.type === t);
+        const fits = (t: string) => (t === "creature" ? creatureFits() : t === "artifact" ? isArtifactDef(def) || animatedArtifact(found.perm) : t === "enchantment" ? isEnchantmentDef(def) : t === "vehicle" ? defSubtypes(def).includes("vehicle") : def.type === t);
         if (spec.types && !spec.types.some(fits)) return false;
         if (spec.controller === "you" && found.owner.id !== controller) return false;
         if (spec.controller === "opponent" && found.owner.id === controller) return false;
@@ -63,7 +64,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (walker) return (spec.kind === "any" || spec.kind === "creatureOrPlaneswalker") && !(spec.controller === "you" && found.owner.id !== controller) && !(spec.controller === "opponent" && found.owner.id === controller);
       if (spec.kind === "enchantment") return isEnchantmentDef(def);
       if (spec.kind === "artifactOrEnchantment") return (isArtifactDef(def) || isEnchantmentDef(def)) && !(spec.noncreature && def.type === "creature");
-      if (spec.kind === "artifact") return (isArtifactDef(def) || found.perm.crewed === true) && !(spec.noncreature && (def.type === "creature" || found.perm.crewed === true));
+      if (spec.kind === "artifact") return (isArtifactDef(def) || animatedArtifact(found.perm)) && !(spec.noncreature && (def.type === "creature" || found.perm.crewed === true));
       if (spec.kind === "artifactOrLand") return def.type === "land" || isArtifactDef(def);
       if (spec.kind !== "creature" && spec.kind !== "any" && spec.kind !== "creatureOrPlaneswalker") return false;
       if (def.type !== "creature" && !found.perm.crewed) return false;
@@ -83,7 +84,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
           if (!attacking || state.combat?.attackers.length !== 1) return false;
         } else if (spec.filter === "attacking" ? !attacking : spec.filter === "blocking" ? !blocking : !(attacking || blocking)) return false;
       }
-      return !spec.notColors?.some((c) => (def.colors ?? []).includes(c));
+      return !spec.notColors?.some((c) => colorsOfPerm(state, found.perm).includes(c));
     }
     case "card": {
       if (spec.kind !== "graveyardCreature" && spec.kind !== "graveyardSpell" && spec.kind !== "graveyardPermanent" && spec.kind !== "graveyardCard") return false;
@@ -156,6 +157,9 @@ export function legalTargets(state: GameState, spec: TargetSpec, controller: Pla
   if (spec.optional) out.push({ kind: "none" }); // "up to one": choosing nothing is always possible
   return out;
 }
+
+/** A crewed Vehicle or an animated Inkmoth Nexus is an artifact creature; an animated Treetop Village is just a creature. */
+const animatedArtifact = (p: Permanent) => p.crewed === true && !p.tempNonartifact;
 
 type Subject =
   | { k: "player"; id: PlayerId }
