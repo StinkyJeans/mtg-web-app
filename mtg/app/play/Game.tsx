@@ -1159,7 +1159,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       )}
 
       <RotateHint />
-      {!watching && <ChainFx state={state} actor={actor} extra={triggerFlash} />}
+      {!watching && <ChainFx state={state} actor={actor} extra={triggerFlash} onPass={() => void act({ type: "passPriority" })} />}
       {watching && <ChainFx state={state} actor="p1" extra={triggerFlash} />}
       {welcome && <WelcomeSplash />}
       {stageSeen && !stageDone && !intro && !welcome && state.opening?.shuffled && (

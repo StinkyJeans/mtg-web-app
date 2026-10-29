@@ -1,14 +1,17 @@
 "use client";
 
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { OPPONENT } from "@mtg/engine";
 import type { CardDef, GameState, PlayerId } from "@mtg/engine";
-import { cardImageUrl } from "@/lib/cards";
+import { playerName } from "./log";
+import { cardDetailImageUrl, cardImageUrl } from "@/lib/cards";
 import { useAnimationsOn } from "@/lib/motion";
 import { itemName, readable, targetName } from "./cardText";
 import { helpFor } from "./glossary";
 import { ManaText } from "./ManaSymbols";
 import { stackCard } from "./ResolveZone";
 import { liteMode } from "./perfTier";
+import { preloadImage } from "@/lib/prefetch";
 import type { Announcement } from "./log";
 
 /**
@@ -67,13 +70,14 @@ function kindLine(state: GameState, item: GameState["stack"][number]): string | 
   return undefined;
 }
 
-export default function ChainFx({ state, actor, extra }: { state: GameState; actor: PlayerId; extra?: Flash | null }) {
+export default function ChainFx({ state, actor, extra, onPass }: { state: GameState; actor: PlayerId; extra?: Flash | null; /** Pass priority (or let it resolve, or continue): given to a player, not to someone watching. */ onPass?: () => void }) {
   const on = useAnimationsOn();
   const sizeKey = useSyncExternalStore(subscribe, () => `${window.innerWidth}x${window.innerHeight}`, () => "1200x800");
   const [links, setLinks] = useState<Link[]>([]);
   const [seenIds, setSeenIds] = useState("");
   const [banner, setBanner] = useState<number | null>(null);
   const [seenFlash, setSeenFlash] = useState(0);
+  const [hiddenAt, setHiddenAt] = useState<string | null>(null); // "Show board": the chain is put away until a new card joins it
   const born = useRef(new Map<string, number>()); // when each card arrived
   const planned = useRef(new Set<string>()); // cards whose exit is already scheduled
 
@@ -132,6 +136,11 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
     if (items.length >= 2) setBanner((b) => (b ?? 0) + 1);
   }
 
+  // The sharp picture of each card starts loading as soon as the card is known.
+  useEffect(() => {
+    for (const l of links) if (l.def) preloadImage(cardDetailImageUrl(l.def, "normal"));
+  }, [links]);
+
   // Note when a card arrived, and plan the exit of the ones that are gone: after they had their time on screen, newest first.
   useEffect(() => {
     const now = performance.now();
@@ -167,6 +176,13 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
   }, [banner]);
 
   if (links.length === 0 || state.winner) return null;
+  const newest = links[links.length - 1]?.id ?? null;
+  const choiceOpen = !!(state.pendingChoice || state.pendingPick); // a choice (what to discard, a target) must never be covered by the chain
+  const cardsHidden = choiceOpen || (hiddenAt !== null && hiddenAt === newest);
+  const round = state.priority;
+  const canPass = !!onPass && !!round && round.holder === actor && !choiceOpen;
+  const topName = state.stack.length > 0 ? itemName(state, state.stack[state.stack.length - 1]) : null;
+  const passLabel = state.stack.length === 0 ? "Continue" : round?.passes === 1 ? `Resolve ${topName}` : "Pass";
 
   const [vw, vh] = sizeKey.split("x").map(Number);
   const phone = vw < 1024;
@@ -191,6 +207,25 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
 
   return (
     <div className="pointer-events-none fixed inset-0 z-[80]">
+      {/* The buttons stay while the chain plays: pass, resolve or continue without waiting for it, and put the chain away to see the board. */}
+      <div className="pointer-events-auto absolute left-1/2 top-[3.4rem] z-[100] flex max-w-[96vw] -translate-x-1/2 flex-wrap items-center justify-center gap-2 rounded-2xl border border-white/25 bg-slate-950/90 p-1.5 shadow-xl shadow-black/50">
+        {canPass ? (
+          <button onClick={onPass} className="min-h-11 rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-5 text-base font-extrabold text-black shadow">
+            {passLabel}
+          </button>
+        ) : (
+          round && !choiceOpen && <span className="px-3 text-sm font-semibold text-slate-200">Waiting for {playerName(round.holder === actor ? OPPONENT[actor] : round.holder)}…</span>
+        )}
+        {choiceOpen && <span className="px-3 text-sm font-semibold text-amber-200">Make your choice below</span>}
+        <button
+          onClick={() => setHiddenAt(cardsHidden && !choiceOpen ? null : newest)}
+          disabled={choiceOpen}
+          className="min-h-11 rounded-xl border border-white/30 bg-white/10 px-4 text-sm font-bold text-white disabled:opacity-40"
+        >
+          {cardsHidden ? "Show chain" : "Show board"}
+        </button>
+      </div>
+      <div className="contents" style={cardsHidden ? { display: "none" } : undefined}>
       <p className="sr-only" role="status">
         Chain: {links.filter((l) => !l.leaving).map((l) => `${l.n}, ${l.name}`).join("; ")}
       </p>
@@ -212,7 +247,8 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
           );
         })}
         {shown.map((l, i) => {
-          const image = l.def?.image ? cardImageUrl(l.def.image) : null;
+          const image = l.def?.image ? cardImageUrl(l.def.image) : null; // (146px wide: it shows at once)
+          const sharp = l.def ? cardDetailImageUrl(l.def, "normal") : null; // (488px wide: the card's own text stays readable at this size)
           const glow = l.mine ? "34, 211, 238" : "251, 113, 133";
           return (
             <div
@@ -247,6 +283,7 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
                 <div className="chain-frame-text">{l.text}</div>
               </div>
               {image && <div className="chain-face chain-art" style={{ backgroundImage: `url(${image})` }} />}
+              {sharp && <div className="chain-face chain-art" style={{ backgroundImage: `url(${sharp})` }} />}
               <span className="chain-flash" />
               <span className="chain-num" style={{ animationDelay: `${l.fresh * STAGGER_MS + 300}ms` }}>
                 {l.n}
@@ -286,6 +323,7 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
           CHAIN
         </div>
       )}
+      </div>
     </div>
   );
 }

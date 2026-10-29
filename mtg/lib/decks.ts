@@ -172,7 +172,20 @@ export function coverOf(defs: Record<string, CardDef>, entries: DeckEntries): Ca
  * `hidden` is how many of their own decks aren't ready yet.
  */
 export async function listPlayableDecks(): Promise<{ choices: DeckChoice[]; hidden: number }> {
-  const [mine, official] = await Promise.all([listMyDecks(), listOfficialDecks().catch(() => [])]);
+  // A page left open for a long time (a long match, a phone in the background) can hold an expired login: the database then refuses even the
+  // ready-made decks. So the login is renewed first, and the lists are asked for once more if they still fail.
+  const supabase = createClient();
+  await supabase.auth.getSession().catch(() => undefined); // (this renews a login that has expired)
+  try {
+    return await loadPlayableDecks();
+  } catch {
+    await supabase.auth.refreshSession().catch(() => undefined);
+    return loadPlayableDecks();
+  }
+}
+
+async function loadPlayableDecks(): Promise<{ choices: DeckChoice[]; hidden: number }> {
+  const [mine, official] = await Promise.all([listMyDecks(), listOfficialDecks()]);
   const defs = await loadDefsFor([...mine, ...official]);
   const ready = (d: Deck) => deckStatus(defs, d.entries).ready;
   const choice = (d: Deck & { code?: string | null }, isOfficial: boolean): DeckChoice => ({

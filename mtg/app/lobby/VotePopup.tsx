@@ -84,20 +84,29 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   const options = fetchedOptions ?? (cachedChoices ? [...cachedChoices, STARTER] : null);
   const [choice, setChoice] = useState(RANDOM_ID);
   const [busy, setBusy] = useState(false);
+  const [loadFailed, setLoadFailed] = useState(false); // the decks could not be fetched (the login may have expired)
+  const [attempt, setAttempt] = useState(0);
 
   // Every saved deck that is legal and fully playable, the ready-made decks and the starter deck; the menu keeps those of this size.
   useEffect(() => {
     let cancelled = false;
     listPlayableDecks()
       .then(({ choices }) => (writeCached("playable-decks", choices), [...choices, STARTER]))
-      .catch(() => [STARTER]) // the starter deck and a random deck still work
       .then((found) => {
-        if (!cancelled) setOptions(found);
+        if (cancelled) return;
+        setLoadFailed(false);
+        setOptions(found);
+      })
+      .catch(() => {
+        // the starter deck and a random deck still work, but the player is told their decks are missing and can try again
+        if (cancelled) return;
+        setLoadFailed(true);
+        setOptions((o) => o ?? [STARTER]);
       });
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [attempt]);
 
   async function confirm() {
     setBusy(true);
@@ -122,6 +131,14 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
           {size} cards. {room.players.some((p) => p.bot) ? "The bot plays a random deck." : "Your opponent does not see which one you pick."}
         </p>
         </div>
+        {loadFailed && (
+          <p role="alert" className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-300/50 bg-amber-950/60 px-3 py-2 text-left text-[15px] text-amber-100">
+            <span className="min-w-0 flex-1">Your decks could not be loaded (your login may have expired). You can still play a random deck.</span>
+            <button type="button" onClick={() => (setLoadFailed(false), setOptions(null), setAttempt((n) => n + 1))} className="btn-ghost !px-3 !py-1">
+              Try again
+            </button>
+          </p>
+        )}
         <DeckPicker choices={options ?? []} size={size} randomId={RANDOM_ID} value={choice} onChange={setChoice} disabled={ready} loading={options === null} wide />
       </div>
       <div className="flex flex-col gap-4 lg:col-start-2 lg:row-start-1">
