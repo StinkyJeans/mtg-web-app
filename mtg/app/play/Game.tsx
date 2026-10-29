@@ -51,8 +51,6 @@ import { applyPerfClass } from "./perfTier";
 import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
 import { manaNotes } from "./manaInfo";
 import type { ManaNote } from "./manaInfo";
-import BackgroundPicker from "./BackgroundPicker";
-import AppearanceDialog from "./AppearanceDialog";
 import { useAppearance } from "@/lib/playmat";
 import { useCustomCursor } from "@/lib/cursor";
 import BlockPanel from "./BlockPanel";
@@ -106,6 +104,21 @@ const REMIND_DONE_MS = 6000;
  */
 export function OnlineGame() {
   const { matchId, game, snapshot } = useOnline();
+  const router = useRouter();
+  // Leaving a match (Back to the lobby, or the room closing) must not bring the loading screen back for a moment: the board just goes.
+  const [hadGame, setHadGame] = useState(false);
+  const [left, setLeft] = useState(false);
+  if (game && !hadGame) setHadGame(true);
+  if (hadGame && !snapshot && !game && !left) setLeft(true);
+  if (left && (snapshot || game)) {
+    setLeft(false);
+    setHadGame(!!game);
+  }
+  useEffect(() => {
+    if (!left) return;
+    const t = setTimeout(() => router.replace("/"), 400);
+    return () => clearTimeout(t);
+  }, [left, router]);
   const gameNo = snapshot?.series?.game ?? 1; // (each game of a best of 3 or 5 starts on a fresh board)
   // A rematch: the same two players choose their decks and the coin is tossed again, on this page; then a new game starts on a fresh board.
   const choosing = !!snapshot && !snapshot.spectating && (snapshot.stage === "decks" || snapshot.stage === "coin");
@@ -123,6 +136,7 @@ export function OnlineGame() {
     setSeen(matchId);
     if (seen !== null) setVisit(visit + 1); // (from a match to none, or to a different match; from none to a match is the same visit)
   }
+  if (left) return <main className="battlefield-bg min-h-[calc(100dvh-2.6rem)]" />;
   if (choosing && snapshot) {
     return (
       <main className="battlefield-bg min-h-[calc(100dvh-2.6rem)]">
@@ -191,7 +205,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [endingTurn, setEndingTurn] = useState<number | null>(null); // the turn "End turn" was pressed in
   const background = useBattlefieldBackground(); // the picture behind the battlefield
   const look = useAppearance(online ? (net.game?.looks ?? null) : null); // each player's card sleeves and playmat (online: what each chose before the match)
-  const [lookOpen, setLookOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false); // phones: the side panels (chat, log, looks) are a menu over the board
   const [peek, setPeek] = useState(false); // phones: the choice sheet is tucked away to see the board under it
   // a new panel in the sheet (a different question) always opens it
@@ -203,7 +216,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   }, []);
   const stacked = useStacked();
   const touch = useTouch(); // no mouse: nothing is "under" it, so no card is shown big on hover
-  const [cursorOn, setCursorOn] = useCustomCursor();
+  const [cursorOn] = useCustomCursor();
   useBattleFullscreen(game !== null); // the battle fills the whole screen, whatever its size
   const fullscreen = useFullscreen();
   // The Magic cursor is for the play screen only: the page gets a class while this screen is open.
@@ -817,17 +830,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           </button>
         </div>
         <p className="rounded-xl border border-white/20 bg-white/5 px-3 py-2 text-sm text-slate-100 lg:hidden">Tip: press and hold any card to see it big.</p>
-        <button
-          onClick={() => setLookOpen(true)}
-          className="flex w-full items-center justify-between rounded-xl border border-white/40 bg-slate-950/55 px-3 py-2 text-left font-display text-xs font-bold uppercase tracking-wide text-white shadow-sm hover:bg-slate-900/70"
-        >
-          <span>🎴 Sleeves &amp; playmat</span>
-          <span aria-hidden="true" className="flex gap-1">
-            {(["p1", "p2"] as const).map((id) => (
-              <span key={id} className="h-4 w-3 rounded-[2px] border border-black/60" style={{ background: look.sleeve(id).css }} />
-            ))}
-          </span>
-        </button>
         {fullscreen.available && (
           <button
             onClick={fullscreen.toggle}
@@ -836,7 +838,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             <span>⛶ {fullscreen.on ? "Leave full screen" : "Full screen"}</span>
           </button>
         )}
-        <BackgroundPicker bg={background} />
         <PlayedThisTurn items={history.filter((h) => h.turn === state.turn)} state={state} onZoom={(defId) => setZoomed(state.cards[defId])} />
         {!watching && (
           <ChatPanel
@@ -869,8 +870,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           </button>
         </div>
       </aside>
-
-      {lookOpen && <AppearanceDialog look={look} cursor={{ on: cursorOn, set: setCursorOn }} onClose={() => setLookOpen(false)} first={actor} />}
 
       {/* Center: the battle */}
       <section className="order-2 flex min-h-0 flex-1 flex-col gap-1.5 lg:order-none lg:flex-initial lg:[--hand-h:clamp(74px,11.8dvh,150px)] lg:has-[.action-box>*]:[--hand-h:clamp(58px,9dvh,110px)]">

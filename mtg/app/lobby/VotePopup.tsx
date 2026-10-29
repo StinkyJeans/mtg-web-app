@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { STARTER_DECK } from "@mtg/engine";
 import { holdWallpaper } from "../LiveWallpaper";
 import { CoinDisplay } from "../play/CoinFlip";
@@ -10,6 +10,7 @@ import { listPlayableDecks } from "@/lib/decks";
 import type { DeckChoice } from "@/lib/decks";
 import DeckPicker from "../decks/DeckPicker";
 import { buildRandomDeck } from "@/lib/randomDeck";
+import { loadDefaults, readDeckDefault, saveDefaults } from "@/lib/defaults";
 import { useCached, writeCached } from "@/lib/dashCache";
 import { leaveRoom, send } from "@/lib/online/session";
 import type { RoomSnapshot } from "@/lib/online/protocol";
@@ -84,6 +85,8 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   const options = fetchedOptions ?? (cachedChoices ? [...cachedChoices, STARTER] : null);
   const [choice, setChoice] = useState(RANDOM_ID);
   const [busy, setBusy] = useState(false);
+  const touched = useRef(false); // the player picked a deck themselves: their pick is not replaced by the saved default
+  const [saved, setSaved] = useState(false); // this pick was made the default
   const [loadFailed, setLoadFailed] = useState(false); // the decks could not be fetched (the login may have expired)
   const [attempt, setAttempt] = useState(0);
 
@@ -92,10 +95,16 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
     let cancelled = false;
     listPlayableDecks()
       .then(({ choices }) => (writeCached("playable-decks", choices), [...choices, STARTER]))
-      .then((found) => {
+      .then(async (found) => {
+        // the deck (and table) picked last time are picked again, if the deck is still there
+        const account = await loadDefaults();
         if (cancelled) return;
         setLoadFailed(false);
         setOptions(found);
+        const want = readDeckDefault() || account.deck || "";
+        if (!touched.current && want && found.some((o) => o.id === want && o.ids.length === size)) setChoice(want);
+        if (account.sleeve && !myLook.read("sleeve")) setSleeve(account.sleeve);
+        if (account.mat && !myLook.read("mat")) setMat(account.mat);
       })
       .catch(() => {
         // the starter deck and a random deck still work, but the player is told their decks are missing and can try again
@@ -106,7 +115,7 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
     return () => {
       cancelled = true;
     };
-  }, [attempt]);
+  }, [attempt]); // eslint-disable-line react-hooks/exhaustive-deps
 
   async function confirm() {
     setBusy(true);
@@ -116,6 +125,9 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
       // against the bot, the host also brings the bot's deck: a random one
       const vsBot = room.players.some((p) => p.bot);
       const botDeck = vsBot ? await buildRandomDeck(size) : undefined;
+      // what was picked is the player's default from now on: the deck, the sleeve and the playmat
+      void saveDefaults({ deck: choice, sleeve, mat });
+      setSaved(true);
       send("deck", { name: picked ? picked.name : (mine as { name: string }).name, ids: picked ? picked.ids : (mine as { ids: string[] }).ids, ...(picked?.side ? { side: picked.side } : {}), ...(botDeck ? { botDeck: { name: botDeck.name, ids: botDeck.ids } } : {}) });
     } finally {
       setBusy(false);
@@ -139,7 +151,7 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
             </button>
           </p>
         )}
-        <DeckPicker choices={options ?? []} size={size} randomId={RANDOM_ID} value={choice} onChange={setChoice} disabled={ready} loading={options === null} wide />
+        <DeckPicker choices={options ?? []} size={size} randomId={RANDOM_ID} value={choice} onChange={(id) => ((touched.current = true), setChoice(id))} disabled={ready} loading={options === null} wide />
       </div>
       <div className="flex flex-col gap-4 lg:col-start-2 lg:row-start-1">
       <div className="rounded-2xl border border-white/20 bg-white/5 p-4 text-center">
@@ -162,6 +174,9 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
       >
         {ready ? "Ready ✓" : busy ? "Preparing…" : "Ready"}
       </button>
+      <p className="text-center text-sm font-semibold text-slate-300">
+        {saved || ready ? "✓ Saved as your default: next time this deck, sleeve and playmat are already picked." : "Your deck, card sleeve and playmat are saved as your default when you press Ready."}
+      </p>
       <PlayerChips room={room} show={(p) => (p.deckReady ? <span className="font-bold text-[#a7f3d0]">ready ✓</span> : p.bot ? <span className="text-slate-300">waiting for you</span> : <span className="text-slate-300">choosing…</span>)} />
       </div>
     </section>
