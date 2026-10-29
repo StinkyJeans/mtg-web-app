@@ -99,7 +99,7 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
         n: top + items.length - i, // (the first to resolve was the top of the chain)
         def: a.defId ? state.cards[a.defId] : undefined,
         name: a.title,
-        text: [...a.lines, ...(a.result ?? [])].join("\n"),
+        text: [...(a.kind === "spell" && a.defId && state.cards[a.defId]?.text ? [state.cards[a.defId].text as string] : a.lines), ...(a.result ?? [])].join("\n"),
         target: "",
         mine: a.player === actor,
         gone: true,

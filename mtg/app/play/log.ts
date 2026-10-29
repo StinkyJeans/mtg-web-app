@@ -173,6 +173,8 @@ export interface Announcement {
   result?: string[];
   /** Only a result: what was cast in an earlier action, to be added to that announcement (see mergeAnnouncements). */
   later?: true;
+  /** Played on screen as a link of the chain (it was cast and resolved in one step, so it was never on the stack to be seen). */
+  flashed?: true;
 }
 
 let nextAnnouncement = 1;

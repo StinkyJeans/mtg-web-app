@@ -45,7 +45,7 @@ import type { Draw } from "./pileFx";
 import { announcementsFrom, describeEvents, endReason, mergeAnnouncements, playerName, worthTelling } from "./log";
 import type { Announcement } from "./log";
 import { PassReminder, PlayedThisTurn, TurnSplash, WelcomeSplash } from "./Announcements";
-import ResolveZone, { holdReveal, isRevealing } from "./ResolveZone";
+import ResolveZone, { isRevealing } from "./ResolveZone";
 import { lifeSettling } from "./lifeCount";
 import { applyPerfClass } from "./perfTier";
 import { ChatPanel, LogPanel, PlayersPanel } from "./SidePanels";
@@ -448,12 +448,13 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   async function commit(r: { state: GameState; events: GameEvent[] }) {
     const viewer = seat ?? playerToAct(r.state);
     playGameSounds(r.events, online ? viewer : null);
-    const told = announcementsFrom(r.events, r.state);
-    // Online: what the opponent cast or used is shown in the "to resolve" zone first, then it resolves.
-    const theirs = online ? told.filter((a) => a.player !== viewer && !a.later && a.kind !== "trigger") : [];
-    if (theirs.length > 0) {
-      flushSync(() => setRevealing({ items: theirs, cards: r.state.cards }));
-      await holdReveal();
+    // Everything cast, used or triggered and resolved within this one step (nobody had to pass for it) plays as links of the chain, on its own,
+    // before the board changes. (What stayed on the stack was already on screen as the chain while it waited.)
+    const told = announcementsFrom(r.events, r.state).map((a): Announcement => (a.done && !a.later ? { ...a, flashed: true } : a));
+    const quick = told.filter((a) => a.flashed);
+    if (quick.length > 0) {
+      // (Nothing waits for it: the board and whose turn it is to answer update at once, so a response (a counterspell) is possible while the chain plays.)
+      flushSync(() => setTriggerFlash((f) => ({ key: (f?.key ?? 0) + 1, items: quick })));
     }
     const gone = r.events.flatMap((e) => (e.type === "creatureDied" ? [e.iid] : e.type === "cardsDiscarded" ? e.iids : []));
     const before = gameRef.current; // the board as it was, to see what this action changed
@@ -482,8 +483,6 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       // Online: the opponent passed the turn. Said loudly, in case this player looked away while waiting.
       if (online && r.events.some((e) => e.type === "turnStarted" && e.player === viewer)) setTurnSplash((n) => n + 1);
       setRevealing(null);
-      const triggered = told.filter((a) => a.kind === "trigger" && a.done);
-      if (triggered.length > 0) setTriggerFlash((f) => ({ key: (f?.key ?? 0) + 1, items: triggered }));
       if (told.length > 0) {
         setAnnouncements((a) => mergeAnnouncements(a, told).slice(-4));
         setHistory((h) => mergeAnnouncements(h, told).slice(-40));
@@ -882,7 +881,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           overlay={
             <ResolveZone
               state={state}
-              played={announcements.filter((a) => a.kind !== "trigger" && (a.player === other || worthTelling(a)))}
+              played={announcements.filter((a) => !a.flashed && (a.player === other || worthTelling(a)))}
               revealing={revealing}
               onClose={(id) => setAnnouncements((l) => l.filter((x) => x.id !== id))}
               onZoom={setZoomed}
