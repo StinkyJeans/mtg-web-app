@@ -1,11 +1,24 @@
 import { getCard } from "../../cards.js";
 import { parseManaCost, payMana } from "../../mana.js";
 import { parseCard } from "../../oracle.js";
-import type { CardInstance } from "../../types.js";
+import { OPPONENT, type CardInstance, type GameState, type PlayerId } from "../../types.js";
 import { defSubtypes, findPermanentOrNull, hasDelirium, isCreature, playerLabel, powerOf } from "../permanents.js";
 import { counterStackItem, spellLeavesStack } from "../zones.js";
 import { subjectsOf } from "../targets.js";
-import { cardAnywhere, type EffectHandlers } from "./shared.js";
+import { cardAnywhere, type EffectHandlers, type EffectOf } from "./shared.js";
+
+const creatureCount = (state: GameState, player: PlayerId) => state.players[player].battlefield.filter((p) => isCreature(state, p)).length;
+
+/** The conditions an "if ..." checks as the spell resolves. A spell resolves in the phase it was cast in: the stack has to be empty for the game to move on. */
+const NOW_CONDS: Record<EffectOf<"ifNow">["cond"], (state: GameState, me: PlayerId) => boolean> = {
+  yourMainPhase: (state, me) => state.active === me && (state.phase === "main1" || state.phase === "main2"),
+  landEntered: (state, me) => (state.players[me].landsEnteredThisTurn ?? 0) > 0,
+  delirium: hasDelirium,
+  instantAndSorcery: (state, me) => ["instant", "sorcery"].every((type) => state.players[me].graveyard.some((c) => getCard(state, c.defId).type === type)),
+  ferocious: (state, me) => state.players[me].battlefield.some((p) => isCreature(state, p) && powerOf(state, p) >= 4),
+  lessLife: (state, me) => state.players[me].life < state.players[OPPONENT[me]].life,
+  fewerCreatures: (state, me) => creatureCount(state, me) < creatureCount(state, OPPONENT[me]),
+};
 
 /** Countering, optional payments, and effects that depend on how the spell was cast. */
 export const STACK_EFFECTS = {
@@ -104,19 +117,7 @@ export const STACK_EFFECTS = {
     nested(ctx.kicked ? effect.then : (effect.otherwise ?? []));
   },
   ifNow({ state, ctx, nested }, effect) {
-    const me = state.players[ctx.controller];
-    // A spell resolves in the phase it was cast in: the stack has to be empty for the game to move on.
-    const holds =
-      effect.cond === "yourMainPhase"
-        ? state.active === ctx.controller && (state.phase === "main1" || state.phase === "main2")
-        : effect.cond === "landEntered"
-          ? (me.landsEnteredThisTurn ?? 0) > 0
-          : effect.cond === "delirium"
-            ? hasDelirium(state, ctx.controller)
-            : effect.cond === "instantAndSorcery"
-              ? ["instant", "sorcery"].every((type) => me.graveyard.some((c) => getCard(state, c.defId).type === type))
-              : me.battlefield.some((p) => isCreature(state, p) && powerOf(state, p) >= 4);
-    nested(holds ? effect.then : (effect.otherwise ?? []));
+    nested(NOW_CONDS[effect.cond](state, ctx.controller) ? effect.then : (effect.otherwise ?? []));
   },
   ifManaSpent({ ctx, nested }, effect) {
     if ((ctx.x ?? 0) >= effect.n) nested(effect.then);

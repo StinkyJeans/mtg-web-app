@@ -102,7 +102,7 @@ export type Effect =
   | { type: "ifSubtype"; what: Ref; subtype: string; then: Effect[] } // "if it's a Zombie card, draw a card" (wherever the card is now)
   | { type: "mustBeBlocked"; what: Ref } // "must be blocked this turn if able"
   | { type: "becomeSubtype"; what: Ref; subtype: string } // "~ becomes a Werewolf": the new creature type replaces the others
-  | { type: "returnSelfToBattlefield"; tapped?: boolean; counters?: number; finality?: boolean } // the card itself, from its owner's graveyard
+  | { type: "returnSelfToBattlefield"; tapped?: boolean; counters?: number; minusCounters?: number; finality?: boolean } // the card itself, from its owner's graveyard
   | { type: "grantDiesReturn"; what: Ref } // until end of turn: "when this dies, return it to the battlefield tapped with a +1/+1 counter"
   | { type: "distributeCounters"; total: number; double?: boolean } // among the chosen targets, the first ones getting any extra; then double them
   | { type: "createToken"; token: TokenSpec; amount: Amount; who?: Ref }
@@ -119,7 +119,7 @@ export type Effect =
   | { type: "becomeCreatureNow"; what: Ref; subtypes?: string[]; color?: string; nonartifact?: boolean } // until end of turn it is an artifact creature (of these creature types, of this color; `nonartifact`: just a creature)
   | { type: "loseSubtype"; what: Ref; subtype: string } // "... and isn't a Human" until end of turn
   | { type: "untargetable"; what: Ref } // "can't be the target of spells or abilities your opponents control this turn"
-  | { type: "ifNow"; cond: "yourMainPhase" | "landEntered" | "ferocious" | "delirium" | "instantAndSorcery"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead", ferocious "... if you control a creature with power 4 or greater", delirium "if there are four or more card types among cards in your graveyard, ...", "if there is an instant card and a sorcery card in your graveyard, instead ..."
+  | { type: "ifNow"; cond: "yourMainPhase" | "landEntered" | "ferocious" | "delirium" | "instantAndSorcery" | "lessLife" | "fewerCreatures"; then: Effect[]; otherwise?: Effect[] } // "if you cast ~ during your main phase, ... instead", landfall "... instead", ferocious "... if you control a creature with power 4 or greater", delirium "if there are four or more card types among cards in your graveyard, ...", "if there is an instant card and a sorcery card in your graveyard, instead ...", "if you have less life than an opponent", "if you control fewer creatures than an opponent"
   | { type: "ifControlledTarget"; i: number; then: Effect[] } // "if you controlled that permanent, draw a card"
   | { type: "attachToCreated" } // "you may attach ~ to it": this Equipment goes on the token the same ability just created
   | { type: "exileGraveyard"; who: Ref } // "exile target player's graveyard"
@@ -265,6 +265,8 @@ export interface TargetSpec {
   controller?: "you" | "opponent";
   /** "nonblack" etc.: colors the creature must not have. */
   notColors?: string[];
+  /** "target black or red permanent": it has at least one of these colors. */
+  colorsAny?: string[];
   /** For players: only the controller's opponent. */
   opponentOnly?: boolean;
   /** For "permanent" targets: "target nonland permanent". */
@@ -426,7 +428,7 @@ export interface TriggeredAbility {
   ifKicked?: boolean;
   event: "oppPermTapped" | "youTapOpp" | "oppArtifactAbility" | "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
     | "youSacrifice" | "anySacrifice"
-    | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
+    | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "anyCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
     | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted" | "youDiscard" | "excessDamage" | "damaged" | "anyDies" | "teamworkTap" | "attacksAlone" | "selfTapped" | "hostTapped" | "allyTapped" | "tokenEnters" | "yourAbilityTargets" | "anyDrawSecond" | "allyDamaged" | "hostUpkeep";
   /** An "intervening if": the trigger only happens when this is true as the event occurs. */
   cond?: {
@@ -523,6 +525,8 @@ export interface TriggeredAbility {
   minPower?: number;
   /** Undying: only if it had no +1/+1 counters on it as it died. */
   ifNoCounters?: boolean;
+  /** Persist: only if it had no -1/-1 counters on it as it died. */
+  ifNoMinusCounters?: boolean;
   effects: Effect[];
   targets: TargetSpec[];
   text: string;

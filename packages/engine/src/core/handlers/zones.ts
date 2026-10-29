@@ -1,5 +1,5 @@
 import { getCard } from "../../cards.js";
-import type { CardInstance, PlayerId } from "../../types.js";
+import type { CardInstance, Permanent, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isArtifactDef, isCreature, kw, nameOf, playerLabel } from "../permanents.js";
 import { isToken, makeToken, putCounters, putIntoGraveyard, regenerateInstead, removeFromBattlefield, sacrificePermanent, spellLeavesStack } from "../zones.js";
 import { creatureEntered, queueTriggers } from "../triggers.js";
@@ -146,12 +146,13 @@ export const ZONE_EFFECTS = {
     const owner = Object.values(state.players).find((p) => p.graveyard.some((c) => c.iid === ctx.sourceId));
     if (!owner) return;
     const [card] = owner.graveyard.splice(owner.graveyard.findIndex((c) => c.iid === ctx.sourceId), 1);
-    owner.battlefield.push({ card, tapped: effect.tapped === true, summoningSick: true, damage: 0, ...(effect.finality ? { finality: true } : {}) });
+    const perm: Permanent = { card, tapped: effect.tapped === true, summoningSick: true, damage: 0, ...(effect.finality ? { finality: true } : {}), ...(effect.minusCounters ? { minusCounters: effect.minusCounters } : {}) };
+    owner.battlefield.push(perm);
     events.push({ type: "permanentEntered", player: owner.id, iid: card.iid });
-    if (effect.counters) putCounters(state, owner.battlefield[owner.battlefield.length - 1], owner.id, effect.counters);
+    if (effect.counters) putCounters(state, perm, owner.id, effect.counters);
     queueTriggers(state, card, owner.id, "enters");
     creatureEntered(state, card, owner.id);
-    say(`${getCard(state, card.defId).name} returns to the battlefield${effect.tapped ? " tapped" : effect.finality ? " with a finality counter" : ""}.`);
+    say(`${getCard(state, card.defId).name} returns to the battlefield${effect.tapped ? " tapped" : effect.finality ? " with a finality counter" : effect.minusCounters ? " with a -1/-1 counter" : ""}.`);
   },
   createToken({ state, ctx, events, say, value }, effect) {
     const n = value(effect.amount);

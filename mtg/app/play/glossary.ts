@@ -32,6 +32,7 @@ const RULES: Rule[] = [
   { match: /\bexalted\b/i, help: "Exalted: whenever a creature you control attacks alone, it gets +1/+1 until end of turn. Each instance of exalted you control triggers, so they add up." },
   { match: /\bdelve\b/i, help: "Delve: while casting it, you may exile cards from your graveyard. Each card exiled pays for {1} of its cost." },
   { match: /\bundying\b/i, help: "Undying: when it dies, if it had no +1/+1 counters on it, it comes back to the battlefield with a +1/+1 counter. With that counter on it, it won't come back a second time." },
+  { match: /\bpersist\b/i, help: "Persist: when it dies, if it had no -1/-1 counters on it, it comes back to the battlefield with a -1/-1 counter. With that counter on it, it won't come back a second time." },
   { match: /\bdevotion to\b/i, help: "Devotion to green: the number of {G} symbols in the mana costs of permanents you control ({G}{G}{G} counts 3; a hybrid symbol with G counts too). Lands have no mana cost, so they add nothing." },
   { match: /\bundergrowth\b/i, help: "Undergrowth: the ability counts the creature cards in your graveyard, so it gets better with each one there." },
   { match: /\bpack tactics\b/i, help: "Pack tactics: the ability works only if the creatures you attacked with this combat have a total power of 6 or more." },

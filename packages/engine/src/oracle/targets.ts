@@ -91,6 +91,9 @@ function targetSpecBase(phrase: string): TargetSpec | null {
   // "target red or green spell"
   const spellColors = /^target (white|blue|black|red|green) or (white|blue|black|red|green) spell$/.exec(phrase);
   if (spellColors) return { kind: "spell", spellColors: [COLOR_OF[spellColors[1]], COLOR_OF[spellColors[2]]], label: phrase };
+  // Celestial Purge: "target black or red permanent"
+  const permColors = /^target (white|blue|black|red|green) or (white|blue|black|red|green) permanent$/.exec(phrase);
+  if (permColors) return { kind: "permanent", colorsAny: [COLOR_OF[permColors[1]], COLOR_OF[permColors[2]]], label: phrase };
   if (phrase === "target card from a graveyard") return { kind: "graveyardCard", label: phrase };
   if (phrase === "target land") return { kind: "land", label: phrase };
   if (phrase === "target artifact or land") return { kind: "artifactOrLand", label: phrase };

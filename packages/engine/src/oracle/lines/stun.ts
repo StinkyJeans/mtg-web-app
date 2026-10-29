@@ -3,7 +3,7 @@ import { parseEffectText } from "../effectText.js";
 import { newCtx } from "../targets.js";
 import { toNumber } from "../words.js";
 
-// Lines of the Azorius Stun deck: Sleep-Cursed Faerie, Sharae of Numbing Depths, Solitary Sanctuary.
+// Lines of the Azorius Stun deck: Sleep-Cursed Faerie, Sharae of Numbing Depths, Solitary Sanctuary, Kitchen Finks.
 
 /** Sleep-Cursed Faerie: "This creature enters tapped with three stun counters on it." */
 export function readEntersStunned(line: string, out: ParsedCard): boolean {
@@ -23,5 +23,12 @@ export function readYouTapOpp(line: string, out: ParsedCard): boolean {
   const effects = parseEffectText(m[1], ctx);
   if (effects && effects.length > 0) out.triggers.push({ event: "youTapOpp", effects, targets: ctx.targets, text: line });
   else out.unsupported.push(line);
+  return true;
+}
+
+/** Persist: "When this creature dies, if it had no -1/-1 counters on it, return it to the battlefield under its owner's control with a -1/-1 counter on it." */
+export function readPersist(line: string, out: ParsedCard): boolean {
+  if (line !== "persist") return false;
+  out.triggers.push({ event: "dies", effects: [{ type: "returnSelfToBattlefield", minusCounters: 1 }], targets: [], text: "Persist", ifNoMinusCounters: true });
   return true;
 }

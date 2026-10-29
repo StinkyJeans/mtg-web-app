@@ -201,14 +201,17 @@ export function readBeginningOfStep(line: string, out: ParsedCard): boolean {
 }
 
 // ── "Whenever you cast a red spell, ..." / "Whenever you cast a Lesson spell, ...": a spell of that color or subtype
+// Kor Firewalker: "Whenever a player casts a red spell, you may gain 1 life."
 export function readCastKindSpell(line: string, out: ParsedCard): boolean {
-  const m = /^whenever you cast an? ([a-z]+) spell,? (.+)$/.exec(line);
-  if (!m || ["noncreature", "instant", "creature", "nonland"].includes(m[1])) return false;
-  const color = COLOR_OF[m[1]];
+  const m = /^whenever (you cast|a player casts) an? ([a-z]+) spell,? (.+)$/.exec(line);
+  if (!m || ["noncreature", "instant", "creature", "nonland"].includes(m[2])) return false;
+  const color = COLOR_OF[m[2]];
+  if (m[1] === "a player casts" && !color) return false;
   const ctx = newCtx(true);
-  const effects = parseEffectText(m[2].replace(/^it /, "~ ").replace(/ on it$/, " on ~"), ctx);
+  const effects = parseEffectText(m[3].replace(/^it /, "~ ").replace(/ on it$/, " on ~").replace(/^you may gain /, "you gain "), ctx);
   if (effects && effects.length > 0) {
-    out.triggers.push({ event: "youCast", effects, targets: ctx.targets, text: line, ...(color ? { spellColor: color } : m[1] === "kicked" ? { spellKicked: true } : { spellSubtype: m[1] }) });
+    const event = m[1] === "you cast" ? "youCast" : "anyCasts";
+    out.triggers.push({ event, effects, targets: ctx.targets, text: line, ...(color ? { spellColor: color } : m[2] === "kicked" ? { spellKicked: true } : { spellSubtype: m[2] }) });
     return true;
   }
   out.unsupported.push(line);
@@ -300,14 +303,16 @@ export function readAnotherCreatureEntersOrLeaves(line: string, out: ParsedCard)
 }
 
 // ── "Whenever ~ blocks or becomes blocked by a creature, ~ deals 1 damage to that creature."
+// Wall of Frost: "Whenever ~ blocks a creature, that creature doesn't untap during its controller's next untap step."
 export function readBlocksOrBlocked(line: string, out: ParsedCard): boolean {
-  const blockedBy = /^whenever ~ blocks or becomes blocked by a creature,? (.+)$/.exec(line);
+  const blockedBy = /^whenever ~ (blocks or becomes blocked by|blocks) a creature,? (.+)$/.exec(line);
   if (blockedBy) {
     const ctx = newCtx(true);
     ctx.hasOther = true;
-    const effects = parseEffectText(blockedBy[1], ctx);
+    const effects = parseEffectText(blockedBy[2], ctx);
     if (effects && effects.length > 0) {
-      for (const event of ["blocks", "blocked"] as const) out.triggers.push({ event, effects, targets: ctx.targets, text: line, usesOther: true });
+      const events = blockedBy[1] === "blocks" ? (["blocks"] as const) : (["blocks", "blocked"] as const);
+      for (const event of events) out.triggers.push({ event, effects, targets: ctx.targets, text: line, usesOther: true });
       return true;
     }
     out.unsupported.push(line);

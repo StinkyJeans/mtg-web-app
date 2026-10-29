@@ -46,6 +46,7 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
       if (spec.subtype && !subtypesOf(state, found.perm).includes(spec.subtype)) return false;
       if (spec.notSubtype && subtypesOf(state, found.perm).includes(spec.notSubtype)) return false;
       if (!mvFits(spec, def.cost)) return false;
+      if (spec.colorsAny && !spec.colorsAny.some((c) => colorsOfPerm(state, found.perm).includes(c))) return false;
       if (spec.filter === "tapped" && !found.perm.tapped) return false;
       if (spec.kind === "permanent") {
         // "enchant permanent", or "target nonland permanent an opponent controls", or "target creature or enchantment"

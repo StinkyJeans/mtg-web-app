@@ -1,7 +1,8 @@
 import type { Effect } from "../effects.js";
+import { refFor } from "./targets.js";
 import type { Ctx } from "./targets.js";
 
-// Sentences of the Azorius Stun deck: Succumb to the Cold, Out Cold, Floodpits Drowner.
+// Sentences of the Azorius Stun deck: Succumb to the Cold, Out Cold, Floodpits Drowner, Wall of Frost.
 
 type SentenceParser = (s: string, ctx: Ctx) => Effect[] | null;
 
@@ -22,4 +23,11 @@ const shuffleWithStunned: SentenceParser = (s, ctx) => {
   ];
 };
 
-export const STUN_SENTENCES: SentenceParser[] = [stunEach, shuffleWithStunned];
+/** Wall of Frost: "That creature doesn't untap during its controller's next untap step." (the creature it blocked; a stun counter does the same) */
+const skipNextUntap: SentenceParser = (s, ctx) => {
+  if (s !== "that creature doesn't untap during its controller's next untap step") return null;
+  const what = refFor("that creature", ctx);
+  return what && what.t !== "self" ? [{ type: "stun", what }] : null;
+};
+
+export const STUN_SENTENCES: SentenceParser[] = [stunEach, shuffleWithStunned, skipNextUntap];

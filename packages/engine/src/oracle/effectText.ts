@@ -366,6 +366,15 @@ export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
       effects.push({ type: "ifNow", cond: "delirium", then });
       continue;
     }
+    // Timely Reinforcements: "If you have less life than an opponent, you gain 6 life. If you control fewer creatures than an opponent, create three 1/1 ... tokens."
+    const behind = /^if you (have less life|control fewer creatures) than an opponent, (.+)$/.exec(sentence);
+    if (behind) {
+      const then = parseClause(behind[2], ctx);
+      if (!then) return null;
+      lastGroup = effects.length;
+      effects.push({ type: "ifNow", cond: behind[1] === "have less life" ? "lessLife" : "fewerCreatures", then });
+      continue;
+    }
     // "Return target nonland permanent to its owner's hand. If you controlled that permanent, draw a card."
     const controlled = /^if you controlled that permanent, (.+)$/.exec(sentence);
     if (controlled) {

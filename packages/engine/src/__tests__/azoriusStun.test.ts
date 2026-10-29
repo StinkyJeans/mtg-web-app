@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { applyAction, getActivatable, isSupportedCard } from "../index.js";
-import type { GameState } from "../index.js";
-import { act, choose, find, hand, on, plain, settle, setup, toNextTurn } from "./marvelKit.js";
+import type { CardDef, GameState } from "../index.js";
+import { act, attackWith, choose, find, hand, named, on, plain, settle, setup, toNextTurn } from "./marvelKit.js";
 import type { Setup } from "./marvelKit.js";
 import { STUN } from "./stunCards.js";
 
@@ -95,4 +95,59 @@ test("Rowdy Snowballers: the stun counter goes on the creature it taps, not on i
   g = cast(g, "h0");
   assert.equal(find(g, "t0")!.stun, 1);
   assert.equal(g.players.p1.battlefield.find((p) => p.card.defId === "rowdy-snowballers")!.stun, undefined);
+});
+
+const shock: CardDef = { id: "shock", name: "Shock", type: "instant", cost: 1, manaCost: "{R}", typeLine: "Instant", text: "Shock deals 2 damage to any target.", colors: ["R"] };
+
+test("Kitchen Finks: gains 2 life, and persist brings it back once with a -1/-1 counter", () => {
+  let g = game({ hand: ["kitchen-finks", "wrath-of-god", "wrath-of-god"], lands: 8 });
+  g = cast(g, "h0");
+  assert.equal(g.players.p1.life, 22);
+  g = cast(g, "h1");
+  const finks = named(g, "p1", "Kitchen Finks");
+  assert.equal(finks.length, 1, "it came back");
+  assert.equal(finks[0].minusCounters, 1);
+  assert.equal(g.players.p1.life, 24, "it entered again");
+  g = cast(g, "h2");
+  assert.equal(named(g, "p1", "Kitchen Finks").length, 0, "with a -1/-1 counter on it, it stays dead");
+});
+
+test("Kor Firewalker: red spells can't target it, and each red spell cast gains its controller 1 life", () => {
+  let g = game({ hand: ["shock", "bear"], mine: ["kor-firewalker"], extra: { shock } });
+  assert.equal(applyAction(g, "p1", { type: "castSpell", iid: "h0", targets: on("m0") }).ok, false, "protection from red");
+  g = cast(g, "h0", { targets: [{ kind: "player", id: "p2" }] });
+  assert.equal(g.players.p1.life, 21);
+  assert.equal(g.players.p2.life, 18);
+  g = cast(g, "h1");
+  assert.equal(g.players.p1.life, 21, "a green spell doesn't count");
+});
+
+test("Timely Reinforcements: 6 life when behind on life, three Soldiers when behind on creatures", () => {
+  let g = game({ hand: ["timely-reinforcements", "timely-reinforcements"], theirs: ["bear", "bear"] });
+  g.players.p1.life = 10;
+  g = cast(g, "h0");
+  assert.equal(g.players.p1.life, 16);
+  assert.equal(named(g, "p1", "Soldier").length, 3);
+  g.players.p1.life = 25;
+  g = cast(g, "h1");
+  assert.equal(g.players.p1.life, 25, "not behind on life any more");
+  assert.equal(named(g, "p1", "Soldier").length, 3, "not behind on creatures any more");
+});
+
+test("Celestial Purge: exiles a red permanent, not a green one", () => {
+  let g = game({ hand: ["celestial-purge"], theirs: ["giant", "bear"] });
+  assert.equal(applyAction(g, "p1", { type: "castSpell", iid: "h0", targets: on("t1") }).ok, false);
+  g = cast(g, "h0", { targets: on("t0") });
+  assert.equal(find(g, "t0"), undefined);
+  assert.ok(g.players.p2.exile.some((c) => c.iid === "t0"));
+});
+
+test("Wall of Frost: the creature it blocks doesn't untap during its controller's next untap step", () => {
+  let g = game({ mine: ["bear"], theirs: ["wall-of-frost"] });
+  g = attackWith(g, ["m0"]);
+  g = settle(act(g, "p2", { type: "declareBlockers", blocks: [{ blocker: "t0", attacker: "m0" }] }));
+  assert.equal(find(g, "m0")!.stun, 1);
+  g = toNextTurn(g, "p1");
+  assert.equal(find(g, "m0")!.tapped, true, "it stayed tapped");
+  assert.ok(!find(g, "m0")!.stun);
 });

@@ -161,6 +161,8 @@ export function spellCast(state: GameState, player: PlayerId, def: CardDef, targ
     });
   }
   for (const perm of state.players[OPPONENT[player]].battlefield) queueTriggers(state, perm.card, OPPONENT[player], "opponentCasts");
+  // "Whenever a player casts a red spell"
+  for (const watcher of Object.values(state.players)) for (const perm of watcher.battlefield) queueTriggers(state, perm.card, watcher.id, "anyCasts", { spellColors: def.colors ?? [] });
 }
 
 /** A Class's ability works once the Class has reached its level (a card that has left the battlefield looks back at it as it was). */
@@ -197,6 +199,7 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
     if (event === "anyDies" && trigger.nontoken && extra?.token) continue; // "another nontoken creature"
     if (trigger.tokenOnly && !extra?.token) continue; // "whenever you sacrifice a token"
     if (trigger.ifNoCounters && (extra?.died?.counters ?? 0) > 0) continue; // undying
+    if (trigger.ifNoMinusCounters && (extra?.died?.minusCounters ?? 0) > 0) continue; // persist
     if (!levelReached(state, card.iid, trigger.level)) continue;
     if (trigger.other && extra?.self) continue;
     if (trigger.selfOnly && !extra?.self) continue;
