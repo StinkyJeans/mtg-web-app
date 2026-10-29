@@ -1270,16 +1270,15 @@ body:has(.game-modal, .victory-backdrop) .castable-glow::after { animation-play-
 
 /* what each card of the chain does: under the card on a wide screen, beside it on a phone */
 .chain-note {
-  position: absolute; z-index: 2; transform: translateX(var(--nx)) rotate(calc(var(--r) * -1)); transform-origin: 50% 0;
-  overflow: hidden; border-radius: 10px; border: 1px solid rgba(125, 235, 255, 0.45); padding: 0.4rem 0.6rem; text-align: left;
-  background: rgba(6, 12, 28, 0.93); color: #f1f5f9; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  position: absolute; left: 0; top: 0; overflow: hidden; border-radius: 10px; border: 1px solid rgba(125, 235, 255, 0.55); padding: 0.5rem 0.7rem; text-align: left;
+  background: rgb(6, 12, 28); color: #f8fafc; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.5);
+  -webkit-font-smoothing: antialiased; text-rendering: optimizeLegibility;
 }
 .chain-note-in { animation: chain-note-in 0.6s ease-out backwards; }
-@keyframes chain-note-in {
-  from { opacity: 0; transform: translateX(var(--nx)) translateY(10px) rotate(calc(var(--r) * -1)); }
-  to { opacity: 1; transform: translateX(var(--nx)) translateY(0) rotate(calc(var(--r) * -1)); }
-}
-.chain-note-name { font-family: var(--font-rajdhani), sans-serif; font-size: 15px; font-weight: 700; line-height: 1.15; color: #fff; }
-.chain-note-text { display: -webkit-box; margin-top: 0.2rem; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 7; font-size: 13px; line-height: 1.35; white-space: pre-line; }
-.chain-note-target { margin-top: 0.2rem; font-size: 12.5px; font-weight: 700; color: #fde68a; }
-@media (max-width: 1023px) { .chain-note-text { -webkit-line-clamp: 4; } }
+.chain-note-out { animation: chain-note-out 2s ease-in-out forwards; }
+@keyframes chain-note-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes chain-note-out { 0%, 15% { opacity: 1; } 100% { opacity: 0; } }
+.chain-note-name { font-family: var(--font-rajdhani), sans-serif; font-size: 17px; font-weight: 700; line-height: 1.15; color: #fff; }
+.chain-note-text { display: -webkit-box; margin-top: 0.25rem; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 7; font-size: 15px; font-weight: 500; line-height: 1.4; white-space: pre-line; }
+.chain-note-target { margin-top: 0.25rem; font-size: 14px; font-weight: 700; color: #fde68a; }
+@media (max-width: 1023px) { .chain-note-name { font-size: 16px; } .chain-note-text { -webkit-line-clamp: 4; font-size: 14px; } }

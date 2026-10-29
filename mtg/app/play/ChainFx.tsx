@@ -228,28 +228,26 @@ export default function ChainFx({ state, actor, extra }: { state: GameState; act
               <span className="chain-num" style={{ animationDelay: `${l.fresh * STAGGER_MS + 300}ms` }}>
                 {l.n}
               </span>
-              {/* what this card does: it goes with the card, and fades with it */}
-              <div
-                className={`chain-note ${on ? "chain-note-in" : ""}`}
-                style={
-                  {
-                    "--nx": phone ? "0px" : "-50%",
-                    left: phone ? "calc(100% + 10px)" : "50%",
-                    top: phone ? 0 : "calc(100% + 10px)",
-                    width: noteW,
-                    ...(phone ? { maxHeight: H } : {}),
-                    animationDelay: `${l.fresh * STAGGER_MS + 450}ms`,
-                  } as React.CSSProperties
-                }
-              >
-                <div className="chain-note-name">{l.name}</div>
-                {l.text && (
-                  <p className="chain-note-text">
-                    <ManaText text={l.text} />
-                  </p>
-                )}
-                {l.target && <p className="chain-note-target">Target: {l.target}</p>}
-              </div>
+            </div>
+          );
+        })}
+        {/* what each card does: its own flat layer (text inside a tilted, scaling card is drawn small and then stretched: blurry) */}
+        {shown.map((l, i) => {
+          const x = phone ? Math.round(at[i].x + cw / 2 + 10) : Math.round(at[i].x - noteW / 2);
+          const y = phone ? Math.round(at[i].y - H / 2) : Math.round(at[i].y + H / 2 + 12);
+          return (
+            <div
+              key={`note-${l.id}`}
+              className={`chain-note ${on ? (l.leaving ? "chain-note-out" : "chain-note-in") : ""}`}
+              style={{ width: noteW, transform: `translate(${x}px, ${y}px)`, zIndex: 40 + l.n, ...(phone ? { maxHeight: H } : {}), animationDelay: l.leaving ? undefined : `${l.fresh * STAGGER_MS + 450}ms` }}
+            >
+              <div className="chain-note-name">{l.name}</div>
+              {l.text && (
+                <p className="chain-note-text">
+                  <ManaText text={l.text} />
+                </p>
+              )}
+              {l.target && <p className="chain-note-target">Target: {l.target}</p>}
             </div>
           );
         })}
