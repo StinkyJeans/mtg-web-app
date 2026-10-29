@@ -521,7 +521,12 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     }
     // The decks are shuffled across the table first (each player shuffles the other's; clicks must work meanwhile), then the hands are dealt.
     const giveUp = Date.now() + 10 * 60_000;
-    while (Date.now() < giveUp && gameRef.current?.opening?.shuffled && !stageDoneRef.current) await new Promise((r) => setTimeout(r, 60));
+    // (both players must have shuffled the other's deck, and the decks be back home, before a card is dealt)
+    const waiting = () => {
+      const g = gameRef.current;
+      return !!g?.opening?.shuffled && (shufflePending(g) || !stageDoneRef.current);
+    };
+    while (Date.now() < giveUp && waiting()) await new Promise((r) => setTimeout(r, 60));
     await playDeal(hand);
   }
 

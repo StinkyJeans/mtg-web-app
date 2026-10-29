@@ -3,6 +3,7 @@
 import { castCostOf, getCastable, payMana } from "@mtg/engine";
 import type { CardDef, CardInstance, GameState, PlayerId } from "@mtg/engine";
 import CardView from "./CardView";
+import { shufflePending } from "./shuffleStep";
 
 interface Props {
   state: GameState;
@@ -22,6 +23,14 @@ interface Props {
 /** The player's hand. While choosing cards (mulligan, discard) it stays together; otherwise playable cards come first, apart from the rest. */
 export default function HandRow({ state, actor, mine, playable, exiled = [], handPick, onClick, onPreview, onUnpreview, onInspect, onZoom }: Props) {
   const hand = state.players[actor].hand;
+  // The opening seven are not drawn (not even shown) until both players have shuffled each other's deck.
+  if (shufflePending(state)) {
+    return (
+      <div className="flex min-h-[calc(var(--card-h,168px)*0.8)] items-center justify-center rounded-lg border border-dashed border-white/25 px-3 py-2 text-center text-sm text-slate-200">
+        Your 7 cards are dealt once you have both shuffled each other&apos;s deck.
+      </div>
+    );
+  }
   const mulligansTaken = state.opening?.taken[actor] ?? 0;
   // While deciding whether to keep or mulligan the cards can only be looked at, until a mulligan means choosing cards to bottom.
   // Online, the player waiting for the other to keep or discard can only look too.
