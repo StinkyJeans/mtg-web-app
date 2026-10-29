@@ -64,7 +64,7 @@ const LABELS = new Set([
   // Mono-Black Infect
   "proliferate",
   // Mono-Green Stompy
-  "undying",
+  "undying", "undergrowth",
   // Marvel Super Heroes: "teamwork" is read by the card reader; the rest are names in front of an ability ("Radar Sense — ...")
   "teamwork", "transform", "enrage", "avian telepathy", "radar sense", "sonic attack", "unbreakable skin", "embiggen fist", "wasp's sting", "street justice", "legal justice",
   "trick arrows", "net", "explosive", "boomerang", "intangibility", "cosmic awareness", "photographic reflexes", "cybernetic senses", "mental organism",

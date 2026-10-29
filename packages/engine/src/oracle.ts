@@ -1,4 +1,4 @@
-import type { ParsedCard, TargetSpec } from "./effects.js";
+import type { ParsedCard, TargetSpec, TriggeredAbility } from "./effects.js";
 import { keywordsSupported } from "./keywords.js";
 import { landManaColors, manaAbilityUsesChosenColor, manaCostOf, parseManaCost } from "./mana.js";
 import type { CardDef } from "./types.js";
@@ -283,15 +283,16 @@ export function parseCard(def: CardDef): ParsedCard {
         readAtLevel(creatureLines[i], result, classLevel);
         continue;
       }
-      // "When ~ enters, choose one —" / "Whenever ~ deals combat damage to a player, choose one that hasn't been chosen —", then one bullet line per mode
-      const modal = /^when(?:ever)? ~ (enters(?: the battlefield)?|deals combat damage to a player),? choose one( that hasn't been chosen)? —$/.exec(creatureLines[i]);
+      // "When ~ enters, choose one —" / "Whenever ~ deals combat damage to a player, choose one that hasn't been chosen —" / "Whenever ~ attacks or blocks, choose one —", then one bullet line per mode
+      const modal = /^when(?:ever)? ~ (enters(?: the battlefield)?|deals combat damage to a player|attacks or blocks),? choose one( that hasn't been chosen)? —$/.exec(creatureLines[i]);
       if (modal) {
         const bullets: string[] = [];
         while (i + 1 < creatureLines.length && creatureLines[i + 1].startsWith("• ")) bullets.push(creatureLines[++i].slice(2));
         const modes = bullets.length >= 2 ? parseModes(bullets, true) : null;
         const entering = modal[1].startsWith("enters");
-        const text = `${entering ? "When this enters" : "Whenever this deals combat damage to a player"}, choose one${modal[2] ?? ""}`;
-        if (modes) result.triggers.push({ event: entering ? "enters" : "combatDamagePlayer", effects: [], targets: [], modes, text, ...(modal[2] ? { unchosenOnly: true } : {}) });
+        const events: TriggeredAbility["event"][] = entering ? ["enters"] : modal[1] === "attacks or blocks" ? ["attacks", "blocks"] : ["combatDamagePlayer"];
+        const text = `${entering ? "When this enters" : `Whenever this ${modal[1]}`}, choose one${modal[2] ?? ""}`;
+        if (modes) result.triggers.push(...events.map((event) => ({ event, effects: [], targets: [], modes, text, ...(modal[2] ? { unchosenOnly: true } : {}) })));
         else result.unsupported.push(creatureLines[i]);
         continue;
       }

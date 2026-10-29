@@ -171,7 +171,7 @@ export function parseCreatureLine(rawLine: string, out: ParsedCard): void {
     return;
   }
   // "When The Sackville-Bagginses enter": a name that is plural
-  const line = rawLine.replace(/\.$/, "").replace(/^(?:raid|opus|channel) — /, "").replace(/^when ~ enter,/, "when ~ enters,").replace(MARVEL_ABILITY_WORD, "");
+  const line = rawLine.replace(/\.$/, "").replace(/^(?:raid|opus|channel|undergrowth) — /, "").replace(/^when ~ enter,/, "when ~ enters,").replace(MARVEL_ABILITY_WORD, "");
 
   for (const read of READERS) if (read(line, out)) return;
   out.unsupported.push(line);

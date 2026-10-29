@@ -3,7 +3,7 @@ import { COLOR_OF, keywordList, parseCount } from "./words.js";
 import { isCreatureRef, refFor } from "./targets.js";
 import type { Ctx } from "./targets.js";
 
-// Sentences of the Mono-Green Stompy deck: Treetop Village, Craterhoof Behemoth, Aspect of Hydra, Werewolf Pack Leader, Ram Through.
+// Sentences of the Mono-Green Stompy deck: Treetop Village, Craterhoof Behemoth, Aspect of Hydra, Werewolf Pack Leader, Ram Through, Kraul Harpooner.
 
 type SentenceParser = (s: string, ctx: Ctx) => Effect[] | null;
 
@@ -69,4 +69,21 @@ const biteTrample: SentenceParser = (s, ctx) => {
   return from && to ? [{ type: "bite", from, to, trampleExcess: true }] : null;
 };
 
-export const GREEN_SENTENCES: SentenceParser[] = [animateColored, teamPumpX, pumpWhereX, baseAndLoseType, biteTrample];
+/** Kraul Harpooner: "Choose up to one target creature you don't control with flying." (only picks the target; the next sentence fights it) */
+const chooseUpToOne: SentenceParser = (s, ctx) => {
+  const m = /^choose up to one target creature you don't control with ([a-z]+)$/.exec(s);
+  const what = m ? refFor(`target creature with ${m[1]} you don't control`, ctx) : null;
+  if (what?.t !== "target") return null;
+  ctx.targets[what.i] = { ...ctx.targets[what.i], optional: true, label: s.replace(/^choose /, "") };
+  return [];
+};
+
+/** Kraul Harpooner: "~ gets +X/+0 until end of turn, where X is the number of creature cards in your graveyard, then you may have ~ fight that creature." */
+const pumpThenFight: SentenceParser = (s, ctx) => {
+  const m = /^~ gets \+x\/\+0 until end of turn, where x is (.+), then you may have ~ fight that creature$/.exec(s);
+  const per = m ? xCount(m[1]) : null;
+  if (!per || ctx.targets.length === 0) return null;
+  return [{ type: "pump", power: 1, toughness: 0, what: { t: "self" }, per }, { type: "fight", a: { t: "self" }, b: { t: "target", i: ctx.targets.length - 1 } }];
+};
+
+export const GREEN_SENTENCES: SentenceParser[] = [animateColored, teamPumpX, pumpWhereX, baseAndLoseType, biteTrample, chooseUpToOne, pumpThenFight];

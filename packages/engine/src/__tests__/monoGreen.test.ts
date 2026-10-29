@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { castCostOf, getActivatable, hasKeywordNow, isSupportedCard, legalTargets, powerOf, toughnessOf } from "../index.js";
 import { subtypesOf } from "../core.js";
 import type { GameState } from "../index.js";
-import { act, find, hand, on, settle, setup } from "./marvelKit.js";
+import { act, attackWith, choose, fails, find, hand, named, on, plain, settle, setup } from "./marvelKit.js";
 import type { Setup } from "./marvelKit.js";
 import { GREEN } from "./greenCards.js";
 
@@ -16,6 +16,7 @@ const use = (g: GameState, iid: string, text: RegExp, more: Record<string, unkno
   assert.ok(a, `no usable ability ${text} on ${iid}`);
   return settle(act(g, "p1", { type: "activateAbility", iid, index: a.index, targets: [], ...more }));
 };
+const bird = { ...plain("bird", "Bird", "{1}", 1, 1, "Flying", "Creature — Bird"), keywords: ["flying"] };
 const pt = (g: GameState, iid: string) => `${powerOf(g, find(g, iid)!)}/${toughnessOf(g, find(g, iid)!)}`;
 
 test("every card of the deck and its sideboard is playable", () => {
@@ -96,4 +97,42 @@ test("Ram Through: with trample the excess goes to the creature's controller; wi
   g = cast(g, "h1", { targets: [...on("m1"), ...on("t1")] });
   assert.equal(find(g, "t1"), undefined);
   assert.equal(g.players.p2.life, 18, "Steel Leaf Champion has no trample");
+});
+
+test("Elder Gargaroth: when it attacks, choose one (here a 3/3 Beast), and vigilance keeps it untapped", () => {
+  let g = game({ mine: ["elder-gargaroth"] });
+  g = attackWith(g, ["m0"]);
+  assert.equal(g.pendingPick?.kind, "mode");
+  g = settle(act(g, "p1", { type: "pick", iid: "0" }));
+  assert.equal(named(g, "p1", "Beast").length, 1);
+  assert.equal(find(g, "m0")!.tapped, false);
+});
+
+test("Elder Gargaroth: reach blocks a flyer, and blocking gives its controller a choice too", () => {
+  let g = game({ mine: ["bird"], theirs: ["elder-gargaroth"], extra: { bird } });
+  g = attackWith(g, ["m0"]);
+  g = settle(act(g, "p2", { type: "declareBlockers", blocks: [{ blocker: "t0", attacker: "m0" }] }));
+  assert.equal(g.pendingPick?.player, "p2");
+  g = settle(act(g, "p2", { type: "pick", iid: "1" }));
+  assert.equal(g.players.p2.life, 23, "gained 3 life");
+});
+
+test("Kraul Harpooner: gets +1/+0 per creature card in your graveyard and fights a flyer; ground creatures can't be chosen", () => {
+  let g = game({ hand: ["kraul-harpooner"], yard: ["bear", "bear"], theirs: ["bird", "bear"], extra: { bird } });
+  g = cast(g, "h0");
+  assert.ok(g.pendingChoice, "it asks for up to one flyer");
+  fails(g, "p1", { type: "chooseTargets", targets: on("t1") });
+  g = choose(g, "p1", on("t0"));
+  const harpooner = named(g, "p1", "Kraul Harpooner")[0];
+  assert.equal(`${powerOf(g, harpooner)}/${toughnessOf(g, harpooner)}`, "5/2");
+  assert.equal(find(g, "t0"), undefined, "the Bird is dead");
+  assert.equal(harpooner.damage, 1);
+});
+
+test("Kraul Harpooner: no flyer chosen, no fight", () => {
+  let g = game({ hand: ["kraul-harpooner"], theirs: ["bird"], extra: { bird } });
+  g = cast(g, "h0");
+  g = choose(g, "p1", [{ kind: "none" }]);
+  assert.ok(find(g, "t0"), "the Bird lives");
+  assert.equal(named(g, "p1", "Kraul Harpooner")[0].damage, 0);
 });
