@@ -522,7 +522,9 @@ export function readTrigger(line: string, out: ParsedCard): boolean {
     }
     // "When this enters, it deals 1 damage...": "it" is the creature itself.
     const wasKicked = /^if (?:it|~) was kicked, /.test(trigger[2]);
-    const bodyText = trigger[2].replace(/^if (?:it|~) was kicked, /, "").replace(/^it /, "~ ").replace(/ on it$/, " on ~");
+    // "...put a +1/+1 counter on it" is this creature, but "tap target creature and put a stun counter on it" is the target.
+    const body = trigger[2].replace(/^if (?:it|~) was kicked, /, "").replace(/^it /, "~ ");
+    const bodyText = /\btarget\b/.test(body) ? body : body.replace(/ on it$/, " on ~");
     let optionalTargets = false;
     let effects = parseEffectText(bodyText, ctx);
     if (!effects && /^you may /.test(bodyText)) {

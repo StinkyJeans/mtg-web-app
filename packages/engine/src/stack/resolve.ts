@@ -36,13 +36,14 @@ export function enterBattlefield(state: GameState, card: CardInstance, controlle
   const entering = parsed.entersWithCounters;
   const counters = (entering === "X" ? x : (entering ?? 0)) + (kicked ? (parsed.kickedCounters ?? 0) : 0);
   const minus = parsed.entersWithMinus ?? 0;
+  const stun = parsed.entersWithStun ?? 0;
   const remembered = {
     ...(parsed.statics?.some((st) => st.cond?.enteredThisTurn) || parsed.activated.some((a) => a.powerUp) ? { enteredTurn: state.turn } : {}),
     ...(x > 0 && parsed.triggers.some((t) => t.xTargets || (t.event === "enters" && JSON.stringify(t.effects).includes('"X"'))) ? { xPaid: x } : {}), // ("Tap X target creatures", "When this enters, draw X cards")
     ...(parsed.entersPrepared && parsed.prepare ? { prepared: parsed.prepare.id } : {}),
   };
   if (remembered.prepared) state.cards[remembered.prepared] ??= parsed.prepare!; // the copy of its spell, waiting to be cast
-  state.players[controller].battlefield.push({ ...(attachedTo ? { attachedTo } : {}), ...(loyalty !== undefined ? { loyalty } : {}), ...(minus > 0 ? { minusCounters: minus } : {}), ...(kicked ? { kicked } : {}), ...(cast ? { cast } : {}), ...(haste ? { tempKeywords: ["haste" as const] } : {}), ...(warped ? { warped } : {}), ...remembered, card, tapped: entersTappedNow(state, controller, getCard(state, card.defId)), summoningSick: getCard(state, card.defId).type === "creature" || parsed.crew !== undefined, damage: 0 });
+  state.players[controller].battlefield.push({ ...(attachedTo ? { attachedTo } : {}), ...(loyalty !== undefined ? { loyalty } : {}), ...(minus > 0 ? { minusCounters: minus } : {}), ...(stun > 0 ? { stun } : {}), ...(kicked ? { kicked } : {}), ...(cast ? { cast } : {}), ...(haste ? { tempKeywords: ["haste" as const] } : {}), ...(warped ? { warped } : {}), ...remembered, card, tapped: entersTappedNow(state, controller, getCard(state, card.defId)), summoningSick: getCard(state, card.defId).type === "creature" || parsed.crew !== undefined, damage: 0 });
   events.push({ type: "permanentEntered", player: controller, iid: card.iid });
   const entered = state.players[controller].battlefield[state.players[controller].battlefield.length - 1];
   if (counters > 0) putCounters(state, entered, controller, counters);

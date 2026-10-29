@@ -12,10 +12,11 @@ import { ZONE_EFFECTS } from "./handlers/zones.js";
 import { SACRIFICE_EFFECTS } from "./handlers/sacrifice.js";
 import { INFECT_EFFECTS } from "./handlers/infect.js";
 import { GREEN_EFFECTS } from "./handlers/green.js";
+import { STUN_EFFECTS } from "./handlers/stun.js";
 
 // Running a spell's or ability's effects, one after another. What each kind of effect does is in handlers/.
 
-const HANDLERS: Required<EffectHandlers> = { ...DAMAGE_EFFECTS, ...PERMANENT_EFFECTS, ...ZONE_EFFECTS, ...LIBRARY_EFFECTS, ...STACK_EFFECTS, ...MARVEL_EFFECTS, ...SACRIFICE_EFFECTS, ...INFECT_EFFECTS, ...GREEN_EFFECTS };
+const HANDLERS: Required<EffectHandlers> = { ...DAMAGE_EFFECTS, ...PERMANENT_EFFECTS, ...ZONE_EFFECTS, ...LIBRARY_EFFECTS, ...STACK_EFFECTS, ...MARVEL_EFFECTS, ...SACRIFICE_EFFECTS, ...INFECT_EFFECTS, ...GREEN_EFFECTS, ...STUN_EFFECTS };
 
 /** Runs a spell's or ability's effects in order. State-based actions are checked by the caller afterwards. */
 export function runEffects(state: GameState, effects: Effect[], ctx: RunContext, events: GameEvent[]): void {

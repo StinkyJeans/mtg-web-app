@@ -1,18 +1,30 @@
 import { CONJURED, getCard } from "../../cards.js";
 import { parseCard } from "../../oracle.js";
 import { OPPONENT } from "../../types.js";
-import type { Permanent, PlayerId } from "../../types.js";
+import type { GameState, Permanent, PlayerId } from "../../types.js";
 import { findPermanentOrNull, isCreature, nameOf, playerLabel, powerOf, subtypesOf } from "../permanents.js";
 import { changeLife, makeTokenCopy, putCounters, tapPerm } from "../zones.js";
 import { subjectsOf } from "../targets.js";
+import { queueTriggers } from "../triggers.js";
 import { cardAnywhere, plural, noteTempSource, type EffectHandlers, type EffectOf, type EffectRun } from "./shared.js";
 
-function tapOrUntapAll({ state, ctx }: EffectRun, effect: EffectOf<"tap" | "untap">): void {
+function tapOrUntapAll({ state, ctx, say }: EffectRun, effect: EffectOf<"tap" | "untap">): void {
   for (const s of subjectsOf(state, effect.what, ctx)) {
     if (s.k !== "perm") continue;
-    if (effect.type === "tap") tapPerm(state, s.perm, s.owner);
-    else s.perm.tapped = false;
+    if (effect.type === "tap") tapForController(state, s.perm, s.owner, ctx.controller);
+    else if (s.perm.tapped && s.perm.stun) {
+      s.perm.stun -= 1;
+      say(`${nameOf(state, s.perm)} stays tapped: a stun counter is removed instead.`);
+    } else s.perm.tapped = false;
   }
+}
+
+/** "Whenever you tap an untapped creature an opponent controls" (Sharae of Numbing Depths, Solitary Sanctuary) triggers for whoever's effect did it. */
+function tapForController(state: GameState, perm: Permanent, owner: PlayerId, tapper: PlayerId): void {
+  const theirUntappedCreature = !perm.tapped && owner !== tapper && isCreature(state, perm);
+  tapPerm(state, perm, owner);
+  if (!theirUntappedCreature) return;
+  for (const watcher of state.players[tapper].battlefield) queueTriggers(state, watcher.card, tapper, "youTapOpp");
 }
 
 /** Changes to permanents: counters, power and toughness, keywords, tapping, control and what they are. */
@@ -168,8 +180,9 @@ export const PERMANENT_EFFECTS = {
   stun({ state, ctx, say }, effect) {
     for (const s of subjectsOf(state, effect.what, ctx)) {
       if (s.k !== "perm" || (effect.theirsOnly && s.owner === ctx.controller)) continue;
-      s.perm.stun = (s.perm.stun ?? 0) + 1;
-      say(`${nameOf(state, s.perm)} gets a stun counter: its next untap is skipped.`);
+      const n = effect.amount ?? 1;
+      s.perm.stun = (s.perm.stun ?? 0) + n;
+      say(n === 1 ? `${nameOf(state, s.perm)} gets a stun counter: its next untap is skipped.` : `${nameOf(state, s.perm)} gets ${n} stun counters: its next ${n} untaps are skipped.`);
     }
   },
   becomeCopy({ state, ctx, say }, effect) {

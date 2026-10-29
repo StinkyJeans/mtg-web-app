@@ -1,0 +1,46 @@
+import type { CardDef } from "../types.js";
+
+// The Azorius Stun deck's cards and its sideboard's, with their oracle text, for the tests.
+
+const card = (id: string, name: string, type: CardDef["type"], manaCost: string, typeLine: string, text: string, extra: Partial<CardDef> = {}): CardDef => ({
+  id,
+  name,
+  type,
+  cost: (manaCost.match(/\{[^}]+\}/g) ?? []).reduce((n, sym) => n + (/^\{\d+\}$/.test(sym) ? Number(sym.slice(1, -1)) : 1), 0),
+  manaCost,
+  typeLine,
+  text,
+  colors: ["W", "U", "B", "R", "G"].filter((c) => manaCost.includes(c)),
+  keywords: [],
+  ...extra,
+});
+
+export const STUN: Record<string, CardDef> = Object.fromEntries(
+  [
+    card("snaremaster-sprite", "Snaremaster Sprite", "creature", "{U}", "Creature — Faerie Wizard", "Flying\nWhen this creature enters, you may pay {2}. When you do, tap target creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)", { power: 1, toughness: 1, keywords: ["flying"] }),
+    card("spectral-sailor", "Spectral Sailor", "creature", "{U}", "Creature — Spirit Pirate", "Flash (You may cast this spell any time you could cast an instant.)\nFlying\n{3}{U}: Draw a card.", { power: 1, toughness: 1, keywords: ["flying", "flash"] }),
+    card("floodpits-drowner", "Floodpits Drowner", "creature", "{1}{U}", "Creature — Merfolk", "Flash\nVigilance\nWhen this creature enters, tap target creature an opponent controls and put a stun counter on it.\n{1}{U}, {T}: Shuffle this creature and target creature with a stun counter on it into their owners' libraries.", { power: 2, toughness: 1, keywords: ["vigilance", "flash"] }),
+    card("sleep-cursed-faerie", "Sleep-Cursed Faerie", "creature", "{U}", "Creature — Faerie Wizard", "Flying, ward {2}\nThis creature enters tapped with three stun counters on it. (If it would become untapped, remove a stun counter from it instead.)\n{1}{U}: Untap this creature.", { power: 3, toughness: 3, keywords: ["flying", "ward"] }),
+    card("sharae-of-numbing-depths", "Sharae of Numbing Depths", "creature", "{2}{W}{U}", "Legendary Creature — Merfolk Wizard", "When Sharae enters, tap target creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nWhenever you tap one or more untapped creatures your opponents control, draw a card. This ability triggers only once each turn.", { power: 2, toughness: 3 }),
+    card("freeze-in-place", "Freeze in Place", "sorcery", "{1}{U}", "Sorcery", "Tap target creature an opponent controls and put three stun counters on it. Scry 2. (If a permanent with a stun counter would become untapped, remove one from it instead.)", { keywords: ["scry"] }),
+    card("counterspell", "Counterspell", "instant", "{U}{U}", "Instant", "Counter target spell."),
+    card("mana-leak", "Mana Leak", "instant", "{1}{U}", "Instant", "Counter target spell unless its controller pays {3}."),
+    card("succumb-to-the-cold", "Succumb to the Cold", "instant", "{2}{U}", "Instant", "Tap one or two target creatures an opponent controls. Put a stun counter on each of them. (If a permanent with a stun counter would become untapped, remove one from it instead.)"),
+    card("lost-in-the-maze", "Lost in the Maze", "enchantment", "{X}{U}{U}", "Enchantment", "Flash\nWhen this enchantment enters, tap X target creatures. Put a stun counter on each of those creatures you don't control. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nTapped creatures you control have hexproof.", { keywords: ["flash"] }),
+    card("solitary-sanctuary", "Solitary Sanctuary", "enchantment", "{2}{W}", "Enchantment", "When this enchantment enters, tap target creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)\nWhenever you tap an untapped creature an opponent controls, put a +1/+1 counter on target creature you control."),
+    card("portable-hole", "Portable Hole", "artifact", "{W}", "Artifact", "When this artifact enters, exile target nonland permanent an opponent controls with mana value 2 or less until this artifact leaves the battlefield."),
+    card("consider", "Consider", "instant", "{U}", "Instant", "Surveil 1. (Look at the top card of your library. You may put it into your graveyard.)\nDraw a card.", { keywords: ["surveil"] }),
+    card("hallowed-fountain", "Hallowed Fountain", "land", "", "Land — Plains Island", "({T}: Add {W} or {U}.)\nAs this land enters, you may pay 2 life. If you don't, it enters tapped."),
+    card("glacial-fortress", "Glacial Fortress", "land", "", "Land", "This land enters tapped unless you control a Plains or an Island.\n{T}: Add {W} or {U}."),
+    card("meticulous-archive", "Meticulous Archive", "land", "", "Land — Plains Island", "({T}: Add {W} or {U}.)\nThis land enters tapped.\nWhen this land enters, surveil 1. (Look at the top card of your library. You may put it into your graveyard.)", { keywords: ["surveil"] }),
+    card("flooded-strand", "Flooded Strand", "land", "", "Land", "{T}, Pay 1 life, Sacrifice this land: Search your library for a Plains or Island card, put it onto the battlefield, then shuffle."),
+    card("supreme-verdict", "Supreme Verdict", "sorcery", "{1}{W}{W}{U}", "Sorcery", "This spell can't be countered.\nDestroy all creatures."),
+    card("spell-pierce", "Spell Pierce", "instant", "{U}", "Instant", "Counter target noncreature spell unless its controller pays {2}."),
+    card("spell-snare", "Spell Snare", "instant", "{U}", "Instant", "Counter target spell with mana value 2."),
+    card("out-cold", "Out Cold", "instant", "{3}{U}", "Instant", "This spell can't be countered. (This includes by the ward ability.)\nTap up to two target creatures and put a stun counter on each of them. Investigate. (If a permanent with a stun counter would become untapped, remove one from it instead.)", { keywords: ["investigate"] }),
+    card("mystical-dispute", "Mystical Dispute", "instant", "{2}{U}", "Instant", "This spell costs {2} less to cast if it targets a blue spell.\nCounter target spell unless its controller pays {3}."),
+    card("dovin-s-veto", "Dovin's Veto", "instant", "{W}{U}", "Instant", "This spell can't be countered.\nCounter target noncreature spell."),
+    card("frostfist-strider", "Frostfist Strider", "creature", "{3}{U}{U}", "Creature — Elemental Giant", "Ward {2} (Whenever this creature becomes the target of a spell or ability an opponent controls, counter it unless that player pays {2}.)\nWhen this creature enters, tap target creature an opponent controls and put a stun counter on it. (If a permanent with a stun counter would become untapped, remove one from it instead.)", { power: 4, toughness: 4, keywords: ["ward"] }),
+    card("path-to-exile", "Path to Exile", "instant", "{W}", "Instant", "Exile target creature. Its controller may search their library for a basic land card, put that card onto the battlefield tapped, then shuffle."),
+  ].map((c) => [c.id, c]),
+);

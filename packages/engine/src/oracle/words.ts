@@ -20,7 +20,9 @@ const escapeRegex = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 /** Reminder text removed, the card's own name replaced by "~", and everything lower-cased. Lines are kept apart. */
 export function normalizeText(def: CardDef): string {
   let text = (def.text ?? "").replace(/\([^)]*\)/g, "");
-  for (const name of new Set([def.name, def.name.split(",")[0]])) {
+  // "Thrun, the Last Troll" is "Thrun" in its text; so is "Sharae" in Sharae of Numbing Depths.
+  const short = /\bLegendary\b/.test(def.typeLine ?? "") && !def.name.includes(",") ? /^([A-Z][a-z]+) of /.exec(def.name)?.[1] : undefined;
+  for (const name of new Set([def.name, def.name.split(",")[0], ...(short ? [short] : [])])) {
     if (name.length >= 3) text = text.replace(new RegExp(escapeRegex(name), "gi"), "~");
   }
   text = text.replace(/\bthis (creature|permanent|spell|artifact|enchantment|land|aura|equipment|vehicle|card|token|saga)\b/gi, "~").toLowerCase();

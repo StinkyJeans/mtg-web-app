@@ -74,7 +74,8 @@ export type Effect =
   | { type: "tapOrUntap"; what: Ref } // you may tap or untap target permanent
   | { type: "bounceOwn"; other: boolean } // "return a creature you control to its owner's hand": the player chooses
   | { type: "sacrifice"; what: Ref } // sacrifice a permanent ("when this becomes the target of a spell or ability, sacrifice it")
-  | { type: "stun"; what: Ref; theirsOnly?: boolean } // a stun counter (`theirsOnly`: only on the ones the controller doesn't control)
+  | { type: "stun"; what: Ref; theirsOnly?: boolean; amount?: number } // stun counters, one unless `amount` says (`theirsOnly`: only on the ones the controller doesn't control)
+  | { type: "shuffleIntoLibrary"; what: Ref } // Floodpits Drowner: "shuffle ~ and target creature ... into their owners' libraries"
   | { type: "unblockable"; what: Ref } // can't be blocked this turn
   | { type: "exileUntilLeaves"; what: Ref } // exile target permanent until this one leaves the battlefield
   | { type: "fog" } // prevent all combat damage this turn
@@ -256,6 +257,8 @@ export interface TargetSpec {
   notArtifact?: boolean;
   /** "with flying" / "without flying". */
   keyword?: { name: Keyword; has: boolean };
+  /** "target creature with a stun counter on it". */
+  stunned?: boolean;
   /** For creatures: only ones in this state ("target tapped creature", "target attacking or blocking creature"). */
   filter?: "tapped" | "attacking" | "blocking" | "attackingOrBlocking" | "attackingAlone" | "notAttacking";
   /** For creatures: only ones this player controls (relative to the controller of the spell). */
@@ -421,7 +424,7 @@ export interface TriggeredAbility {
   modes?: ModeSpec[];
   /** "When this enters, if it was kicked, ...": only triggers when it was cast kicked. */
   ifKicked?: boolean;
-  event: "oppPermTapped" | "oppArtifactAbility" | "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
+  event: "oppPermTapped" | "youTapOpp" | "oppArtifactAbility" | "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
     | "youSacrifice" | "anySacrifice"
     | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
     | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted" | "youDiscard" | "excessDamage" | "damaged" | "anyDies" | "teamworkTap" | "attacksAlone" | "selfTapped" | "hostTapped" | "allyTapped" | "tokenEnters" | "yourAbilityTargets" | "anyDrawSecond" | "allyDamaged" | "hostUpkeep";
@@ -740,6 +743,8 @@ export interface ParsedCard {
   landcyclingType?: string;
   /** "~ enters with two -1/-1 counters on it." */
   entersWithMinus?: number;
+  /** "~ enters tapped with three stun counters on it". */
+  entersWithStun?: number;
   /** "~ enters with two +1/+1 counters on it" (or X). */
   entersWithCounters?: number | "X";
   /** "Enchant creature": the card is an Aura and needs a target when it is cast. */
