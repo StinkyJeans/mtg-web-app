@@ -2,7 +2,7 @@ import { checkStateBasedActions, drawCards, forbidden, handLimit, newId, queueCh
 import { getCard } from "../cards.js";
 import { parseCard } from "../oracle.js";
 import { OPPONENT } from "../types.js";
-import type { GameState, PlayerState } from "../types.js";
+import type { CardDef, GameState, PlayerState } from "../types.js";
 import type { GameEvent } from "../actions.js";
 import type { Effect } from "../effects.js";
 
@@ -67,6 +67,15 @@ function queueEndStepSacrifices(state: GameState): void {
 }
 
 /** Paradigm: "you may cast a copy of it from exile without paying its mana cost at the beginning of each of your first main phases". */
+/** What a paradigm spell does: its rules text without the paradigm line and reminder text. */
+const spellText = (def: CardDef) =>
+  (def.text ?? "")
+    .split("\n")
+    .filter((line) => !/^paradigm\b/i.test(line))
+    .join(" ")
+    .replace(/\s*\([^)]*\)/g, "")
+    .trim();
+
 function queueParadigms(state: GameState, p: PlayerState): void {
   const names = new Set<string>();
   for (const iid of p.paradigms ?? []) {
@@ -75,7 +84,8 @@ function queueParadigms(state: GameState, p: PlayerState): void {
     if (!def || names.has(def.name)) continue;
     names.add(def.name);
     const targets = parseCard(def).spell?.targets ?? [];
-    const effects: Effect[] = [{ type: "mayPay", cost: "", prompt: `Paradigm: cast a copy of ${def.name}?`, then: [{ type: "castCopy", defId: def.id }], ...(targets.length > 0 ? { thenSpecs: targets } : {}) }];
+    const thenText = `Paradigm: cast a copy of ${def.name} without paying its mana cost. ${spellText(def)}`;
+    const effects: Effect[] = [{ type: "mayPay", cost: "", prompt: `Paradigm: cast a copy of ${def.name} for free?`, then: [{ type: "castCopy", defId: def.id }], ...(targets.length > 0 ? { thenSpecs: targets, thenText } : {}) }];
     state.triggerQueue.push({ specs: [], item: { kind: "ability", id: newId(state), controller: p.id, source: iid, sourceName: def.name, effects, targets: [], specs: [], text: `Paradigm: you may cast a copy of ${def.name}.` } });
   }
 }

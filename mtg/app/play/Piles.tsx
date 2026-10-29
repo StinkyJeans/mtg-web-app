@@ -99,6 +99,7 @@ function PileInner({ state, owner, kind, compact, onOpen, deckName, sleeve }: { 
 export function GraveyardDialog({ state, owner, zone = "graveyard", onClose, onZoom, onPreview, onUnpreview }: { state: GameState; owner: PlayerId; zone?: "graveyard" | "exile"; onClose: () => void; onZoom: (def: CardDef) => void; onPreview?: (def: CardDef, el: HTMLElement) => void; onUnpreview?: () => void }) {
   const cards = [...state.players[owner][zone]].reverse();
   const title = zone === "exile" ? "exile" : "graveyard";
+  const paradigms = new Set(zone === "exile" ? (state.players[owner].paradigms ?? []) : []);
   return (
     <div role="dialog" aria-modal="true" aria-label={title} className="game-modal fixed inset-0 z-30 flex items-center justify-center bg-black/70 p-4">
       <div className="flex max-h-[85vh] w-full max-w-3xl flex-col gap-3 rounded-2xl border border-white/25 bg-slate-950/50 p-4 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150 [text-shadow:0_1px_3px_rgba(0,0,0,0.6)]">
@@ -112,8 +113,13 @@ export function GraveyardDialog({ state, owner, zone = "graveyard", onClose, onZ
         </div>
         <div className="flex flex-wrap gap-2 overflow-y-auto">
           {cards.map((c) => (
-            <div key={c.iid} className="shrink-0" onMouseEnter={(e) => onPreview?.(state.cards[c.defId], e.currentTarget)} onMouseLeave={() => onUnpreview?.()}>
+            <div key={c.iid} className="flex shrink-0 flex-col items-center gap-1" onMouseEnter={(e) => onPreview?.(state.cards[c.defId], e.currentTarget)} onMouseLeave={() => onUnpreview?.()}>
               <CardView def={state.cards[c.defId]} onClick={() => onZoom(state.cards[c.defId])} />
+              {paradigms.has(c.iid) && (
+                <span className="w-[calc(var(--card-h,168px)*0.716)] text-center text-[11px] leading-tight text-amber-200">
+                  Paradigm: a free copy each turn, at the start of {playerName(owner)}&apos;s first main phase
+                </span>
+              )}
             </div>
           ))}
         </div>

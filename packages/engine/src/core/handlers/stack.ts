@@ -53,6 +53,7 @@ export const STACK_EFFECTS = {
       thenEffects: effect.then,
       thenCtx: ctx,
       ...(effect.thenSpecs ? { thenSpecs: effect.thenSpecs } : {}),
+      ...(effect.thenText ? { thenText: effect.thenText } : {}),
     });
   },
   mayDiscard({ state, ctx, startPick }, effect) {

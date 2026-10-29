@@ -21,6 +21,12 @@ export function nameOf(state: GameState, iid: string): string {
 const LOGGED_ELSEWHERE = new Set<Outcome["k"]>(["damaged", "life", "poison", "drew", "entered"]);
 
 /** Turn engine events into log lines. `state` is the state AFTER the events. */
+/** What was cast: a copy is gone from the stack once it resolves, so it is named by the card it copies. */
+function castName(state: GameState, e: Extract<GameEvent, { type: "spellCast" | "creatureCast" }>): string {
+  const copyOf = e.type === "spellCast" ? e.copyOf : undefined;
+  return copyOf ? `a copy of ${state.cards[copyOf]?.name ?? "a spell"}` : nameOf(state, e.iid);
+}
+
 export function describeEvents(events: GameEvent[], state: GameState): string[] {
   const lines: string[] = [];
   for (const e of events) {
@@ -48,7 +54,7 @@ export function describeEvents(events: GameEvent[], state: GameState): string[] 
         lines.push(`${playerName(e.player)} cast ${nameOf(state, e.iid)}.`);
         break;
       case "spellCast":
-        lines.push(`${playerName(e.player)} cast ${nameOf(state, e.iid)}.`);
+        lines.push(`${playerName(e.player)} cast ${castName(state, e)}.`);
         break;
       case "abilityActivated":
         lines.push(`${playerName(e.player)} used ${e.name}: ${e.text}`);
@@ -227,7 +233,7 @@ export function announcementsFrom(events: GameEvent[], state: GameState): Announ
   };
   for (const e of events) {
     if (e.type === "manaPaid") paid = paymentLine(e);
-    else if (e.type === "spellCast" || e.type === "creatureCast") start({ kind: "spell", player: e.player, iid: e.iid, defId: defIdOf(state, e.iid), title: `${playerName(e.player)} cast ${nameOf(state, e.iid)}` });
+    else if (e.type === "spellCast" || e.type === "creatureCast") start({ kind: "spell", player: e.player, iid: e.iid, defId: (e.type === "spellCast" ? e.copyOf : undefined) ?? defIdOf(state, e.iid), title: `${playerName(e.player)} cast ${castName(state, e)}` });
     else if (e.type === "abilityActivated") start({ kind: "ability", player: e.player, iid: e.iid, defId: defIdOf(state, e.iid), title: `${playerName(e.player)} used ${e.name}` }, [e.text.replace(/~/g, e.name).replace(/^./, (c) => c.toUpperCase())]);
     else if (e.type === "resolved") {
       open = resolution(out, e, state);

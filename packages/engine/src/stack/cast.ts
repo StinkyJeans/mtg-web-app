@@ -298,7 +298,7 @@ export function castSpell(state: GameState, player: PlayerId, iid: string, targe
   events.push(
     def.type === "creature"
       ? { type: "creatureCast", player, iid: card.iid, tapped: paid.tap }
-      : { type: "spellCast", player, iid: card.iid, tapped: paid.tap, targets: own },
+      : { type: "spellCast", player, iid: card.iid, tapped: paid.tap, targets: own, ...(prepared ? { copyOf: card.defId } : {}) },
   );
   queueWard(state, state.stack[state.stack.length - 1]);
   pushCopies(state, player, card, effects, specs, targets.slice(specs.length), events, "replicate");

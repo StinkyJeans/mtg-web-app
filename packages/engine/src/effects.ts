@@ -65,7 +65,7 @@ export type Effect =
   | { type: "setBase"; what: Ref; power: number; toughness: number } // becomes N/N until end of turn
   | { type: "loseDefender"; what: Ref }
   | { type: "winGame" }
-  | { type: "mayPay"; prompt?: string; cost: string; life?: number; then: Effect[]; thenSpecs?: TargetSpec[] } // "When you do, ... target ...": the targets are chosen after paying // "you may pay {1}. If you do, ..." (`life`: "pay 2 life")
+  | { type: "mayPay"; prompt?: string; cost: string; life?: number; then: Effect[]; thenSpecs?: TargetSpec[]; thenText?: string } // "When you do, ... target ...": the targets are chosen after paying // "you may pay {1}. If you do, ..." (`life`: "pay 2 life")
   | { type: "mayDiscard"; then: Effect[]; thenSpecs?: TargetSpec[] } // "you may discard a card. When you do, ..."
   | { type: "drawUnlessPay"; cost: string } // "you may draw a card unless that player pays {1}" (the opponent who cast the spell)
   | { type: "tapOrUntap"; what: Ref } // you may tap or untap target permanent
@@ -860,6 +860,8 @@ export interface PendingPick {
   thenEffects?: Effect[];
   thenCtx?: RunContext;
   thenSpecs?: TargetSpec[];
+  /** What the effects that follow do, said while their targets are chosen (otherwise "when you paid"). */
+  thenText?: string;
   taxFor?: PlayerId;
   /** Toggle: the permanent that may be tapped or untapped. */
   toggleIid?: string;

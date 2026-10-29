@@ -45,7 +45,7 @@ function afterYouDo(state: GameState, player: PlayerId, pick: PendingPick, event
   const specs = bindSpecs(pick.thenSpecs, ctx.sourceId); // "another target ...": not the permanent itself
   state.triggerQueue.push({
     specs,
-    item: { kind: "ability", id: newId(state), controller: player, source: ctx.sourceId, sourceName: ctx.sourceName, effects: pick.thenEffects, targets: [], specs, text: `${ctx.sourceName}: when you ${pick.kind === "discard" ? "discarded" : "paid"}`, ...(ctx.other ? { other: ctx.other } : {}) },
+    item: { kind: "ability", id: newId(state), controller: player, source: ctx.sourceId, sourceName: ctx.sourceName, effects: pick.thenEffects, targets: [], specs, text: pick.thenText ?? `${ctx.sourceName}: when you ${pick.kind === "discard" ? "discarded" : "paid"}`, ...(ctx.other ? { other: ctx.other } : {}) },
   });
 }
 

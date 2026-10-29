@@ -118,14 +118,13 @@ export const SACRIFICE_EFFECTS = {
     me.deathLife = (me.deathLife ?? 0) + 1;
     say(`This turn, whenever a creature dies, ${playerLabel(ctx.controller)} gains 1 life.`);
   },
-  castCopy({ state, ctx, events, say }, effect) {
+  castCopy({ state, ctx, events }, effect) {
     const def = getCard(state, effect.defId);
     const spell = parseCard(def).spell;
     if (!spell) return;
     const card = { iid: `copy${state.nextId++}`, defId: def.id, owner: ctx.controller };
     state.stack.push({ kind: "spell", id: newId(state), controller: ctx.controller, card, effects: spell.effects, targets: ctx.targets, specs: ctx.specs, x: 0, copy: true });
-    events.push({ type: "spellCast", player: ctx.controller, iid: card.iid, tapped: [], targets: ctx.targets });
+    events.push({ type: "spellCast", player: ctx.controller, iid: card.iid, tapped: [], targets: ctx.targets, copyOf: def.id });
     spellCast(state, ctx.controller, def, ctx.targets, 0, false);
-    say(`${playerLabel(ctx.controller)} casts a copy of ${def.name} from exile without paying its mana cost.`);
   },
 } satisfies EffectHandlers;

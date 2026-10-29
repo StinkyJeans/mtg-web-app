@@ -247,7 +247,8 @@ function declineLabel(pick: Pick): string {
 /** The card a choice comes from, found wherever it is now (a resolving spell is already in the graveyard). */
 function sourceDef(state: GameState): CardDef | null {
   if (state.pendingPick?.source?.defId) return state.cards[state.pendingPick.source.defId] ?? null;
-  const iid = state.pendingChoice?.item.source;
+  // an ability of a card in the graveyard or exile (paradigm) has no permanent to name it by
+  const iid = state.pendingPick?.source?.iid ?? state.pendingChoice?.item.source;
   if (!iid) return null;
   const card = Object.values(state.players)
     .flatMap((p) => [...p.battlefield.map((x) => x.card), ...p.graveyard, ...p.exile])

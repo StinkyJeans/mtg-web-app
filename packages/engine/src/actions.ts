@@ -84,7 +84,7 @@ export type GameEvent =
   | { type: "lifeGained"; player: PlayerId; amount: number }
   | { type: "lifeLost"; player: PlayerId; amount: number }
   | { type: "poisoned"; player: PlayerId; amount: number }
-  | { type: "spellCast"; player: PlayerId; iid: string; tapped: string[]; targets: TargetChoice[] }
+  | { type: "spellCast"; player: PlayerId; iid: string; tapped: string[]; targets: TargetChoice[]; /** A copy (gone once it resolves): the card it copies. */ copyOf?: string }
   | { type: "abilityActivated"; player: PlayerId; iid: string; name: string; text: string; targets?: TargetChoice[] }
   | { type: "permanentEntered"; player: PlayerId; iid: string }
   | { type: "damage"; source: string; target: string | PlayerId; amount: number }
