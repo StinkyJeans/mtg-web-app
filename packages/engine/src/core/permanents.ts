@@ -148,6 +148,7 @@ export function staticEffectsOn(s: GameState, target: Permanent): StaticEffect[]
         if (st.cond?.lostLife && !(s.players[owner.id].lifeLostThisTurn ?? 0)) continue;
         if (st.tokensOnly && !isToken(target.card)) continue;
         if (st.withCounters && !((target.counters ?? 0) > 0)) continue;
+        if (st.withKeyword && !ownKeyword(s, target, st.withKeyword)) continue;
         if (st.cond?.artifactCreatureOrPlan && !s.players[owner.id].battlefield.some((p) => { const d = getCard(s, p.card.defId); return (isArtifactDef(d) && d.type === "creature") || defSubtypes(d).includes("plan"); })) continue;
         if (st.cond?.powerAtMost !== undefined && basePT(s, source, "power") + (source.counters ?? 0) - (source.minusCounters ?? 0) + (source.powerBonus ?? 0) > st.cond.powerAtMost) continue;
         if (st.cond?.selfCounteredThisTurn && !(source.countersThisTurn ?? 0)) continue;
@@ -270,6 +271,10 @@ export function handLimit(s: GameState, player: PlayerId): number {
   }
   return limit;
 }
+
+/** A keyword the permanent has without counting static effects (which would ask this again). */
+const ownKeyword = (s: GameState, p: Permanent, keyword: Keyword) =>
+  hasKeyword(getCard(s, p.card.defId), keyword) || (p.tempKeywords ?? []).includes(keyword) || (p.kwCounters ?? []).includes(keyword);
 
 export const kw = (s: GameState, p: Permanent, keyword: Keyword) =>
   !(keyword === "defender" && p.tempNoDefender) && (

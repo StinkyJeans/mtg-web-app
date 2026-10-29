@@ -24,6 +24,9 @@ export type Ref =
 /** A number printed on the card, or "X": the value chosen when the spell was cast. */
 export type Amount = number | "X" | { count: CountSpec; times?: number };
 
+/** What an edict makes a player sacrifice. */
+export type EdictType = "creature" | "planeswalker" | "artifact" | "enchantment";
+
 export type Effect =
   | { type: "damage"; amount: Amount; to: Ref }
   | { type: "draw"; amount: Amount; who: Ref }
@@ -158,6 +161,8 @@ export type Effect =
   | { type: "learn" } // reveal a Lesson card from outside the game and put it into your hand, or discard a card to draw a card
   | { type: "addMana"; mana: ManaColor[]; anyColor?: number; combat?: boolean } // "add {R}{R}{R}{R}" / "add one mana of any color" (`anyColor`); `combat`: it lasts until end of combat
   | { type: "deathLifeThisTurn" } // "whenever a creature dies this turn, you gain 1 life"
+  | { type: "proliferate" } // another counter of each kind on the players and permanents that already have one (the ones that help you)
+  | { type: "edict"; who: Ref; types: EdictType[] } // "each opponent sacrifices a creature or planeswalker of their choice"
   | { type: "castCopy"; defId: string }; // paradigm: a copy of the exiled spell is cast, with the targets chosen for it
 
 /** Which cards a "reveal a ... card" effect may take: any of the types, or any of the creature types (subtypes), or any nonland card. */
@@ -340,6 +345,8 @@ export interface StaticEffect {
   tokensOnly?: boolean;
   /** "Creatures you control with +1/+1 counters on them have trample": only creatures with a +1/+1 counter. */
   withCounters?: boolean;
+  /** "Other creatures you control with infect get +1/+1": only creatures with this keyword. */
+  withKeyword?: Keyword;
   /** "...and is all creature types." */
   allTypes?: boolean;
   /** "...and is an Angel in addition to its other types." */
@@ -486,6 +493,9 @@ export interface TriggeredAbility {
   spellSubtype?: string;
   /** "Whenever you cast a kicked spell": only when the spell was cast with its kicker paid. */
   spellKicked?: boolean;
+  /** "Whenever you cast a creature spell with infect": only a creature spell (with this keyword). */
+  spellCreature?: boolean;
+  spellKeyword?: Keyword;
   /** "Whenever you cast a spell during an opponent's turn" / "your first spell during each opponent's turn". */
   opponentTurnOnly?: boolean;
   firstOnly?: boolean;
@@ -809,7 +819,7 @@ export interface PendingPick {
   /** The card the choice comes from. A resolving spell is already in the graveyard, so this is how both players see what is going on. */
   source?: { iid: string; name: string; defId?: string };
   prompt: string;
-  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color" | "creatureType" | "handExile" | "exileToPlay" | "handToField" | "mayCost" | "legend" | "look" | "playExile" | "learn" | "discardDraw" | "fromYard";
+  kind: "discard" | "bounceOwn" | "tapSome" | "topBottom" | "rummage" | "mayPay" | "tax" | "toggle" | "toHand" | "toGraveyard" | "searchLand" | "searchAny" | "revealToHand" | "arrange" | "scry" | "surveil" | "ward" | "crew" | "mode" | "color" | "creatureType" | "handExile" | "exileToPlay" | "handToField" | "mayCost" | "legend" | "look" | "playExile" | "learn" | "discardDraw" | "fromYard" | "sacrificeOwn";
   /** The cards to choose between (instance ids). They are shown to the chooser. */
   options: string[];
   /** The player may decline (eye spy, a search that finds nothing). */

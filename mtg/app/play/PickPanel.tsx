@@ -14,6 +14,7 @@ const CONFIRM: Partial<Record<PickKind, (name: string) => string>> = {
   discard: (n) => `Discard ${n}`,
   rummage: (n) => `Discard ${n}`,
   bounceOwn: (n) => `Return ${n}`,
+  sacrificeOwn: (n) => `Sacrifice ${n}`,
   tapSome: (n) => `Tap ${n}`,
   crew: (n) => `Tap ${n}`,
   toHand: (n) => `Take ${n}`,

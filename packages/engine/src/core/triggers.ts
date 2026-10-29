@@ -153,6 +153,8 @@ export function spellCast(state: GameState, player: PlayerId, def: CardDef, targ
       spellColors: def.colors ?? [],
       spellSubtypes: spellTypes,
       spellKicked: kicked,
+      spellCreature: def.type === "creature",
+      spellKeywords: def.keywords ?? [],
       targetsOwnCreature: targetedCreatures.some((f) => f.owner.id === player),
       targetsCreature: targetedCreatures.length > 0,
     });
@@ -177,7 +179,7 @@ function claimOncePerTurn(perm: Permanent | undefined, n: number): boolean {
  * Queues the card's triggered abilities for `event`. They go on the stack when the game next settles.
  * `subtypes`: the creature types of what the event is about (a creature spell cast, a creature that died or got counters); `self`: it is this card.
  */
-export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { firstTap?: boolean; targetsOwnCreature?: boolean; targetsCreature?: boolean; spellColors?: string[]; spellSubtypes?: string[]; spellKicked?: boolean; castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; bySpell?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown; count?: number; token?: boolean }): void {
+export function queueTriggers(state: GameState, card: CardInstance, controller: PlayerId, event: TriggeredAbility["event"], extra?: { firstTap?: boolean; targetsOwnCreature?: boolean; targetsCreature?: boolean; spellColors?: string[]; spellSubtypes?: string[]; spellKicked?: boolean; spellCreature?: boolean; spellKeywords?: string[]; castCount?: number; other?: string; onlyOther?: boolean; byOpponent?: boolean; bySpell?: boolean; attackers?: string[]; subtypes?: string[]; self?: boolean; died?: LastKnown; count?: number; token?: boolean }): void {
   const def = getCard(state, card.defId);
   const triggers = parseCard(def).triggers;
   for (let n = 0; n < triggers.length; n++) {
@@ -189,6 +191,8 @@ export function queueTriggers(state: GameState, card: CardInstance, controller: 
     if (trigger.spellColor && !(extra?.spellColors ?? []).includes(trigger.spellColor)) continue;
     if (trigger.spellSubtype && !(extra?.spellSubtypes ?? []).includes(trigger.spellSubtype)) continue;
     if (trigger.spellKicked && !extra?.spellKicked) continue; // "whenever you cast a kicked spell"
+    if (trigger.spellCreature && !extra?.spellCreature) continue; // "whenever you cast a creature spell (with infect)"
+    if (trigger.spellKeyword && !(extra?.spellKeywords ?? []).some((k) => k.toLowerCase() === trigger.spellKeyword)) continue;
     if (event === "anyDies" && trigger.nontoken && extra?.token) continue; // "another nontoken creature"
     if (trigger.tokenOnly && !extra?.token) continue; // "whenever you sacrifice a token"
     if (!levelReached(state, card.iid, trigger.level)) continue;

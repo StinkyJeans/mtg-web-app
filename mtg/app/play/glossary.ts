@@ -33,6 +33,7 @@ const RULES: Rule[] = [
   { match: /\bdelve\b/i, help: "Delve: while casting it, you may exile cards from your graveyard. Each card exiled pays for {1} of its cost." },
   { match: /\btoxic\b/i, help: "Toxic N: whenever this creature deals combat damage to a player, that player also gets N poison counters. Ten poison counters and they lose." },
   { match: /\binfect\b/i, help: "Infect: deals its damage to creatures as -1/-1 counters and to players as poison counters (no life is lost). Ten poison counters and they lose." },
+  { match: /\bproliferate\b/i, help: "Proliferate: one more counter of each kind on every player and permanent that already has one. The game picks the ones that help you: poison counters on your opponent, +1/+1 and loyalty counters on your permanents, -1/-1 and stun counters on theirs." },
   { match: /\bferocious\b/i, help: "Ferocious: the extra effect happens only if you control a creature with power 4 or greater when it resolves." },
   { match: /\bdelirium\b/i, help: "Delirium: the bonus applies while there are four or more card types (artifact, creature, instant, land, sorcery...) among cards in your graveyard." },
   { match: /\bplot\b|\bplotted\b/i, help: "Plot: pay the plot cost in your main phase to exile this card from your hand face up. On a later turn you may cast it as a sorcery without paying its mana cost." },

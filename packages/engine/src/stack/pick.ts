@@ -238,6 +238,15 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
     return null;
   }
 
+  if (pick.kind === "sacrificeOwn") {
+    const found = iid ? findPermanentOrNull(state, iid) : null;
+    if (!found || !pick.options.includes(iid!)) return "Choose one of the permanents you control.";
+    sacrificePermanent(state, found.perm, found.owner.id, events);
+    checkStateBasedActions(state, events);
+    finish();
+    return null;
+  }
+
   if (pick.kind === "toggle") {
     if (iid === "tap" || iid === "untap") {
       const target = findPermanentOrNull(state, pick.toggleIid ?? "");
