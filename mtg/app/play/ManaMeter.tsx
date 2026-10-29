@@ -32,7 +32,7 @@ function ManaPip({ source }: { source: ManaSource }) {
  * A player's mana: how much they can still spend, one pip per permanent that makes mana (faded once tapped, dashed while it can't
  * be used yet), and for a few seconds after it changes, by how much and why ("−2 paid for Become Immense").
  */
-export function ManaMeter({ state, id, note, compact }: { state: GameState; id: PlayerId; note?: ManaNote; compact?: boolean }) {
+export function ManaMeter({ state, id, note, compact, mark = true }: { state: GameState; id: PlayerId; note?: ManaNote; compact?: boolean; /** The number carries `data-mana`, which the animations look for: only one copy on the page should. */ mark?: boolean }) {
   const sources = manaSources(state, id);
   const usable = sources.filter((s) => !s.sick);
   const ready = usable.filter((s) => !s.tapped).reduce((n, s) => n + s.amount, 0);
@@ -63,7 +63,7 @@ export function ManaMeter({ state, id, note, compact }: { state: GameState; id: 
     <div className="mt-2 flex flex-col gap-1">
       <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-sm">
         <span className="font-semibold text-zinc-700">Mana</span>
-        <span data-mana={id} className="font-display text-lg font-bold leading-none tabular-nums text-zinc-900">
+        <span data-mana={mark ? id : undefined} className="font-display text-lg font-bold leading-none tabular-nums text-zinc-900">
           {ready}
         </span>
         <span className="text-xs text-zinc-500">of {total} untapped</span>

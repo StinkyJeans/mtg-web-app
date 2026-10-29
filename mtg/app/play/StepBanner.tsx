@@ -1,5 +1,8 @@
 "use client";
 
+import { useState } from "react";
+import { useStacked } from "./useMedia";
+
 import { MAX_HAND_SIZE, MAX_LANDS_PER_TURN, playerToAct } from "@mtg/engine";
 import type { GameState, PlayerId } from "@mtg/engine";
 import { playerName } from "./log";
@@ -22,17 +25,38 @@ interface Props {
 
 /** What to do now, in the color of the step, with the last error and the land and ability counters. */
 export default function StepBanner({ state, actor, waiting, error, abilityCount, abilityLocked, onOpenAbilities }: Props) {
+  const [help, setHelp] = useState(false); // phones: the hint is one line, and tapping it opens all of it
+  const stacked = useStacked();
   if (state.winner) return null;
   const b = BANNER[bannerMode(state)];
+  const hint = hintFor(state, actor, waiting);
   return (
     <div className={`flex shrink-0 items-center gap-2 rounded-xl border px-2.5 py-1 shadow-sm lg:gap-2.5 lg:px-3.5 lg:py-2 ${b.box}`}>
       <span className="text-xl lg:text-2xl" aria-hidden="true">
         {b.icon}
       </span>
-      <div className="min-w-0 flex-1 text-sm leading-snug lg:text-[15px]">
+      <button
+        type="button"
+        onClick={() => stacked && setHelp(true)}
+        tabIndex={stacked ? 0 : -1}
+        className="min-w-0 flex-1 cursor-default text-left text-sm leading-snug max-lg:truncate max-lg:cursor-pointer lg:text-[15px]"
+      >
         <span className="mr-2 text-xs font-extrabold max-lg:hidden uppercase font-display tracking-widest">{b.label}</span>
-        <Hint text={hintFor(state, actor, waiting)} />
-      </div>
+        <Hint text={hint} />
+        <span className="ml-1 text-xs opacity-70 lg:hidden" aria-hidden="true">ⓘ</span>
+      </button>
+      {help && (
+        <div role="dialog" aria-modal="true" aria-label={b.label} className="game-modal fixed inset-0 z-[60] flex items-end justify-center bg-black/70 p-3" onClick={() => setHelp(false)}>
+          <div className={`w-full max-w-sm rounded-2xl border p-4 shadow-2xl ${b.box}`} onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center gap-2">
+              <span className="text-2xl" aria-hidden="true">{b.icon}</span>
+              <h2 className="font-display text-lg font-extrabold uppercase tracking-widest">{b.label}</h2>
+              <button onClick={() => setHelp(false)} aria-label="Close" className="ml-auto flex h-11 w-11 items-center justify-center rounded-full border border-white/30 text-2xl leading-none">×</button>
+            </div>
+            <p className="mt-2 text-base leading-relaxed">{hint}</p>
+          </div>
+        </div>
+      )}
       {error && (
         <span className="rounded-lg bg-red-600 px-3 py-1 text-sm font-semibold text-white shadow">
           <ManaText text={error} />
@@ -46,7 +70,7 @@ export default function StepBanner({ state, actor, waiting, error, abilityCount,
               onClick={onOpenAbilities}
               className={`rounded-full px-3 py-1 text-xs font-bold ${abilityCount > 0 ? "bg-emerald-500 text-white shadow ring-2 ring-emerald-300" : "bg-zinc-100 text-zinc-500 ring-1 ring-zinc-300"}`}
             >
-              ⚡ Abilities{abilityCount > 0 ? ` (${abilityCount})` : ""}
+              ⚡<span className="max-lg:sr-only"> Abilities</span>{abilityCount > 0 ? ` (${abilityCount})` : ""}
             </button>
           </Tip>
         )}

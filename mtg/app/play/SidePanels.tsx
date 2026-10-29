@@ -101,16 +101,18 @@ function PlayersPanelInner({
 }) {
   const unseen = { p1: useUnseenCards("p1"), p2: useUnseenCards("p2") }; // (the opening hands are dealt on screen: the libraries count down)
   const stacked = useStacked();
+  const [detail, setDetail] = useState<PlayerId | null>(null); // phones: tap a player to see everything about them
   if (stacked) {
     // A phone has no room for a column of panels: each player is a short card (name and life, then mana, then the pile sizes).
     return (
       <div className="flex flex-col gap-1">
+        {detail && <PlayerDetail state={state} id={detail} actor={actor} unseen={unseen[detail]} note={manaNotes[detail]} onResign={onResign} onClose={() => setDetail(null)} />}
         {order.map((id) => {
           const p = state.players[id];
           const style = PLAYER_STYLE[id];
           const acting = id === actor;
           return (
-            <div key={id} className={`rounded-xl border border-l-4 bg-white px-2.5 py-1.5 shadow-sm ${style.border} ${style.borderL} ${acting ? `shadow-lg ${style.glow} ring-2 ring-amber-300` : ""}`}>
+            <div key={id} role="button" tabIndex={0} aria-label={`${playerName(id)}: details`} onClick={() => setDetail(id)} onKeyDown={(e) => e.key === "Enter" && setDetail(id)} className={`cursor-pointer rounded-xl border border-l-4 bg-white px-2.5 py-1.5 shadow-sm ${style.border} ${style.borderL} ${acting ? `shadow-lg ${style.glow} ring-2 ring-amber-300` : ""}`}>
               <div className="flex items-center gap-1.5">
                 <span title={playerName(id)} className={`font-display min-w-0 max-w-[34%] truncate rounded-full px-2.5 py-0.5 text-[15px] font-bold ${style.chip}`}>
                   {playerName(id)}
@@ -195,6 +197,55 @@ function PlayersPanelInner({
         );
       })}
     </section>
+  );
+}
+
+/** A phone's player panel is short; tapping it opens everything about that player in a sheet. */
+function PlayerDetail({ state, id, actor, unseen, note, onResign, onClose }: { state: GameState; id: PlayerId; actor: PlayerId; unseen: number; note?: ManaNote; onResign?: (id: PlayerId) => void; onClose: () => void }) {
+  const p = state.players[id];
+  const style = PLAYER_STYLE[id];
+  const rows: [string, string, number][] = [
+    ["✋", "Hand", p.hand.length],
+    ["📚", "Library", p.library.length + unseen],
+    ["⚰️", "Graveyard", p.graveyard.length],
+    ["🌀", "Exile", p.exile.length],
+  ];
+  return (
+    <div role="dialog" aria-modal="true" aria-label={`${playerName(id)}'s details`} className="game-modal fixed inset-0 z-[60] flex items-end justify-center bg-black/70 p-3" onClick={onClose}>
+      <div className={`w-full max-w-sm rounded-2xl border border-l-4 bg-white p-4 shadow-2xl ${style.border} ${style.borderL}`} onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2">
+          <span className={`font-display min-w-0 truncate rounded-full px-3 py-1 text-lg font-bold ${style.chip}`}>{playerName(id)}</span>
+          {id === actor && <span className="rounded bg-amber-400 px-1.5 py-0.5 text-[11px] font-extrabold uppercase font-display tracking-wide text-black">to act</span>}
+          <button onClick={onClose} aria-label="Close" className="ml-auto flex h-11 w-11 shrink-0 items-center justify-center rounded-full border border-zinc-300 text-2xl leading-none">
+            ×
+          </button>
+        </div>
+        <div className="mt-3 flex items-center gap-2">
+          <span className="text-3xl" aria-hidden="true">❤️</span>
+          <span className="font-display text-5xl font-bold tabular-nums">{p.life}</span>
+          {(p.poison ?? 0) > 0 && <span className="rounded bg-lime-100 px-2 py-1 text-base font-bold text-lime-800">☠️ {p.poison}/10 poison</span>}
+        </div>
+        <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-zinc-200" aria-hidden="true">
+          <div className={`h-full rounded-full ${lifeColor(p.life)}`} style={{ width: `${Math.max(0, Math.min(100, (p.life / 20) * 100))}%` }} />
+        </div>
+        <ManaMeter state={state} id={id} note={note} mark={false} />
+        <div className="mt-3 grid grid-cols-2 gap-2 text-base">
+          {rows.map(([icon, label, n]) => (
+            <div key={label} className="flex items-center justify-between rounded-lg bg-zinc-100 px-3 py-2">
+              <span>
+                <span aria-hidden="true">{icon}</span> {label}
+              </span>
+              <b className="tabular-nums">{n}</b>
+            </div>
+          ))}
+        </div>
+        {onResign && !state.winner && (
+          <button onClick={() => (onClose(), onResign(id))} className="mt-3 w-full rounded-lg border border-red-300 py-2.5 text-sm font-semibold text-red-700">
+            Resign
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 

@@ -253,7 +253,7 @@ function OfficialDecks() {
             <h2 className="font-title text-base font-extrabold uppercase tracking-[0.16em] text-[#ffe29a]">{section.title}</h2>
             {section.blurb && <span className="text-sm text-slate-300">{section.blurb}</span>}
           </div>
-          <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <ul className="grid gap-3 max-sm:flex max-sm:snap-x max-sm:snap-mandatory max-sm:overflow-x-auto max-sm:pb-2 max-sm:[&>li]:w-[82%] max-sm:[&>li]:shrink-0 max-sm:[&>li]:snap-start sm:grid-cols-2 lg:grid-cols-4">
             {section.decks.map((deck) => (
               <OfficialDeckTile
                 key={deck.id}

@@ -249,7 +249,7 @@ function CombatZone({ perms, attackingSide, lane, interaction }: { perms: Perman
       <div className={`flex items-center gap-2 text-[11px] font-extrabold uppercase font-display tracking-widest ${attackingSide ? "text-[#fecaca]" : "text-[#bae6fd]"}`}>
         {attackingSide ? "⚔ Attack zone" : "🛡 Block zone"}
         {perms.length > 0 && <span>({perms.length})</span>}
-        {perms.length === 0 && <span className="font-medium normal-case tracking-normal text-slate-200">{attackingSide ? "Click a glowing creature to move it here and attack with it." : "Click one of your creatures, then the attacker it should block."}</span>}
+        {perms.length === 0 && <span className="font-medium normal-case tracking-normal text-slate-200 max-lg:hidden">{attackingSide ? "Click a glowing creature to move it here and attack with it." : "Click one of your creatures, then the attacker it should block."}</span>}
       </div>
       {perms.length > 0 && <Lane perms={perms} interaction={interaction} size="md" {...lane} />}
     </div>

@@ -157,6 +157,7 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
         {tab === "deck" && <DeckCards groups={groups} entries={entries} onChange={change} onZoom={setZoomed} onAdd={() => setTab("pool")} />}
         {/* kept mounted while hidden, so the search is still there when you come back */}
         <CardPool hidden={tab !== "pool"} entries={entries} onAdd={(def) => change(def, 1)} onZoom={setZoomed} />
+        <div className={tab === "pool" ? "max-lg:hidden lg:contents" : "lg:contents"}>
         <DeckSidebar
           rows={rows}
           groups={groups}
@@ -166,7 +167,13 @@ export default function DeckEditor({ deckId }: { deckId?: string }) {
           onChange={change}
           onZoom={setZoomed}
         />
+        </div>
       </div>
+      {tab === "pool" && (
+        <button onClick={() => setTab("deck")} className="btn-gold fixed inset-x-4 bottom-4 z-30 justify-center shadow-2xl lg:hidden">
+          Your deck · {status.count} card{status.count === 1 ? "" : "s"} ▸
+        </button>
+      )}
       {zoomed && (
         <Lightbox
           def={zoomed}
