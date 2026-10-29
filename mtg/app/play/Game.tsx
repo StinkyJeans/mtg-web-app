@@ -6,6 +6,7 @@ import { flushSync } from "react-dom";
 import {
   applyAction,
   getCastable,
+  manaSources,
   getDamageAssignments,
   getLegalActions,
   liftedSpecs,
@@ -30,6 +31,9 @@ import CardView from "./CardView";
 import { liveCardProps } from "./stats";
 import RotateHint from "./RotateHint";
 import ChainFx from "./ChainFx";
+import { PayPanel } from "./PayPanel";
+import type { PayChoice } from "./PayPanel";
+import { useChooseLands } from "@/lib/chooseLands";
 import type { Flash } from "./ChainFx";
 import VotePopup from "../lobby/VotePopup";
 import type { Inspected } from "./CardDetail";
@@ -265,6 +269,8 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const stageDoneRef = useRef(false);
   useEffect(() => () => (setInspected(null), setPreview(null)), []); // (what the mouse was over does not follow the player to another page)
   const [welcome, setWelcome] = useState(false); // "Welcome to the Battle Field, Now Duel!" while it is on screen
+  const [chooseLands, setChooseLands] = useChooseLands(); // the player wants to say which lands pay for each spell
+  const [payChoice, setPayChoice] = useState<PayChoice | null>(null);
   const [triggerFlash, setTriggerFlash] = useState<Flash | null>(null); // triggers that resolved at once: the chain shows them too
   const [turnSplash, setTurnSplash] = useState(0); // online: counts "Your turn" splashes, 0 while none is on screen
 
@@ -374,7 +380,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
    * anything they might not want: life paid for Phyrexian mana (or mana, when they could pay life instead), and creatures tapped for mana
    * (which could attack or block instead).
    */
-  async function act(action: Action, as: PlayerId = actor, opts: { life?: boolean; mana?: boolean; pointless?: boolean; spare?: string[] } = {}) {
+  async function act(action: Action, as: PlayerId = actor, opts: { life?: boolean; mana?: boolean; pointless?: boolean; spare?: string[]; paid?: boolean } = {}) {
     if (watching || isCombatPlaying() || isPileBusy() || isRevealing()) return; // a watcher can't act; and ignore clicks while something is being animated
     const spare = opts.spare ?? [];
     const pay = paymentOf(state, action, as, spare);
@@ -382,6 +388,15 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       setLifeConfirm(null);
       setError("There is not enough mana without using that card.");
       return;
+    }
+    // "Choose which lands to pay with": when there is more than one way to pay, the player is shown the lands the game would tap and can change them.
+    if (chooseLands && !opts.paid && pay.ok && pay.made.length > 0 && (action.type === "castSpell" || action.type === "castCreature" || action.type === "activateAbility")) {
+      const need = [...new Set(pay.made.map((m) => m.iid))];
+      const usable = manaSources(state, as).filter((s) => !s.tapped && !s.sick);
+      if (usable.length > need.length) {
+        setPayChoice({ action, as, tap: need });
+        return;
+      }
     }
     const lifeOrMana = phyrexianChoices(state, action, as, spare);
     if (lifeOrMana.length > 0 && (action.type === "castSpell" || action.type === "activateAbility")) {
@@ -838,6 +853,17 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             <span>⛶ {fullscreen.on ? "Leave full screen" : "Full screen"}</span>
           </button>
         )}
+        {!watching && (
+          <button
+            onClick={() => setChooseLands(!chooseLands)}
+            aria-pressed={chooseLands}
+            title="When on, you pick which lands (or mana creatures) pay for each spell, instead of the game choosing"
+            className="flex w-full items-center justify-between rounded-xl border border-white/40 bg-slate-950/55 px-3 py-2 text-left font-display text-xs font-bold uppercase tracking-wide text-white shadow-sm hover:bg-slate-900/70"
+          >
+            <span>🌲 Choose lands to pay</span>
+            <span className={chooseLands ? "text-[#6ee7b7]" : "text-slate-400"}>{chooseLands ? "On" : "Off"}</span>
+          </button>
+        )}
         <PlayedThisTurn items={history.filter((h) => h.turn === state.turn)} state={state} onZoom={(defId) => setZoomed(state.cards[defId])} />
         {!watching && (
           <ChatPanel
@@ -968,6 +994,19 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           onCloseChain={() => setChain({ steps: [], over: false })}
         />
 
+        {payChoice && (
+          <PayPanel
+            key={JSON.stringify(payChoice.action)}
+            state={state}
+            choice={payChoice}
+            onCancel={() => setPayChoice(null)}
+            onPay={(spare) => {
+              const c = payChoice;
+              setPayChoice(null);
+              void act(c.action, c.as, { spare, paid: true });
+            }}
+          />
+        )}
         {lifeConfirm && (
           <ChoicePanel
             title={<ManaText text={lifeConfirm.text} />}

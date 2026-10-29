@@ -482,7 +482,11 @@ export function hasteFrom(state: GameState, iid: string, spell: CardDef): boolea
   return line.includes("creature") && (line.split("—")[1] ?? "").trim().split(/\s+/).includes(type);
 }
 
-function paySources(state: GameState, player: PlayerId, cost: ManaCost, sources: Source[], forSpell?: CardDef): PayResult {
+function paySources(state: GameState, player: PlayerId, cost: ManaCost, given: Source[], forSpell?: CardDef): PayResult {
+  // A colored requirement is paid by the LEAST flexible source that can: a Forest pays {G} before a {G}/{W} land does, so the land that makes
+  // either color stays untapped for the next spell. (Floating mana and mana that gives haste still go first; a land that costs life goes last.)
+  const flexibility = (src: Source) => (src.iid.startsWith(POOL) || (forSpell && hasteFrom(state, src.iid, forSpell)) ? -1 : (src.life ? 100 : 0) + src.colors.length);
+  const sources = [...given].sort((a, b) => flexibility(a) - flexibility(b));
   // Every requirement lists the colors that can pay it: a plain {R} is [R], a hybrid {W/U} is [W, U].
   const needs: ManaColor[][] = [
     ...MANA_COLORS.flatMap((c) => Array<ManaColor[]>(cost.colored[c] ?? 0).fill([c])),
