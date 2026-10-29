@@ -9,6 +9,7 @@ import { readSacrificeTrigger, readFirebending, readCreatureLandWithTrigger, rea
 import { readKeywordLord, readCreatureSpellCast } from "./lines/infect.js";
 import { readUndying, readCostLessByPower } from "./lines/green.js";
 import { readEntersStunned, readYouTapOpp, readPersist } from "./lines/stun.js";
+import { readOppCreatureDies } from "./lines/wipe.js";
 import { MARVEL_ABILITY_WORD, readAttacksAlone, readExalted, readChapter, readEquippedAttacks, readAbilityTargets, readAlienInvasion, readAllyDamaged, readGrimReaper, readHostUpkeep, readNoOneDies, readAnyDrawSecond, readDamagePrevention, readEnrage, readIronManCombat, readAllyTapped, readAttackConditions, readHasteForAbilities, readTokensEnter, readBecomesTapped, readControlsArtifactCreatureOrPlan, readScarletWitchDiscount, readTokenAndCounterLords, readUnblockableIfSmall, readVillainOrArtifactEnters, readCountersPlusOne, readCounteredThisTurn, readEntersGreater, readHandSize, readPlanThreshold, readSpellTargetsTrigger, readTeamworkTrigger, readYardCondition, readYouPutCounters } from "./lines/marvel.js";
 
 // One line of a permanent's text: a keyword, a triggered, activated or static ability, an aura or equipment line.
@@ -25,6 +26,7 @@ const READERS: ((line: string, out: ParsedCard) => boolean)[] = [
   readEntersStunned,
   readYouTapOpp,
   readPersist,
+  readOppCreatureDies,
   readFirebending,
   readCreatureLandWithTrigger,
   readTappedIfMoreLands,

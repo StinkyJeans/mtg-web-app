@@ -125,6 +125,7 @@ function PlayersPanelInner({
                     <span className="rounded bg-stone-100 px-1" title="Cards in graveyard">⚰️<b>{p.graveyard.length}</b></span>
                   </span>
                   <DeathLife n={p.deathLife ?? 0} short />
+                  <Emblems texts={(p.emblems ?? []).map((e) => e.text)} short />
                   {(p.poison ?? 0) > 0 && (
                     <span data-poison={id} className={`rounded px-1.5 py-0.5 text-[13px] font-bold tabular-nums ${(p.poison ?? 0) >= 7 ? "bg-lime-200 text-lime-900" : "bg-lime-100 text-lime-800"}`}>
                       ☠️ {p.poison}/10
@@ -174,6 +175,7 @@ function PlayersPanelInner({
               </span>
               <LifeTotal id={id} value={p.life} />
               <DeathLife n={p.deathLife ?? 0} />
+              <Emblems texts={(p.emblems ?? []).map((e) => e.text)} />
               {(p.poison ?? 0) > 0 && (
                 <span data-poison={id} title="Poison counters: a player with ten or more loses the game" className={`rounded px-1.5 py-0.5 text-sm font-bold tabular-nums ${(p.poison ?? 0) >= 7 ? "bg-lime-200 text-lime-900" : "bg-lime-100 text-lime-800"}`}>
                   ☠️ {p.poison}/10
@@ -203,6 +205,16 @@ function PlayersPanelInner({
 }
 
 /** Ruinous Waterbending with waterbend paid: "whenever a creature dies this turn, you gain 1 life", once for each such spell. */
+/** Emblems (Elspeth's "Creatures you control get +2/+2 and have flying."): nothing on the battlefield shows them. */
+function Emblems({ texts, short }: { texts: string[]; short?: boolean }) {
+  if (texts.length === 0) return null;
+  return (
+    <span title={texts.map((t) => `Emblem: ${t}`).join("\n")} className={`rounded bg-violet-100 px-1.5 py-0.5 font-semibold text-violet-800 ${short ? "text-[13px]" : "text-sm"}`}>
+      ✨ {short ? (texts.length > 1 ? `×${texts.length}` : "") : texts.map((t) => `Emblem: ${t}`).join(" · ")}
+    </span>
+  );
+}
+
 function DeathLife({ n, short }: { n: number; short?: boolean }) {
   if (n === 0) return null;
   return (
@@ -240,6 +252,11 @@ function PlayerDetail({ state, id, actor, unseen, note, onResign, onClose }: { s
         {(p.deathLife ?? 0) > 0 && (
           <div className="mt-2">
             <DeathLife n={p.deathLife ?? 0} />
+          </div>
+        )}
+        {(p.emblems ?? []).length > 0 && (
+          <div className="mt-2">
+            <Emblems texts={(p.emblems ?? []).map((e) => e.text)} />
           </div>
         )}
         <div className="mt-1.5 h-2 w-full overflow-hidden rounded-full bg-zinc-200" aria-hidden="true">

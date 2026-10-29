@@ -12,8 +12,12 @@ export const ZONE_EFFECTS = {
     for (const s of subjectsOf(state, effect.what, ctx)) {
       if (s.k !== "perm" || kw(state, s.perm, "indestructible")) continue;
       if (preventRegen) s.perm.noRegen = true;
-      if (regenerateInstead(state, s.perm)) say(`${nameOf(state, s.perm)} regenerates.`);
-      else putIntoGraveyard(state, s.perm, s.owner, events);
+      if (regenerateInstead(state, s.perm)) {
+        say(`${nameOf(state, s.perm)} regenerates.`);
+        continue;
+      }
+      if (isCreature(state, s.perm)) ctx.destroyed = { ...ctx.destroyed, [s.owner]: (ctx.destroyed?.[s.owner] ?? 0) + 1 };
+      putIntoGraveyard(state, s.perm, s.owner, events);
     }
   },
   destroyArtifacts({ state, events, say, value }, effect) {

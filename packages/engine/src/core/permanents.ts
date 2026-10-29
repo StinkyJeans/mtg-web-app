@@ -183,6 +183,7 @@ export function staticEffectsOn(s: GameState, target: Permanent): StaticEffect[]
       }
     }
   }
+  if (creature) for (const emblem of s.players[controller].emblems ?? []) out.push(emblem.static);
   return out;
 }
 

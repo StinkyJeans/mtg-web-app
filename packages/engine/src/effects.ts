@@ -12,7 +12,7 @@ export type Ref =
   | { t: "you" } // the controller
   | { t: "opp" } // the controller's opponent
   | { t: "eachPlayer" }
-  | { t: "allCreatures"; scope: "all" | "yours" | "opponents"; except?: number; noFlying?: boolean; subtype?: string; notSubtype?: string; notSelf?: boolean; tapped?: boolean } // `except`: not the i-th target; `notSelf`: "all other creatures"; `tapped`: only tapped (true) or untapped (false) ones
+  | { t: "allCreatures"; scope: "all" | "yours" | "opponents"; except?: number; noFlying?: boolean; subtype?: string; notSubtype?: string; notSelf?: boolean; tapped?: boolean; power?: { n: number; op: "min" | "max" }; mv?: { n: number; op: "min" | "max" } } // `except`: not the i-th target; `notSelf`: "all other creatures"; `tapped`: only tapped (true) or untapped (false) ones; `power`/`mv`: "with power 4 or greater", "with mana value 3 or less"
   | { t: "allPlaneswalkers" }
   | { t: "ownerOf"; i: number } // the owner of the i-th target ("its owner gains 4 life")
   | { t: "controllerOf"; i: number } // the controller of the i-th target, as it was when the spell resolved
@@ -150,6 +150,7 @@ export type Effect =
   | { type: "noPrevention" } // "damage can't be prevented this turn"
   | { type: "addLoyalty"; amount: number } // "put a loyalty counter on ~"
   | { type: "stormEmblem" } // "you get an emblem with 'Instant and sorcery spells you cast have storm.'"
+  | { type: "emblem"; static: StaticEffect; text: string } // "you get an emblem with 'Creatures you control get +2/+2 and have flying.'"
   | { type: "damagePerNonbasic" } // "~ deals damage to each player equal to the number of nonbasic lands that player controls"
   | { type: "exileYardCard"; what: Ref } // "exile target card from a graveyard": remembered as exiled with the source
   | { type: "putExiledWith" } // "put each creature card exiled with ~ onto the battlefield under your control with a flying counter on it. Each of them is a 1/1 Spirit in addition to its other types."
@@ -229,6 +230,8 @@ export interface RunContext {
   created?: string[];
   /** The toughness of the creature sacrificed to pay for the ability ("if the sacrificed creature's toughness was 4 or greater"). */
   sacToughness?: number;
+  /** The creatures these effects destroyed so far, by who controlled them ("for each creature destroyed this way"). */
+  destroyed?: Partial<Record<PlayerId, number>>;
 }
 
 /** A permanent as it last existed on the battlefield. */
@@ -404,7 +407,8 @@ export type CountSpec =
   | { kind: "ifOtherSubtype"; subtype: string; yes: number; no: number } // "put a counter on it. If it's a Unicorn, two instead"
   | { kind: "totalPower" } // the total power of creatures you control
   | { kind: "greatestPower" } // the greatest power among creatures you control
-  | { kind: "devotion"; color: string }; // your devotion to a color: its mana symbols among the mana costs of permanents you control
+  | { kind: "devotion"; color: string } // your devotion to a color: its mana symbols among the mana costs of permanents you control
+  | { kind: "destroyedThisWay"; yours?: boolean }; // the creatures the same spell just destroyed (`yours`: only the ones you controlled)
 
 /** One choice of a "Choose one —" spell or ability: its effects, and what it targets. */
 export interface ModeSpec {
@@ -428,7 +432,7 @@ export interface TriggeredAbility {
   ifKicked?: boolean;
   event: "oppPermTapped" | "youTapOpp" | "oppArtifactAbility" | "enters" | "dies" | "attacks" | "noncreatureSpell" | "instantOrSorcery" | "landfall" | "lifeGained" | "allyEnters" | "combatDamagePlayer" | "blocks" | "blocked" | "damagedDies" | "drawCard" | "drawSecond" | "battalion" | "attackTwo" | "becomesTarget"
     | "youSacrifice" | "anySacrifice"
-    | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "anyCasts" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
+    | "upkeep" | "upkeepEach" | "endStep" | "endStepEach" | "beginCombat" | "allyLeaves" | "anyCreatureEnters" | "youCast" | "opponentCasts" | "anyCasts" | "oppCreatureDies" | "youAttack" | "hostDamagesPlayer" | "drawFifth" | "enchantedDies"
     | "allyDies" | "allyCountersAdded" | "allyAttacks" | "allyTargeted" | "youDiscard" | "excessDamage" | "damaged" | "anyDies" | "teamworkTap" | "attacksAlone" | "selfTapped" | "hostTapped" | "allyTapped" | "tokenEnters" | "yourAbilityTargets" | "anyDrawSecond" | "allyDamaged" | "hostUpkeep";
   /** An "intervening if": the trigger only happens when this is true as the event occurs. */
   cond?: {

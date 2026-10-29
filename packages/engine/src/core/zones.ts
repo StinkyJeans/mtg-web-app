@@ -2,7 +2,7 @@ import { getCard } from "../cards.js";
 import type { GameEvent } from "../actions.js";
 import type { StackItem, TokenSpec } from "../effects.js";
 import { parseCard } from "../oracle.js";
-import type { CardDef, CardInstance, GameState, Permanent, PlayerId } from "../types.js";
+import { OPPONENT, type CardDef, type CardInstance, type GameState, type Permanent, type PlayerId } from "../types.js";
 import { findPermanentOrNull, isArtifactDef, isCreature, nameOf, newId, powerOf, subtypesOf } from "./permanents.js";
 import { creatureEntered, creatureMoved, queueTriggers } from "./triggers.js";
 
@@ -119,6 +119,8 @@ export function putIntoGraveyard(state: GameState, perm: Permanent, controller: 
     for (const owner of Object.values(state.players)) {
       for (const other of owner.id === controller ? [perm, ...battlefield] : owner.battlefield) queueTriggers(state, other.card, owner.id, "anyDies", { self: other === perm, token: isToken(perm.card) });
     }
+    // "Whenever a creature an opponent controls dies"
+    for (const watcher of state.players[OPPONENT[controller]].battlefield) queueTriggers(state, watcher.card, OPPONENT[controller], "oppCreatureDies");
   }
   if (creature) queueDeathLife(state);
   if (perm.diesReturn) {

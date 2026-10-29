@@ -126,6 +126,12 @@ export function isLegalTarget(state: GameState, spec: TargetSpec, choice: Target
 }
 
 /** "With mana value 2 or less / 2 or greater / 2". */
+/** "All creatures with power 4 or greater" / "with mana value 3 or less". */
+function statsFit(state: GameState, perm: Permanent, ref: Extract<Ref, { t: "allCreatures" }>): boolean {
+  if (ref.power && !statFits(ref.power, powerOf(state, perm))) return false;
+  return !ref.mv || statFits(ref.mv, getCard(state, perm.card.defId).cost);
+}
+
 function mvFits(spec: TargetSpec, mv: number): boolean {
   return spec.mv ? statFits(spec.mv, mv) : true;
 }
@@ -188,7 +194,7 @@ export function subjectsOf(state: GameState, ref: Ref, ctx: RunContext): Subject
       const skip = ref.except !== undefined && ctx.targets[ref.except]?.kind === "permanent" ? (ctx.targets[ref.except] as { iid: string }).iid : undefined;
       return Object.values(state.players)
         .filter((p) => ref.scope === "all" || (ref.scope === "yours") === (p.id === ctx.controller))
-        .flatMap((p) => p.battlefield.filter((perm) => isCreature(state, perm) && perm.card.iid !== skip && !(ref.notSelf && perm.card.iid === ctx.sourceId) && !(ref.noFlying && kw(state, perm, "flying")) && (ref.tapped === undefined || perm.tapped === ref.tapped) && (!ref.subtype || subtypesOf(state, perm).includes(ref.subtype)) && (!ref.notSubtype || !subtypesOf(state, perm).includes(ref.notSubtype))).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
+        .flatMap((p) => p.battlefield.filter((perm) => isCreature(state, perm) && perm.card.iid !== skip && !(ref.notSelf && perm.card.iid === ctx.sourceId) && !(ref.noFlying && kw(state, perm, "flying")) && (ref.tapped === undefined || perm.tapped === ref.tapped) && (!ref.subtype || subtypesOf(state, perm).includes(ref.subtype)) && (!ref.notSubtype || !subtypesOf(state, perm).includes(ref.notSubtype)) && statsFit(state, perm, ref)).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));
     }
     case "allPlaneswalkers":
       return Object.values(state.players).flatMap((p) => p.battlefield.filter((perm) => isPlaneswalker(state, perm)).map((perm): Subject => ({ k: "perm", perm, owner: p.id })));

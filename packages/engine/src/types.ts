@@ -1,6 +1,6 @@
 // Pure game types. No imports from React/Next/Colyseus/Supabase.
 
-import type { ModeSpec, PendingChoice, PendingPick, PriorityRound, StackItem, TargetSpec } from "./effects.js";
+import type { ModeSpec, PendingChoice, PendingPick, PriorityRound, StackItem, StaticEffect, TargetSpec } from "./effects.js";
 import type { Keyword } from "./keywords.js";
 import type { ManaColor } from "./mana.js";
 
@@ -244,6 +244,8 @@ export interface PlayerState {
   landsEnteredThisTurn?: number;
   /** An emblem: "Instant and sorcery spells you cast have storm." */
   stormEmblem?: boolean;
+  /** Emblems that change this player's creatures ("Creatures you control get +2/+2 and have flying."). */
+  emblems?: { text: string; static: StaticEffect }[];
   /** "Draw a card at the beginning of the next turn's upkeep": one per card that said so (Mishra's Bauble). */
   upkeepDraws?: { source: string; name: string }[];
   /** Permanents that left the battlefield under this player's control this turn (revolt). */

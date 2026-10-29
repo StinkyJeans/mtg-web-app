@@ -59,6 +59,7 @@ export function runEffects(state: GameState, effects: Effect[], ctx: RunContext,
           const p = chosen(ctx.other);
           return p ? Math.max(0, powerOf(state, p)) : 0;
         })()
+      : c.kind === "destroyedThisWay" ? Object.entries(ctx.destroyed ?? {}).reduce((sum, [who, k]) => sum + (!c.yours || who === ctx.controller ? (k ?? 0) : 0), 0)
       : countFor(state, ctx.controller, c, ctx.sourceId);
     return n * (amount.times ?? 1);
   };

@@ -122,6 +122,11 @@ export const STACK_EFFECTS = {
   ifManaSpent({ ctx, nested }, effect) {
     if ((ctx.x ?? 0) >= effect.n) nested(effect.then);
   },
+  emblem({ state, ctx, say }, effect) {
+    const me = state.players[ctx.controller];
+    me.emblems = [...(me.emblems ?? []), { text: effect.text, static: effect.static }];
+    say(`${playerLabel(ctx.controller)} gets an emblem: ${effect.text}`);
+  },
   stormEmblem({ state, ctx, say }) {
     state.players[ctx.controller].stormEmblem = true;
     say(`${playerLabel(ctx.controller)} gets an emblem: instant and sorcery spells they cast have storm.`);
