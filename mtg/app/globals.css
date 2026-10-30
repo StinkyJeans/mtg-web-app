@@ -828,8 +828,9 @@ body.mtg-cursor :is(input:not([type="checkbox"]):not([type="range"]), textarea) 
 .icon-seg button:hover { color: #fff; background: rgba(255, 255, 255, 0.12); transform: translateY(-1px); }
 .icon-seg button[aria-pressed="true"] { color: #2b1800; background: linear-gradient(180deg, #ffe58f, #f1ae38); box-shadow: 0 3px 12px rgba(244, 180, 61, 0.4); }
 .card-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(9rem, 1fr)); gap: 1.1rem 0.9rem; justify-items: center; }
-.card-tile { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; transition: transform 0.18s ease, filter 0.18s ease; }
-.card-tile:hover { transform: translateY(-5px) scale(1.03); filter: drop-shadow(0 12px 18px rgba(244, 180, 61, 0.3)); }
+.card-tile { display: flex; flex-direction: column; align-items: center; gap: 0.4rem; transition: transform 0.18s ease; }
+.card-tile { will-change: auto; }
+.card-tile:hover { transform: translateY(-5px) scale(1.03); }
 
 
 /* ───────── the top bar and the room panel ───────── */
@@ -1292,3 +1293,13 @@ body:has(.game-modal, .victory-backdrop) .castable-glow::after { animation-play-
 .chain-note-kind { margin-top: 0.35rem; border-top: 1px solid rgba(255, 255, 255, 0.2); padding-top: 0.3rem; font-size: 13px; line-height: 1.35; color: #bae6fd; }
 .chain-note-help { display: -webkit-box; margin-top: 0.25rem; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 4; font-size: 13px; line-height: 1.35; color: #e2e8f0; }
 @media (max-width: 1023px) { .chain-note-kind { display: none; } .chain-note-help { -webkit-line-clamp: 3; } }
+
+/* The Cards and deck pages: 36 cards move over these panels, so the panels do not blur what is behind them (a blur is redrawn whenever anything over
+   it changes) and the cards carry no big soft shadow each. The look is the same: a dark glassy panel. */
+.cards-glass .glass {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  background: linear-gradient(135deg, rgba(30, 41, 78, 0.8), rgba(16, 24, 52, 0.8));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22), inset 0 -1px 0 rgba(255, 255, 255, 0.06);
+}
+.cards-fit .glass-tile { box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2); }
