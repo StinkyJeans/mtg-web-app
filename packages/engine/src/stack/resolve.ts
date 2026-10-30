@@ -229,10 +229,25 @@ function passOnce(state: GameState, events: GameEvent[], onContinue: (then: "aft
   if (then) onContinue(then);
 }
 
+/**
+ * A priority stop: the player asked to be given priority at this moment even with nothing to respond with (see `Player.stops`).
+ * An attack stop is for the player being attacked, a spell stop for the other player's spell, a block stop for both players once blockers are declared.
+ */
+function stopsAt(state: GameState, holder: PlayerId): boolean {
+  const stops = state.players[holder].stops;
+  if (!stops) return false;
+  const top = state.stack[state.stack.length - 1];
+  if (top) return !!stops.spell && top.kind === "spell" && top.controller !== holder;
+  const then = state.priority?.then;
+  if (then === "afterAttackers") return !!stops.attack && holder !== state.active;
+  if (then === "afterBlockers") return !!stops.block;
+  return false;
+}
+
 /** Keeps passing for players who have nothing to do, until a player must decide or the round ends. */
 function advance(state: GameState, events: GameEvent[], onContinue: (then: "afterBlockers" | "afterAttackers") => void): void {
   for (let guard = 0; guard < 500 && state.priority && !state.winner && !state.pendingChoice && !state.pendingPick; guard++) {
-    if (hasResponse(state, state.priority.holder)) return; // a human decides
+    if (hasResponse(state, state.priority.holder) || stopsAt(state, state.priority.holder)) return; // a human decides
     passOnce(state, events, onContinue);
   }
 }

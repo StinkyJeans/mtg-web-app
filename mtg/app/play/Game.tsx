@@ -6,7 +6,6 @@ import { flushSync } from "react-dom";
 import {
   applyAction,
   getCastable,
-  manaSources,
   getDamageAssignments,
   getLegalActions,
   liftedSpecs,
@@ -31,9 +30,11 @@ import CardView from "./CardView";
 import { liveCardProps } from "./stats";
 import RotateHint from "./RotateHint";
 import ChainFx from "./ChainFx";
+import LibraryReveal from "./LibraryReveal";
+import { useStops } from "@/lib/stops";
+import type { RevealPayload } from "@/lib/online/protocol";
 import { PayPanel } from "./PayPanel";
 import type { PayChoice } from "./PayPanel";
-import { useChooseLands } from "@/lib/chooseLands";
 import type { Flash } from "./ChainFx";
 import VotePopup from "../lobby/VotePopup";
 import type { Inspected } from "./CardDetail";
@@ -269,8 +270,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const stageDoneRef = useRef(false);
   useEffect(() => () => (setInspected(null), setPreview(null)), []); // (what the mouse was over does not follow the player to another page)
   const [welcome, setWelcome] = useState(false); // "Welcome to the Battle Field, Now Duel!" while it is on screen
-  const [chooseLands, setChooseLands] = useChooseLands(); // the player wants to say which lands pay for each spell
   const [payChoice, setPayChoice] = useState<PayChoice | null>(null);
+  const [stops, setStop] = useStops(); // where the game waits for this player to pass priority
+  const [seenReveal, setSeenReveal] = useState<RevealPayload | null>(null); // the libraries were shown, and the player moved on to the result
   const [triggerFlash, setTriggerFlash] = useState<Flash | null>(null); // triggers that resolved at once: the chain shows them too
   const [turnSplash, setTurnSplash] = useState(0); // online: counts "Your turn" splashes, 0 while none is on screen
 
@@ -304,6 +306,12 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   }, [chain]);
 
   useOnlineMatch(online, game, seat, gameRef, commitRef, openingDeal);
+  // The server runs the game: it is told where this player wants priority stops (when the match starts, and whenever they are changed).
+  const inGame = game !== null;
+  useEffect(() => {
+    if (!online || watching || !inGame) return;
+    netSend("action", { action: { type: "setStops", stops } });
+  }, [online, watching, inGame, stops]);
 
   // The "Your turn" splash goes away by itself.
   useEffect(() => {
@@ -389,14 +397,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       setError("There is not enough mana without using that card.");
       return;
     }
-    // "Choose which lands to pay with": when there is more than one way to pay, the player is shown the lands the game would tap and can change them.
-    if (chooseLands && !opts.paid && pay.ok && pay.made.length > 0 && (action.type === "castSpell" || action.type === "castCreature" || action.type === "activateAbility")) {
-      const need = [...new Set(pay.made.map((m) => m.iid))];
-      const usable = manaSources(state, as).filter((s) => !s.tapped && !s.sick);
-      if (usable.length > need.length) {
-        setPayChoice({ action, as, tap: need });
-        return;
-      }
+    // Mana management: nothing is tapped for the player. Anything that costs mana asks which mana to spend first.
+    if (!opts.paid && pay.ok && pay.made.length > 0 && (action.type === "castSpell" || action.type === "castCreature" || action.type === "activateAbility")) {
+      setPayChoice({ action, as });
+      return;
     }
     const lifeOrMana = phyrexianChoices(state, action, as, spare);
     if (lifeOrMana.length > 0 && (action.type === "castSpell" || action.type === "activateAbility")) {
@@ -854,15 +858,21 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
           </button>
         )}
         {!watching && (
-          <button
-            onClick={() => setChooseLands(!chooseLands)}
-            aria-pressed={chooseLands}
-            title="When on, you pick which lands (or mana creatures) pay for each spell, instead of the game choosing"
-            className="flex w-full items-center justify-between rounded-xl border border-white/40 bg-slate-950/55 px-3 py-2 text-left font-display text-xs font-bold uppercase tracking-wide text-white shadow-sm hover:bg-slate-900/70"
-          >
-            <span>🌲 Choose lands to pay</span>
-            <span className={chooseLands ? "text-[#6ee7b7]" : "text-slate-400"}>{chooseLands ? "On" : "Off"}</span>
-          </button>
+          <div className="flex flex-col gap-1 rounded-xl border border-white/40 bg-slate-950/55 px-3 py-2 text-white" role="group" aria-label="Priority stops">
+            <span className="font-display text-xs font-bold uppercase tracking-wide">Stop for priority</span>
+            {(
+              [
+                ["attack", "When I am attacked"],
+                ["spell", "On their spells"],
+                ["block", "After blocks"],
+              ] as const
+            ).map(([key, label]) => (
+              <label key={key} className="flex min-h-9 cursor-pointer items-center justify-between gap-2 text-sm">
+                <span>{label}</span>
+                <input type="checkbox" checked={stops[key]} onChange={(e) => setStop(key, e.target.checked)} className="h-5 w-5 accent-amber-400" />
+              </label>
+            ))}
+          </div>
         )}
         <PlayedThisTurn items={history.filter((h) => h.turn === state.turn)} state={state} onZoom={(defId) => setZoomed(state.cards[defId])} />
         {!watching && (
@@ -1224,7 +1234,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         <PassReminder state={state} after={state.phase === "main2" && onlyLandsLeft ? REMIND_DONE_MS : REMIND_IDLE_MS} opponent={playerName(other)} onEndTurn={endTurn} />
       )}
 
-      {state.winner && endShown && <VictoryDialog
+      {state.winner && endShown && online && !watching && net.reveal && seenReveal !== net.reveal && (
+        <LibraryReveal reveal={net.reveal} you={actor} onContinue={() => setSeenReveal(net.reveal)} />
+      )}
+      {state.winner && endShown && !(online && !watching && net.reveal && seenReveal !== net.reveal) && <VictoryDialog
           winner={state.winner}
           reason={endNote ?? (online ? net.snapshot?.endReason ?? null : null)}
           series={

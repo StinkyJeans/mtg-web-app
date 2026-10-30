@@ -57,6 +57,12 @@ export interface RoomSnapshot {
   spectating?: boolean;
 }
 
+/** After the game: both libraries, top card first, with what is needed to draw them. */
+export interface RevealPayload {
+  libraries: Record<PlayerId, string[]>;
+  cards: Record<string, { id: string; name: string; type: string; image?: string; typeLine?: string; manaCost?: string; scryfallId?: string }>;
+}
+
 /** The match has begun (or the player came back to it): the game as this player sees it. */
 export interface StartPayload {
   view: GameState;

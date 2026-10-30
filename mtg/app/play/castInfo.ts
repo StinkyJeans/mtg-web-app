@@ -57,6 +57,18 @@ function costOf(state: GameState, action: Action, who: PlayerId): { cost: ManaCo
   return { cost: used?.mana ? parseManaCost(used.mana) : null, ability };
 }
 
+/** The mana an action costs, as text ("{2}{G}"), for the player to see while choosing the lands to pay with. Empty when it costs no mana. */
+export function costLabel(state: GameState, action: Action, who: PlayerId): string {
+  const base = costOf(state, action, who).cost;
+  if (!base) return "";
+  const cost = base.x ? { ...base } : base;
+  let out = cost.generic > 0 ? `{${cost.generic}}` : "";
+  for (const c of ["W", "U", "B", "R", "G", "C"] as const) out += `{${c}}`.repeat(cost.colored[c] ?? 0);
+  for (const [a, b] of cost.hybrid ?? []) out += `{${a}/${b}}`;
+  for (const c of cost.phyrexian ?? []) out += `{${c}/P}`;
+  return out;
+}
+
 /**
  * What paying for this action involves: the life it costs (Phyrexian mana with no mana to match, or paid with life by choice), the
  * creatures it would tap for mana, and which permanent would make which mana.

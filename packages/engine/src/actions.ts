@@ -68,11 +68,14 @@ export type Action =
   | { type: "declareBlockers"; blocks: Block[] }
   | { type: "assignDamage"; assignments: DamageAssignment[] }
   | { type: "discard"; iids: string[] }
-  | { type: "concede" };
+  | { type: "concede" }
+  /** Which moments of the game stop and wait for this player to pass priority (see `Player.stops`). Allowed at any time, by either player. */
+  | { type: "setStops"; stops: { attack?: boolean; spell?: boolean; block?: boolean } };
 
 export type GameEvent =
   | { type: "mulliganTaken"; player: PlayerId; count: number }
   | { type: "handKept"; player: PlayerId; bottomed: number }
+  | { type: "libraryShuffled"; player: PlayerId } // a card shuffled `player`'s library (a search, "then shuffle")
   | { type: "deckShuffled"; player: PlayerId; owner: PlayerId } // `player` shuffled `owner`'s library
   | { type: "landPlayed"; player: PlayerId; iid: string }
   | { type: "creatureCast"; player: PlayerId; iid: string; tapped: string[] }
@@ -135,6 +138,12 @@ export function applyAction(state: GameState, player: PlayerId, action: Action):
       state: next,
       events: [{ type: "conceded", player }, { type: "gameWon", player: next.winner }],
     };
+  }
+
+  if (action.type === "setStops") {
+    const next = structuredClone(state);
+    next.players[player].stops = { attack: action.stops.attack === true, spell: action.stops.spell === true, block: action.stops.block === true };
+    return { ok: true, state: next, events: [] };
   }
 
   if (player !== playerToAct(state)) return fail("It is not your turn.");

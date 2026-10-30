@@ -223,7 +223,7 @@ const counters: SentenceParser = (s, ctx) => {
 
 /** "target player mills three cards": the top cards of their library go to the graveyard. */
 const mill: SentenceParser = (s, ctx) => {
-  const m = /^(?:(you|target player|target opponent|each opponent|each player) )?mills? (a|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) cards?$/.exec(s);
+  const m = /^(?:(you|target player|target opponent|each opponent|each player|that player) )?mills? (a|one|two|three|four|five|six|seven|eight|nine|ten|\d+|x) cards?$/.exec(s);
   if (!m) return null;
   const amount = toAmount(m[2]);
   const who = refFor(m[1] ?? "you", ctx);

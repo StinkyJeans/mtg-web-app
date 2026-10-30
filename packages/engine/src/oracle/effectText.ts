@@ -49,7 +49,11 @@ export function parseClause(s: string, ctx: Ctx): Effect[] | null {
     const before = ctx.targets.length;
     const phrases = new Map(ctx.phrases);
     const left = parseClause(s.slice(0, then), ctx);
-    const right = left && (parseClause(s.slice(then + 7), ctx) ?? parseClause(`you ${s.slice(then + 7)}`, ctx));
+    // "Target player draws a card, then discards a card.": the second verb is that player's too, not the controller's.
+    const subject = /^(target player|target opponent|each opponent|each player) /.exec(s)?.[1];
+    const same = subject === "target player" || subject === "target opponent" ? "that player" : subject;
+    const rest = s.slice(then + 7);
+    const right = left && ((same ? parseClause(`${same} ${rest}`, ctx) : null) ?? parseClause(rest, ctx) ?? parseClause(`you ${rest}`, ctx));
     if (left && right) return [...left, ...right];
     ctx.targets.length = before;
     ctx.phrases = phrases;
@@ -219,6 +223,9 @@ export function parseModes(bullets: string[], allowSelf: boolean): ModeSpec[] | 
 export function parseEffectText(rawText: string, ctx: Ctx): Effect[] | null {
   // "You may discard a card. If you do, draw a card." is one effect: the draw depends on the discard.
   const text = rawText
+    // The older wording of a search: "..., reveal it, and put it into your hand. Then shuffle your library." says what "..., reveal it, put it into your hand, then shuffle" says.
+    .replace(/(reveal (?:it|that card)), and put /g, "$1, put ")
+    .replace(/[.,] then shuffle your library/g, ", then shuffle")
     .replace(/you may draw a card for each artifact you control\. if you do, each opponent draws a card/g, "@@armorwars@@")
     .replace(/(you may put an? [a-z]+ creature card with mana value \d+ or less from your hand onto the battlefield)\. if you don't, draw a card/g, "$1, else draw a card")
     .replace(/remove a -1\/-1 counter from target creature\. if you do, you gain (\d+) life/g, "@@removeminus $1@@")

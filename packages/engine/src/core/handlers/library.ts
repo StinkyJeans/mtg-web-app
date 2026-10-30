@@ -303,7 +303,7 @@ export const LIBRARY_EFFECTS = {
       reveal: effect.reveal,
     });
   },
-  search({ state, ctx, startPick }, effect) {
+  search({ state, ctx, events, startPick }, effect) {
     if (state.pendingPick) return;
     // "Its controller may search": usually the player of the effect, sometimes another one (Path to Exile).
     const searcher = effect.who ? ((subjectsOf(state, effect.who, ctx).find((s) => s.k === "player") as { k: "player"; id: PlayerId } | undefined)?.id ?? ctx.controller) : ctx.controller;
@@ -314,6 +314,7 @@ export const LIBRARY_EFFECTS = {
     const options = library.filter((c) => fits(getCard(state, c.defId)) && (any || (!seen.has(c.defId) && seen.add(c.defId)))).map((c) => c.iid);
     if (options.length === 0) {
       [state.players[searcher].library, state.rng] = shuffle(library, state.rng);
+      events.push({ type: "libraryShuffled", player: searcher });
       return;
     }
     const toHand = effect.to === "hand";

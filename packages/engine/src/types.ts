@@ -230,6 +230,8 @@ export interface PlayerState {
   yardCastable?: string[];
   /** "If a source you control would deal damage to an opponent this turn, it deals double that damage instead." */
   doubleDamage?: boolean;
+  /** Priority stops: the game waits for this player to pass (it does not pass for them) when they are attacked, when the opponent casts a spell, and when blockers have been declared, even with nothing to respond with. */
+  stops?: { attack?: boolean; spell?: boolean; block?: boolean };
   /** Permanents the player chose not to tap for mana: payments skip them. Only set around one action, and cleared as a turn begins. */
   spareMana?: string[];
   /** "Artifact spells you cast this turn cost {1} less": the discounts, cleared as the turn ends. */

@@ -158,6 +158,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
   private replay: Replay | null = null;
   private winner: PlayerId | "draw" | null = null;
   private endReason: string | null = null;
+  private revealed: { libraries: Record<PlayerId, string[]>; cards: Record<string, Pick<CardDef, "id" | "name" | "type" | "image" | "typeLine" | "manaCost" | "scryfallId">> } | null = null; // both libraries, once the game is over
   private rematchFrom: PlayerId | null = null; // asked for a rematch, and waiting for the other player's answer
   /** Best of 3 or 5 (null: a single game): the score, and who is ready for the next game. */
   private series: { bestOf: number; game: number; wins: Record<PlayerId, number>; decided: boolean; ready: Set<PlayerId> } | null = null;
@@ -364,6 +365,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       }
       client.send("room", this.snapshot(m));
       if (this.stage === "playing" || this.stage === "over") this.sendGame(m);
+      if (this.stage === "over" && this.revealed) client.send("reveal", this.revealed);
     },
 
     /** The host removes the guest, any time before the match starts. onLeave then frees the seat. */
@@ -843,6 +845,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       this.publish();
       return;
     }
+    this.revealed = null;
     this.stage = "playing";
     this.publish();
     for (const m of this.members) this.sendGame(m, true);
@@ -941,7 +944,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
   private applyFor(seat: PlayerId, action: Action, spare?: string[]) {
     const state = this.game!;
-    if (action.type !== "concede" && playerToAct(state) !== seat) return { ok: false as const, error: "It isn't your turn to act." };
+    if (action.type !== "concede" && action.type !== "setStops" && playerToAct(state) !== seat) return { ok: false as const, error: "It isn't your turn to act." };
     const held = spare && spare.length > 0 ? { ...state, players: { ...state.players, [seat]: { ...state.players[seat], spareMana: spare } } } : state;
     const r = applyAction(held, seat, action);
     if (r.ok) this.replay?.log.push({ p: seat, a: action, ...(spare && spare.length > 0 ? { s: spare } : {}) });
@@ -1001,6 +1004,17 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
         this.game = r.state;
         this.sendUpdate(r.events);
       }
+    }
+    // The libraries are turned face up for the players: what was left in them, and what would have been drawn next (the first card of each).
+    if (this.game) {
+      const libraries = { p1: this.game.players.p1.library.map((c) => c.defId), p2: this.game.players.p2.library.map((c) => c.defId) } as Record<PlayerId, string[]>;
+      const cards: NonNullable<MatchRoom["revealed"]>["cards"] = {};
+      for (const id of new Set([...libraries.p1, ...libraries.p2])) {
+        const d = this.game.cards[id];
+        if (d && id !== HIDDEN_CARD_ID) cards[id] = { id: d.id, name: d.name, type: d.type, ...(d.image ? { image: d.image } : {}), ...(d.typeLine ? { typeLine: d.typeLine } : {}), ...(d.manaCost ? { manaCost: d.manaCost } : {}), ...(d.scryfallId ? { scryfallId: d.scryfallId } : {}) };
+      }
+      this.revealed = { libraries, cards };
+      this.broadcast("reveal", this.revealed);
     }
     this.winner = winner;
     this.endReason = reason;

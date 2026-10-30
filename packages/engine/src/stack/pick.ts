@@ -410,7 +410,10 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
 
   if (iid === undefined) {
     if (!pick.optional) return "You have to choose a card.";
-    if (pick.kind === "searchLand" || pick.kind === "searchAny") [owner.library, state.rng] = shuffle(owner.library, state.rng);
+    if (pick.kind === "searchLand" || pick.kind === "searchAny") {
+      [owner.library, state.rng] = shuffle(owner.library, state.rng);
+      events.push({ type: "libraryShuffled", player: pick.owner });
+    }
     finish();
     return null;
   }
@@ -523,6 +526,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       owner.hand.push(found);
       events.push({ type: "effect", text: pick.reveal ? `${playerLabelOf(pick.owner)} searches their library, reveals ${getCard(state, found.defId).name} and puts it into their hand.` : `${playerLabelOf(pick.owner)} searches their library and puts a card into their hand.` });
       [owner.library, state.rng] = shuffle(owner.library, state.rng);
+      events.push({ type: "libraryShuffled", player: pick.owner });
       break;
     }
     case "searchLand": {
@@ -531,6 +535,7 @@ export function pickCard(state: GameState, player: PlayerId, iid: string | undef
       events.push({ type: "permanentEntered", player: pick.owner, iid });
       landEntered(state, pick.owner);
       [owner.library, state.rng] = shuffle(owner.library, state.rng);
+      events.push({ type: "libraryShuffled", player: pick.owner });
       state.pendingPick = null; // so the land can ask its own question as it enters
       askAsEnters(state, owner.battlefield[owner.battlefield.length - 1], pick.owner);
       break;

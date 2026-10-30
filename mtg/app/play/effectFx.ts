@@ -2,6 +2,7 @@ import { liteMode } from "./perfTier";
 import { powerOf, toughnessOf } from "@mtg/engine";
 import type { CardDef, GameEvent, GameState, Permanent, PlayerId, TargetChoice } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
+import { shuffleOnMat } from "./pileFx";
 
 // Animations for what spells, abilities and effects do. Everything is found from what the game reports (its events) and from
 // what changed between the old and the new board, so a new card needs nothing of its own. The markers it works with:
@@ -329,6 +330,12 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
   const jobs: (() => void)[] = []; // drawn after all the reading is done
   const add = (job: () => void) => jobs.length < maxPieces() && jobs.push(job);
   const hadCombat = events.some((e) => e.type === "combatDamage"); // the attack animation already shows combat hits and their numbers
+
+  // A card shuffled a library (a search, "then shuffle"): that library is riffle-shuffled on the table, as it is at the start of a match.
+  for (const e of events) {
+    if (e.type !== "libraryShuffled") continue;
+    jobs.push(() => void shuffleOnMat(e.player));
+  }
 
   // Damage and life: the numbers (combat hits are the attack animation's job).
   for (const e of events) {

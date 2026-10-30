@@ -6,7 +6,7 @@ import type { Room } from "@colyseus/sdk";
 import { createClient } from "@/lib/supabase/client";
 import { setPlayerNames } from "@/app/play/log";
 import { KICKED, MATCH_GONE } from "./protocol";
-import type { ChatLine, FriendStatus, Invite, LobbyRoomInfo, RoomSnapshot, StartPayload, UpdatePayload } from "./protocol";
+import type { ChatLine, FriendStatus, Invite, LobbyRoomInfo, RevealPayload, RoomSnapshot, StartPayload, UpdatePayload } from "./protocol";
 
 // The browser's one connection to the live game server: the lobby (the list of rooms) and, at most, one match room.
 // It lives outside React so it survives moving from the dashboard to the play screen.
@@ -18,6 +18,8 @@ export interface OnlineState {
   snapshot: RoomSnapshot | null;
   /** Set once the match has started. */
   game: StartPayload | null;
+  /** Both libraries, face up, once the game is over (null while it is on). */
+  reveal: RevealPayload | null;
   /** The last match room joined. Kept after leaving it, so the play screen is rebuilt only when a new match begins. */
   matchId: string | null;
   chat: ChatLine[];
@@ -43,7 +45,7 @@ export interface Notice {
   text: string;
 }
 
-const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, matchId: null, chat: [], error: null, creating: false, reconnecting: false, social: "off", friends: {}, notices: [], invites: [], cameOnline: {} };
+const empty: OnlineState = { lobby: "off", rooms: [], snapshot: null, game: null, reveal: null, matchId: null, chat: [], error: null, creating: false, reconnecting: false, social: "off", friends: {}, notices: [], invites: [], cameOnline: {} };
 let state: OnlineState = empty;
 const listeners = new Set<() => void>();
 const set = (patch: Partial<OnlineState>) => {
@@ -168,9 +170,10 @@ function attach(room: Room, spectating = false) {
     else if (!s.spectating && s.stage === "playing" && s.series && before > 0 && s.series.game > before && state.game) set({ snapshot: s, game: null });
     else set({ snapshot: s });
   });
+  room.onMessage("reveal", (r: RevealPayload) => set({ reveal: r }));
   room.onMessage("start", (g: StartPayload) => {
     setPlayerNames(g.names); // the account names are used from the very first frame
-    set({ game: g });
+    set({ game: g, reveal: null });
   });
   room.onMessage("update", (u: UpdatePayload) => {
     if (updateListeners.size === 0) queued.push(u);
@@ -191,7 +194,7 @@ function attach(room: Room, spectating = false) {
       return;
     }
     keep(null); // a deliberate leave: nothing to come back to
-    set({ snapshot: null, game: null, chat: [] });
+    set({ snapshot: null, game: null, reveal: null, chat: [] });
     if (code === KICKED) flash("The host removed you from this room.");
   });
   room.send("hello"); // handlers are ready: now ask where things stand
@@ -241,7 +244,7 @@ export function leaveRoom(): void {
   const room = matchRoom;
   matchRoom = null;
   setPlayerNames();
-  set({ snapshot: null, game: null, chat: [], reconnecting: false });
+  set({ snapshot: null, game: null, reveal: null, chat: [], reconnecting: false });
   void room?.leave(true);
 }
 
@@ -414,7 +417,7 @@ async function rejoin(roomId: string): Promise<void> {
   if (rejoinFor !== roomId) return;
   rejoinFor = null;
   keep(null);
-  set({ snapshot: null, game: null, chat: [], reconnecting: false });
+  set({ snapshot: null, game: null, reveal: null, chat: [], reconnecting: false });
   flash(ended ? "That match has ended." : "Lost the connection to the match.");
 }
 

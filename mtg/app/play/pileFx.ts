@@ -379,6 +379,47 @@ export async function riffleElement(src: HTMLElement, big = 1.25): Promise<void>
   }
 }
 
+const matShuffling = new Set<string>();
+
+/**
+ * A card shuffled a library during the game: the deck flies from its pile to the middle of that player's playmat, is riffle-shuffled there (the
+ * way the decks are at the start of a match), and flies home. Both players see it, each on the right player's mat.
+ */
+export async function shuffleOnMat(player: PlayerId): Promise<void> {
+  if (matShuffling.has(player)) return;
+  const pile = document.querySelector<HTMLElement>(`[data-pile="library-${player}"]`);
+  const src = pile?.querySelector<HTMLElement>("[data-sleeve-pile]") ?? pile;
+  const mat = document.querySelector<HTMLElement>(`[data-mat="${player}"]`);
+  if (!src) return;
+  const a = src.getBoundingClientRect();
+  if (!mat || !animationsEnabled() || a.width === 0) return riffleElement(src); // (nowhere to go: it shuffles where it is)
+  matShuffling.add(player);
+  const m = mat.getBoundingClientRect();
+  const h = Math.max(90, Math.min(m.height * 0.5, 190));
+  const w = (h * a.width) / a.height;
+  const left = m.left + m.width / 2 - w / 2;
+  const top = m.top + m.height / 2 - h / 2;
+  const deck = src.cloneNode(true) as HTMLElement;
+  deck.removeAttribute("data-sleeve-pile");
+  Object.assign(deck.style, { position: "fixed", left: `${a.left}px`, top: `${a.top}px`, width: `${a.width}px`, height: `${a.height}px`, margin: "0", zIndex: "74", pointerEvents: "none", transition: "none", transformOrigin: "0 0" });
+  document.body.appendChild(deck);
+  const before = src.style.visibility;
+  src.style.visibility = "hidden";
+  const to = `translate(${left - a.left}px, ${top - a.top}px) scale(${w / a.width}, ${h / a.height})`;
+  try {
+    await deck.animate([{ transform: "none" }, { transform: to }], { duration: 480, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" }).finished;
+    // the deck now sits on the mat at its new size: it is shuffled there
+    deck.getAnimations().forEach((x) => x.cancel());
+    Object.assign(deck.style, { left: `${left}px`, top: `${top}px`, width: `${w}px`, height: `${h}px`, transform: "none" });
+    await riffleElement(deck, 1.15);
+    await deck.animate([{ transform: "none" }, { transform: `translate(${a.left - left}px, ${a.top - top}px) scale(${a.width / w}, ${a.height / h})` }], { duration: 420, easing: "ease-in", fill: "forwards" }).finished;
+  } finally {
+    deck.remove();
+    src.style.visibility = before;
+    matShuffling.delete(player);
+  }
+}
+
 /** The opening hand (or a mulligan's new one): the cards are dealt from the library straight into the hand, one after another. */
 export async function playDeal(draws: Draw[], shuffleSound = true): Promise<void> {
   if (draws.length === 0) return releaseLibraryCounts();
