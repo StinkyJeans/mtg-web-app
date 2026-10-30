@@ -7,6 +7,7 @@ import type { DeckEntries } from "@/lib/decks";
 import CardView from "../play/CardView";
 import { useHoverZoom } from "../play/HoverZoom";
 import { CardSkeletons } from "../Skeleton";
+import { usePageKeys } from "@/lib/pageKeys";
 import { ManaSymbol } from "../play/ManaSymbols";
 import TypeButton from "../cards/TypeButton";
 import { useCardSearch } from "../cards/useCardSearch";
@@ -25,6 +26,7 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
   const { result, loading } = useCardSearch({ query, type, playableOnly: true, colors, page });
   const total = result?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / CARDS_PAGE_SIZE));
+  usePageKeys({ page, pages, setPage, enabled: !hidden }); // the arrow keys turn the page (while this list is the one on screen)
 
   // Any change to the search starts again from the first page.
   const refine = <T,>(set: (value: T) => void) => (value: T) => {

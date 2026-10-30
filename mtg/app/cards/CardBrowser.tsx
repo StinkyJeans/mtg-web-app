@@ -9,6 +9,7 @@ import { Lightbox } from "../play/CardDetail";
 import CardView from "../play/CardView";
 import { useHoverZoom } from "../play/HoverZoom";
 import { CardSkeletons } from "../Skeleton";
+import { usePageKeys } from "@/lib/pageKeys";
 import TypeButton from "./TypeButton";
 import { useCardSearch } from "./useCardSearch";
 
@@ -29,6 +30,7 @@ export default function CardBrowser() {
   const step = (by: number) => setZoomedIdx((i) => (i === null || shown.length === 0 ? null : (i + by + shown.length) % shown.length));
   const total = result?.total ?? 0;
   const pages = Math.max(1, Math.ceil(total / CARDS_PAGE_SIZE));
+  usePageKeys({ page, pages, setPage, enabled: zoomedIdx === null }); // the arrow keys turn the page
   const icon = { fill: "none", stroke: "currentColor", strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round", "aria-hidden": true } as const;
 
   return (
