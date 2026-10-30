@@ -46,7 +46,7 @@ export function PlayLines({ a, size = "text-[15px]" }: { a: Announcement; size?:
 export function WelcomeSplash() {
   return (
     <div role="status" aria-live="assertive" className="pointer-events-none fixed inset-x-0 top-[14dvh] z-30 flex justify-center px-4">
-      <div className="welcome-splash rounded-3xl border-2 border-amber-300/80 bg-slate-950/80 px-10 py-6 text-center shadow-2xl shadow-black/50 backdrop-blur-sm">
+      <div className="welcome-splash rounded-3xl border-2 border-amber-300/80 bg-slate-950/80 px-10 py-6 text-center shadow-2xl shadow-black/50">
         <div className="font-display text-xl font-bold uppercase tracking-[0.28em] text-slate-100 [text-shadow:0_2px_12px_rgba(0,0,0,0.7)] sm:text-2xl">Welcome to the Battle Field</div>
         <div className="mt-1 font-display text-5xl font-extrabold uppercase tracking-[0.12em] text-amber-300 [text-shadow:0_2px_16px_rgba(244,180,61,0.55)] sm:text-7xl">Now Duel!</div>
       </div>
@@ -58,7 +58,7 @@ export function WelcomeSplash() {
 export function TurnSplash() {
   return (
     <div role="status" aria-live="assertive" className="pointer-events-none fixed inset-x-0 top-[14dvh] z-30 flex justify-center px-4">
-      <div className={`${animationsEnabled() ? "turn-splash" : ""} rounded-3xl border-2 border-amber-300/80 bg-slate-950/75 px-10 py-5 text-center shadow-2xl shadow-black/50 backdrop-blur-sm`}>
+      <div className={`${animationsEnabled() ? "turn-splash" : ""} rounded-3xl border-2 border-amber-300/80 bg-slate-950/75 px-10 py-5 text-center shadow-2xl shadow-black/50`}>
         <div className="font-display text-5xl font-extrabold uppercase tracking-[0.2em] text-amber-300 [text-shadow:0_2px_12px_rgba(0,0,0,0.6)] sm:text-6xl">Your turn</div>
       </div>
     </div>
@@ -113,7 +113,7 @@ export function PassReminder({ state, after, opponent, onEndTurn }: { state: Gam
   return (
     <div role="status" aria-live="polite" className="pointer-events-none fixed inset-x-0 top-[14dvh] z-30 flex justify-center px-4">
       <div
-        className={`${animationsEnabled() ? "pass-reminder" : ""} pointer-events-auto flex flex-wrap items-center justify-center gap-3 rounded-2xl border-2 border-amber-300/80 bg-slate-950/85 px-5 py-3 text-[15px] font-semibold text-amber-100 shadow-2xl shadow-black/50 backdrop-blur-sm`}
+        className={`${animationsEnabled() ? "pass-reminder" : ""} pointer-events-auto flex flex-wrap items-center justify-center gap-3 rounded-2xl border-2 border-amber-300/80 bg-slate-950/85 px-5 py-3 text-[15px] font-semibold text-amber-100 shadow-2xl shadow-black/50`}
       >
         <span>⏰ Still your turn. {opponent} is waiting for you to pass it.</span>
         <button onClick={onEndTurn} className="rounded-xl bg-gradient-to-b from-amber-300 to-amber-500 px-4 py-1.5 text-sm font-extrabold text-black shadow-md shadow-amber-500/40 hover:-translate-y-0.5">

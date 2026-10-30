@@ -552,7 +552,7 @@ function AddFriends({
       aria-modal="true"
       aria-label="Add friends"
       onClick={onClose}
-      className="fixed inset-0 z-[60] flex items-start justify-center bg-black/55 p-4 pt-[14vh] backdrop-blur-sm"
+      className="fixed inset-0 z-[60] flex items-start justify-center bg-black/70 p-4 pt-[14vh]"
     >
       <div
         onClick={(e) => e.stopPropagation()}

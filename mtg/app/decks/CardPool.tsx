@@ -42,7 +42,7 @@ export default function CardPool({ hidden, entries, onAdd, onZoom }: { hidden: b
           value={query}
           onChange={(e) => refine(setQuery)(e.target.value)}
           placeholder="Search cards"
-          className="rounded-xl border border-white/25 bg-white/10 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-400 outline-none backdrop-blur focus:border-amber-300"
+          className="rounded-xl border border-white/25 bg-white/10 px-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-400 outline-none focus:border-amber-300"
         />
         {TYPES.map((t) => (
           <TypeButton key={t} type={t} active={type === t} onClick={() => refine(setType)(t)} />

@@ -30,8 +30,8 @@ export default function RoomPopup({ room }: { room: RoomSnapshot }) {
           : "You voted differently. Agree on one game mode to go on.";
 
   return (
-    <div role="dialog" aria-modal="true" aria-label={`Room ${room.name}`} className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="flex w-full max-w-xl flex-col gap-5 rounded-3xl border border-white/25 bg-slate-950/55 p-6 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 backdrop-blur-xl backdrop-saturate-150 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]">
+    <div role="dialog" aria-modal="true" aria-label={`Room ${room.name}`} className="fixed inset-0 z-40 flex items-center justify-center bg-black/50 p-4">
+      <div className="flex w-full max-w-xl flex-col gap-5 rounded-3xl border border-white/25 bg-slate-950/95 p-6 text-white shadow-2xl shadow-black/50 ring-1 ring-inset ring-white/10 [text-shadow:0_1px_3px_rgba(0,0,0,0.5)]">
         {/* the room's name and its host */}
         <header className="flex items-start gap-3">
           <div className="min-w-0 flex-1">

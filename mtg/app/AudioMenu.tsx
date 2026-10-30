@@ -116,7 +116,7 @@ export default function AudioMenu() {
       )}
 
       {open && (
-        <div role="dialog" aria-label="Music and sound" className="absolute right-0 top-full z-50 mt-2 flex w-80 flex-col gap-3 max-md:fixed max-md:inset-x-3 max-md:top-[3rem] max-md:mt-0 max-md:max-h-[calc(100dvh-4rem)] max-md:w-auto max-md:overflow-y-auto rounded-xl border border-white/20 bg-slate-900/95 p-3 text-slate-100 shadow-2xl backdrop-blur">
+        <div role="dialog" aria-label="Music and sound" className="absolute right-0 top-full z-50 mt-2 flex w-80 flex-col gap-3 max-md:fixed max-md:inset-x-3 max-md:top-[3rem] max-md:mt-0 max-md:max-h-[calc(100dvh-4rem)] max-md:w-auto max-md:overflow-y-auto rounded-xl border border-white/20 bg-slate-900/95 p-3 text-slate-100 shadow-2xl">
           <section className="flex flex-col gap-1.5">
             <h2 className={heading}>Music</h2>
             <div role="radiogroup" aria-label="Music" className="flex flex-col gap-1">
