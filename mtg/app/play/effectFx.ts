@@ -118,7 +118,7 @@ export function ring(b: Box, color: string, delay = 0, grow = 1) {
   void piece(
     { left: `${x - size / 2}px`, top: `${y - size / 2}px`, width: `${size}px`, height: `${size}px`, borderRadius: "50%", border: `3px solid ${color}` },
     null,
-    [{ transform: "scale(0.4)", opacity: 0.95 }, { transform: `scale(${1.9 * grow})`, opacity: 0 }],
+    [{ transform: "scale(0.4)", opacity: 0 }, { transform: "scale(0.4)", opacity: 0.95, offset: 0.001 }, { transform: `scale(${1.9 * grow})`, opacity: 0 }], // (not there at all until its delay is over)
     520,
     delay,
   );
@@ -257,49 +257,66 @@ function popIn(el: HTMLElement) {
 }
 
 /**
- * A card arrives on the battlefield, the way a creature is cast in Arena: it drops in big and settles, a streak of its colour sweeps
- * in from where it was played, and where it lands there is a flash and a ring.
+ * A card arrives on the battlefield by SLAMMING onto the playmat: it comes down from above, big and fast, hits the mat (it squashes for a
+ * moment and springs back), and where it lands there is a shock ring, a puff of dust, sparks in its color, and the whole mat gives a thud.
+ * A creature hits harder than a land. The card is what moves; the rest are short transform/opacity pieces, so it stays light.
  */
 function arrive(el: HTMLElement, b: Box, color: string, land = false) {
+  const IMPACT = 0.42; // as a fraction of the fall: where the card meets the mat
+  const MS = land ? 460 : 560;
+  const c = center(b);
   el.animate(
     [
-      { transform: "scale(1.5) rotate(-5deg)", opacity: 0 },
-      { transform: "scale(1.12) rotate(1deg)", opacity: 1, offset: 0.4, easing: "ease-in" },
-      { transform: "scale(0.95)", offset: 0.62, easing: "ease-out" },
-      { transform: "scale(1)", opacity: 1 },
+      { transform: "translateY(-46px) scale(2.1) rotate(-4deg)", opacity: 0, offset: 0, easing: "cubic-bezier(.55, 0, 1, .6)" }, // (accelerating: it is dropped, not carried)
+      { transform: "translateY(-14px) scale(1.5) rotate(-1.5deg)", opacity: 1, offset: IMPACT * 0.75, easing: "cubic-bezier(.55, 0, 1, .6)" },
+      { transform: "translateY(2px) scale(1.04, 0.93)", opacity: 1, offset: IMPACT, easing: "ease-out" }, // the hit: squashed flat
+      { transform: "translateY(-3px) scale(0.985, 1.025)", opacity: 1, offset: IMPACT + 0.2, easing: "ease-in-out" }, // springs back
+      { transform: "translateY(0) scale(1)", opacity: 1 },
     ],
-    { duration: 520, easing: "cubic-bezier(0.2, 0.7, 0.2, 1)" },
+    { duration: MS },
   );
-  const c = center(b);
-  // the comet: a short streak of light that flies in from where the card was played (a hand: the bottom of the screen for the player
-  // at the bottom, the top for the one at the top) and ends on the card
-  const fromBelow = c.y > window.innerHeight / 2;
-  const origin = { x: c.x + (window.innerWidth / 2 - c.x) * 0.25, y: fromBelow ? window.innerHeight + 30 : -30 }; // (mostly straight up from the hand, a little towards its middle)
-  const angle = Math.atan2(origin.y - c.y, origin.x - c.x);
-  const travel = Math.min(Math.hypot(origin.x - c.x, origin.y - c.y), 380);
-  const tail = 150;
-  const dir = `rotate(${angle}rad)`;
-  if (!land) void piece(
-    { left: `${c.x}px`, top: `${c.y - 4}px`, width: `${tail}px`, height: "8px", borderRadius: "6px", transformOrigin: "0 50%", background: `linear-gradient(90deg, #fff, ${color} 35%, rgba(255,255,255,0))` },
-    null,
-    [
-      { transform: `${dir} translateX(${travel}px)`, opacity: 0 },
-      { transform: `${dir} translateX(${travel * 0.7}px)`, opacity: 1, offset: 0.25 },
-      { transform: `${dir} translateX(0px)`, opacity: 1, offset: 0.85 },
-      { transform: `${dir} translateX(0px)`, opacity: 0 },
-    ],
-    420,
-    0,
-    "cubic-bezier(0.3, 0.1, 0.6, 1)",
-  );
-  // the landing: a hot flash and a ring, as the card comes down
+  const hit = Math.round(MS * IMPACT);
+  // the shadow it falls onto: it starts wide and faint, and tightens and darkens as the card comes down
   void piece(
-    { left: `${c.x - 70}px`, top: `${c.y - 70}px`, width: "140px", height: "140px", borderRadius: "50%", background: `radial-gradient(circle, rgba(255,255,255,0.9) 0%, ${color} 40%, transparent 70%)` },
+    { left: `${b.x - b.w * 0.15}px`, top: `${b.y + b.h * 0.55}px`, width: `${b.w * 1.3}px`, height: `${b.h * 0.5}px`, borderRadius: "50%", background: "radial-gradient(ellipse, rgba(0,0,0,.6) 0%, rgba(0,0,0,0) 70%)" },
     null,
-    [{ transform: "scale(0.2)", opacity: 0 }, { transform: "scale(0.5)", opacity: 0, offset: 0.35 }, { transform: "scale(1)", opacity: 0.85, offset: 0.55 }, { transform: "scale(1.7)", opacity: 0 }],
-    620,
+    [{ transform: "scale(1.7)", opacity: 0 }, { transform: "scale(0.95)", opacity: 0.9, offset: IMPACT }, { transform: "scale(1.15)", opacity: 0 }],
+    MS * 0.9,
   );
-  ring(b, color, 280, 1.5);
+  // the landing: a hot flash under the card, a ring that rolls out along the mat, and the dust and sparks it throws up
+  void piece(
+    { left: `${c.x - 80}px`, top: `${c.y - 80}px`, width: "160px", height: "160px", borderRadius: "50%", background: `radial-gradient(circle, rgba(255,255,255,0.85) 0%, ${color} 38%, transparent 70%)` },
+    null,
+    [{ transform: "scale(0.3)", opacity: 0 }, { transform: "scale(0.55)", opacity: 0.9, offset: 0.25 }, { transform: "scale(1.5)", opacity: 0 }],
+    420,
+    hit,
+  );
+  // the shock wave runs along the mat: a flattened ring
+  void piece(
+    { left: `${c.x - b.w / 2}px`, top: `${b.y + b.h - b.h * 0.28}px`, width: `${b.w}px`, height: `${b.h * 0.56}px`, borderRadius: "50%", border: `3px solid ${color}`, boxShadow: `0 0 14px ${color}` },
+    null,
+    [{ transform: "scale(0.6)", opacity: 0 }, { transform: "scale(0.6)", opacity: 0.95, offset: 0.001 }, { transform: `scale(${land ? 1.7 : 2.4})`, opacity: 0 }],
+    520,
+    hit,
+  );
+  ring(b, color, hit + 30, land ? 1.2 : 1.6);
+  if (!land) sparkBurst({ x: c.x, y: b.y + b.h * 0.85 }, color, 8, hit, 64);
+  // dust: two soft puffs thrown out to each side of the card's foot
+  for (const side of [-1, 1]) {
+    void piece(
+      { left: `${c.x + side * b.w * 0.45 - 14}px`, top: `${b.y + b.h * 0.85}px`, width: "28px", height: "20px", borderRadius: "50%", background: "radial-gradient(ellipse, rgba(226,232,240,.75), rgba(226,232,240,0) 70%)" },
+      null,
+      [{ transform: "translate(0, 0) scale(0.4)", opacity: 0 }, { transform: `translate(${side * 10}px, -4px) scale(1)`, opacity: 0.8, offset: 0.3 }, { transform: `translate(${side * b.w * 0.5}px, -14px) scale(2.2)`, opacity: 0 }],
+      520,
+      hit,
+    );
+  }
+  // the mat takes the blow: a short thud straight down and back (the same layer the combat shake uses)
+  const mat = document.querySelector<HTMLElement>("main > section");
+  if (mat) {
+    const d = land ? 2.5 : 5;
+    window.setTimeout(() => mat.animate([{ transform: "translateY(0)" }, { transform: `translateY(${d}px)`, offset: 0.25 }, { transform: `translateY(${-d * 0.4}px)`, offset: 0.55 }, { transform: "translateY(0)" }], { duration: 260, easing: "ease-out" }), scaled(hit));
+  }
 }
 
 /** A card turns over (a Marvel hero transforming). */
