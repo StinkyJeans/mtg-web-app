@@ -3,7 +3,7 @@ import { animationsEnabled, scaled } from "@/lib/motion";
 import { playSound } from "@/lib/sound";
 import { liteMode } from "./perfTier";
 import { canDo3D, reaper3D } from "./finisher3d";
-import { DRAGON_HEAD, playGreenVideo, VIDEO_H, VIDEO_W } from "./finisherVideo";
+import { DRAGON_SHEET, playGreenVideo, VIDEO_H, VIDEO_W } from "./finisherVideo";
 import type { Layer } from "./finisherVideo";
 
 /**
@@ -604,8 +604,11 @@ const TIP_ROW = 0.6;
 const BURST_END = 0.55;
 const BURST_ROW = 0.4;
 const BEAM_U: [number, number] = [0.44, 0.56];
-/** The cut-out head picture: its size (at the video's scale) and where the tip of its snout is in it. */
-const HEAD = { w: 693, h: 295, tipX: 346, tipY: 6 };
+/**
+ * The cut-out head: a sheet of pictures (public/.../dragon-head-sheet.json), played like a flip book at `fps` pictures a second. A picture is `w` x `h`
+ * pixels on the sheet, which is `scale` times the video's size; `tipX`, `tipY` is where the snout's tip is in a picture, in the video's own pixels.
+ */
+const HEAD = { cols: 6, frames: 72, fps: 12, sheetW: 3516, sheetH: 2652, w: 586, h: 221, scale: 0.72, tipX: 407, tipY: 13 };
 /** The rows of the frame whose beam is stretched to fill the distance between the two pieces: straight beam, nothing else in them. */
 const BEAM_ROWS: [number, number] = [0.46, 0.55];
 
@@ -671,19 +674,25 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
     const sDt = sD * body.s;
     const tipYt = tipY + (above ? 1 : -1) * body.dy; // (the head rises from, and sinks to, the side the winner is on)
     const wxt = wx + body.dx;
-    // the dragon is the cut-out picture of the head, not a piece of the video: the snout's tip is put at the point the head turns and swells about
-    const hw = HEAD.w * sDt;
-    const hh = HEAD.h * sDt;
-    const dragon: Layer = {
+    // The dragon is the cut-out head, played from its sheet like a flip book (two neighbouring pictures, one fading into the other, so that the head
+    // moves smoothly): its snout's tip is put at the point the head turns and swells about.
+    const hw = (HEAD.w / HEAD.scale) * sDt;
+    const hh = (HEAD.h / HEAD.scale) * sDt;
+    const pos = Math.min(HEAD.frames - 1, t * HEAD.fps);
+    const i0 = Math.floor(pos);
+    const frameLayer = (i: number, alpha: number): Layer => ({
       texture: "head",
-      src: [0, 0, 1, 1],
-      dest: [wxt - HEAD.tipX * sDt, above ? tipYt - HEAD.tipY * sDt : tipYt - (HEAD.h - HEAD.tipY) * sDt, hw, hh],
+      src: [((i % HEAD.cols) * HEAD.w) / HEAD.sheetW, (Math.floor(i / HEAD.cols) * HEAD.h) / HEAD.sheetH, (((i % HEAD.cols) + 1) * HEAD.w) / HEAD.sheetW, ((Math.floor(i / HEAD.cols) + 1) * HEAD.h) / HEAD.sheetH],
+      dest: [wxt - HEAD.tipX * sDt, above ? tipYt - HEAD.tipY * sDt : tipYt - (HEAD.h / HEAD.scale - HEAD.tipY) * sDt, hw, hh],
       flipY: !above,
       rot: above ? body.rot : -body.rot,
       pivot: [wxt, tipYt],
-      feather: above ? [0, 0.22, 0, 0] : [0.22, 0, 0, 0], // (the body goes on beyond the picture: it fades out at the bottom)
-      alpha: smooth(0, 0.25, t),
-    };
+      feather: above ? [0, 0.22, 0.04, 0.04] : [0.22, 0, 0.04, 0.04], // (the body goes on beyond the picture: it fades out at the bottom)
+      alpha,
+    });
+    const gain = smooth(0, 0.25, t);
+    const dragon = frameLayer(i0, gain);
+    const dragonNext = i0 + 1 < HEAD.frames ? frameLayer(i0 + 1, gain * (pos - i0)) : null;
     // the beam: from the burst's lower edge to the dragon's snout, a thin strip of the frame stretched along it, as wide at each end as the picture there is
     const burstEndY = burstY - dir * (BURST_END - BURST_ROW) * VIDEO_H * sB;
     // The beam runs a little way into each of the two pieces (and they fade over it), so no join shows: the beam is the same picture in all three.
@@ -703,7 +712,7 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
       feather: feather(grow < 1 ? 0.06 : 0.22, 0.12, 0.4),
       alpha: 1,
     };
-    return [burst, beam, dragon];
+    return dragonNext ? [burst, beam, dragon, dragonNext] : [burst, beam, dragon];
   };
 }
 
@@ -724,7 +733,7 @@ async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect)
   await playGreenVideo(root, {
     layers: dragonLayers(winner, loser, above),
     onReady: (s) => (shake = s),
-    images: { head: DRAGON_HEAD },
+    images: { head: DRAGON_SHEET },
     onTime: (t) => {
       // the beam hits at once; the burst grows over the next seconds, and its ring of fire goes out near the end
       if (step === 0 && t >= 0.35) {

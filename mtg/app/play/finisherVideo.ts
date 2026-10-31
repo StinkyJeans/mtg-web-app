@@ -13,8 +13,8 @@ export const DRAGON_VIDEO = "/finisher-animation/dragon-breath/dragon%20breath%2
 /** The video is 1264 x 720. */
 export const VIDEO_W = 1264;
 export const VIDEO_H = 720;
-/** The dragon's head, cut out of the video's first frame (scripts/cut-dragon-head.py): a picture of its own, with its own transparency, that we move. */
-export const DRAGON_HEAD = "/finisher-animation/dragon-breath/dragon-head.png";
+/** The dragon's head cut out of every other frame of the video (scripts/cut-dragon-head-frames.py), packed into one sheet: a picture of its own that moves like the video's head and has no flames around it. */
+export const DRAGON_SHEET = "/finisher-animation/dragon-breath/dragon-head-sheet.webp";
 
 /** One piece of the frame, put somewhere on the page. Coordinates are CSS pixels of the window; `src` is a part of the frame in 0..1 (u0, v0, u1, v1). */
 export interface Layer {
@@ -59,7 +59,7 @@ export function warmVideo(src = DRAGON_VIDEO): void {
   if (typeof document === "undefined" || warm) return;
   warm = makeVideo(src);
   warm.load();
-  new Image().src = DRAGON_HEAD; // (the head's picture is small: it is fetched with the video)
+  new Image().src = DRAGON_SHEET; // (the head's sheet is fetched with the video)
 }
 
 const VERT = `
