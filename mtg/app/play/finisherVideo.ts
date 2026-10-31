@@ -29,8 +29,8 @@ export interface Layer {
   alpha?: number;
   /** The width, as a part of the piece, of a column down its middle (a beam) that its top and bottom feathering does not touch, so the beam runs on through a join. */
   keepCenter?: number;
-  /** Drawn from a still picture of an early frame (taken about a quarter of a second in) instead of the playing video: the dragon's head does not need to move, and the later frames have wide flames around it. */
-  still?: boolean;
+  /** Keeps only a cone of the piece (its tip at row `v0` of the frame, `base` wide there as a part of the frame's width, widening by `slope` per row): the head without the flames that spread out at its sides. */
+  cone?: { v0: number; base: number; slope: number };
 }
 
 let warm: HTMLVideoElement | null = null;
@@ -82,7 +82,8 @@ const FRAG = `
   uniform sampler2D tex;
   uniform vec4 feather;   // top, bottom, left, right
   uniform float alpha;
-  uniform float keep;     // the width of the middle column the top and bottom feather leaves alone
+  uniform float keep;
+  uniform vec3 cone;      // tip row, width at the tip, widening per row (0 = no cone)     // the width of the middle column the top and bottom feather leaves alone
   float soft(float x, float f) { return f <= 0.0 ? 1.0 : smoothstep(0.0, f, x); }
   void main() {
     vec3 c = texture2D(tex, uv).rgb;
@@ -94,6 +95,10 @@ const FRAG = `
     fg.g = min(fg.g, max(fg.r, fg.b) * 0.97); // (a flame is never greener than it is red)
     float vert = soft(q.y, feather.x) * soft(1.0 - q.y, feather.y);
     vert = mix(vert, 1.0, keep > 0.0 ? 1.0 - smoothstep(keep * 0.5, keep, abs(q.x - 0.5)) : 0.0);
+    if (cone.z > 0.0) {
+      float hw = cone.y + max(uv.y - cone.x, 0.0) * cone.z;
+      a *= 1.0 - smoothstep(hw - 0.05, hw + 0.02, abs(uv.x - 0.5));
+    }
     a *= vert * soft(q.x, feather.z) * soft(1.0 - q.x, feather.w) * alpha;
     gl_FragColor = vec4(fg * a, a);
   }`;
@@ -165,18 +170,13 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     const u = (n: string) => gl.getUniformLocation(prog, n);
-    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha"), keep: u("keep") };
+    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha"), keep: u("keep"), cone: u("cone") };
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    const snap = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, snap);
-    for (const [k, val] of [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]] as const) gl.texParameteri(gl.TEXTURE_2D, k, val);
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    let snapped = false;
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.enable(gl.BLEND);
@@ -184,17 +184,10 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     gl.uniform2f(U.view, vw, vh);
 
     const draw = (layers: Layer[]) => {
-      if (!snapped && video.currentTime >= 0.25) {
-        gl.bindTexture(gl.TEXTURE_2D, snap);
-        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
-        snapped = true;
-      }
-      gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
       gl.clear(gl.COLOR_BUFFER_BIT);
       for (const l of layers) {
         if ((l.alpha ?? 1) <= 0.003) continue;
-        gl.bindTexture(gl.TEXTURE_2D, l.still && snapped ? snap : tex);
         gl.uniform4f(U.src, ...l.src);
         gl.uniform4f(U.dest, l.dest[0] - x0, l.dest[1] - y0, l.dest[2], l.dest[3]);
         const w = l.widths ?? [l.dest[2], l.dest[2]];
@@ -204,6 +197,7 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
         gl.uniform4f(U.feather, f[0], f[1], f[2], f[3]);
         gl.uniform1f(U.alpha, l.alpha ?? 1);
         gl.uniform1f(U.keep, l.keepCenter ?? 0);
+        gl.uniform3f(U.cone, l.cone?.v0 ?? 0, l.cone?.base ?? 0, l.cone?.slope ?? 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       }
     };
