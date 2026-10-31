@@ -2,6 +2,7 @@ import { useSyncExternalStore } from "react";
 import { playerToAct } from "@mtg/engine";
 import type { CardDef, GameState, PlayerId } from "@mtg/engine";
 import { animationsEnabled } from "@/lib/motion";
+import { liteMode } from "./perfTier";
 import { playSound } from "@/lib/sound";
 import { cardDetailImageUrl, cardImageUrl } from "@/lib/cards";
 import { sleeveOf } from "@/lib/playmat";
@@ -332,47 +333,64 @@ export async function untilBattlefieldShown(): Promise<void> {
 }
 
 /**
- * A stack of cards is riffle-shuffled in front of the player: it splits into two halves that drop back together one card at a time,
- * twice, and ends as one stack again. `src` is the picture of the stack (it is hidden while its copies do the shuffling).
- * Plays the shuffle sound. `big`: how much the stack grows while it is shuffled.
+ * A stack of cards is riffle-shuffled in front of the player. One continuous movement, start to finish (no pause between the steps):
+ * the stack is CUT in two halves that slide apart and tilt, the halves are RIFFLED together (the cards drop onto the stack one from each side in
+ * turn, each in a small arc), they are cut and riffled a second time, and the stack is SQUARED UP with a tap. `src` is the picture of the stack
+ * (it is hidden while its copies do the shuffling). Plays the shuffle sound twice. `big`: how much the stack grows while it is shuffled.
+ * Only transforms move (drawn by the graphics chip), and a weak computer gets fewer cards.
  */
 export async function riffleElement(src: HTMLElement, big = 1.25): Promise<void> {
   playSound("shuffle");
+  playSound("shuffle", 0.78); // (the second riffle)
   if (!animationsEnabled()) return;
   const r = src.getBoundingClientRect();
   if (r.width === 0) return;
-  const ghosts = Array.from({ length: 8 }, () => {
+  const count = liteMode() ? 8 : 14;
+  const TOTAL = 1800;
+  const ghosts = Array.from({ length: count }, (_, i) => {
     const g = src.cloneNode(true) as HTMLElement;
     g.removeAttribute("data-sleeve-pile");
-    Object.assign(g.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: "75", pointerEvents: "none", transition: "none", transform: "none" });
+    Object.assign(g.style, { position: "fixed", left: `${r.left}px`, top: `${r.top}px`, width: `${r.width}px`, height: `${r.height}px`, margin: "0", zIndex: String(75 + i), pointerEvents: "none", transition: "none", transform: "none", willChange: "transform", backfaceVisibility: "hidden" });
     document.body.appendChild(g);
     return g;
   });
   const before = src.style.visibility;
   src.style.visibility = "hidden";
+  const thick = 1.6; // how far each card sits above the one under it in the stack
+  const T = (x: number, y: number, rot = 0, sc = 1) => `translate3d(${x.toFixed(1)}px, ${y.toFixed(1)}px, 0) rotate(${rot.toFixed(2)}deg) scale(${sc.toFixed(3)})`;
   try {
-    for (let round = 0; round < 2; round++) {
-      await Promise.all(
-        ghosts.map((g, i) => {
-          const side = i % 2 === 0 ? -1 : 1; // even cards come from the left half, odd ones from the right: they interleave
-          const rest = "translate(0, 0) rotate(0deg) scale(1)";
-          const apart = `translate(${side * r.width * 0.55 * big}px, ${-r.height * 0.2}px) rotate(${side * 9}deg) scale(${big})`;
-          const together = `translate(0, ${-r.height * 0.2}px) rotate(0deg) scale(${big})`;
-          const hold = 0.35 + i * 0.045; // each card waits a little longer than the one before, then drops onto the stack
-          return g.animate(
-            [
-              { transform: round === 0 ? rest : together, offset: 0 }, // round 1 lifts out of the stack, round 2 ends back in it
-              { transform: apart, offset: 0.3 },
-              { transform: apart, offset: hold },
-              { transform: `translate(0, ${-r.height * 0.35}px) rotate(0deg) scale(${big})`, offset: hold + 0.13 },
-              { transform: together, offset: Math.min(hold + 0.25, 0.93) },
-              { transform: round === 1 ? rest : together, offset: 1 },
-            ],
-            { duration: 720, easing: "ease-in-out", fill: "forwards" },
-          ).finished;
-        }),
-      );
-    }
+    await Promise.all(
+      ghosts.map((g, i) => {
+        const side = i % 2 === 0 ? -1 : 1; // even cards are in the left half, odd ones in the right: they interleave
+        const k = Math.floor(i / 2); // its place in its half
+        const lift = r.height * 0.16;
+        const rest = T(0, -i * thick * 0.3);
+        const cut1 = T(side * r.width * 0.62 * big, -lift - k * 1.2, side * 8, big);
+        const cut2 = T(side * r.width * 0.5 * big, -lift * 0.8 - k * 1.0, side * 6, big);
+        const near = (n: number) => T(side * r.width * 0.2 * big, -lift * 1.7 - n * 2, side * 3, big * 1.02); // above the stack, about to drop
+        const landed = (n: number, wob: number) => T(wob, -r.height * 0.06 - n * thick, 0, big);
+        const wobble = ((i * 37) % 5) - 2; // each card lands a hair off centre: it looks shuffled, not stacked
+        // when each card lets go: the cards of both halves alternate, so the pile grows one from the left, one from the right
+        const d1 = 0.17 + (i / count) * 0.2;
+        const d2 = 0.6 + (i / count) * 0.19;
+        const frames: Keyframe[] = [
+          { transform: rest, offset: 0, easing: "cubic-bezier(0.25, 0.8, 0.3, 1)" },
+          { transform: cut1, offset: 0.12, easing: "ease-in-out" }, // cut: the halves slide apart
+          { transform: cut1, offset: Math.max(0.13, d1 - 0.045), easing: "cubic-bezier(0.3, 0, 0.5, 1)" },
+          { transform: near(i), offset: d1 - 0.015, easing: "cubic-bezier(0.5, 0, 0.9, 0.6)" }, // lifts a little, then drops
+          { transform: landed(i, wobble), offset: d1 + 0.045, easing: "ease-out" }, // riffle
+          { transform: landed(i, wobble * 0.5), offset: 0.5, easing: "cubic-bezier(0.3, 0.7, 0.3, 1)" },
+          { transform: cut2, offset: 0.585, easing: "ease-in-out" }, // second cut
+          { transform: cut2, offset: Math.max(0.59, d2 - 0.04), easing: "cubic-bezier(0.3, 0, 0.5, 1)" },
+          { transform: near(i), offset: Math.max(0.595, d2 - 0.012), easing: "cubic-bezier(0.5, 0, 0.9, 0.6)" },
+          { transform: landed(i, wobble * 0.6), offset: d2 + 0.04, easing: "ease-out" }, // second riffle
+          { transform: landed(i, 0), offset: 0.915, easing: "cubic-bezier(0.3, 0.7, 0.3, 1)" },
+          { transform: T(0, -r.height * 0.06 - i * thick * 0.4, 0, big * 1.05), offset: 0.945, easing: "ease-in-out" }, // squared up: a small tap
+          { transform: rest, offset: 1 },
+        ];
+        return g.animate(frames, { duration: TOTAL, fill: "forwards" }).finished;
+      }),
+    );
   } finally {
     ghosts.forEach((g) => g.remove());
     src.style.visibility = before;
@@ -406,15 +424,42 @@ export async function shuffleOnMat(player: PlayerId): Promise<void> {
   const before = src.style.visibility;
   src.style.visibility = "hidden";
   const to = `translate(${left - a.left}px, ${top - a.top}px) scale(${w / a.width}, ${h / a.height})`;
+  // a soft shadow on the mat under the deck (one flat shape that only fades: no blur to compute)
+  const shadow = document.createElement("div");
+  Object.assign(shadow.style, { position: "fixed", left: `${left - w * 0.35}px`, top: `${top + h * 0.72}px`, width: `${w * 1.7}px`, height: `${h * 0.4}px`, borderRadius: "50%", background: "radial-gradient(closest-side, rgba(0,0,0,0.55), rgba(0,0,0,0))", opacity: "0", zIndex: "73", pointerEvents: "none" });
+  document.body.appendChild(shadow);
   try {
-    await deck.animate([{ transform: "none" }, { transform: to }], { duration: 480, easing: "cubic-bezier(0.2, 0.8, 0.2, 1)", fill: "forwards" }).finished;
+    // the deck is lifted off its pile, travels in an arc and settles on the mat
+    const midX = (left - a.left) * 0.5;
+    const midY = (top - a.top) * 0.5 - Math.min(70, m.height * 0.2);
+    const midScale = 1 + ((w / a.width) - 1) * 0.55;
+    const out = deck.animate(
+      [
+        { transform: "none", offset: 0 },
+        { transform: `translate(${midX}px, ${midY}px) scale(${midScale * 1.06}, ${(1 + ((h / a.height) - 1) * 0.55) * 1.06})`, offset: 0.55 },
+        { transform: to, offset: 1 },
+      ],
+      { duration: 560, easing: "cubic-bezier(0.3, 0.1, 0.2, 1)", fill: "forwards" },
+    );
+    shadow.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 560, easing: "ease-out", fill: "forwards" });
+    await out.finished;
     // the deck now sits on the mat at its new size: it is shuffled there
     deck.getAnimations().forEach((x) => x.cancel());
     Object.assign(deck.style, { left: `${left}px`, top: `${top}px`, width: `${w}px`, height: `${h}px`, transform: "none" });
     await riffleElement(deck, 1.15);
-    await deck.animate([{ transform: "none" }, { transform: `translate(${a.left - left}px, ${a.top - top}px) scale(${a.width / w}, ${a.height / h})` }], { duration: 420, easing: "ease-in", fill: "forwards" }).finished;
+    const home = `translate(${a.left - left}px, ${a.top - top}px) scale(${a.width / w}, ${a.height / h})`;
+    shadow.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 480, easing: "ease-in", fill: "forwards" });
+    await deck.animate(
+      [
+        { transform: "none", offset: 0 },
+        { transform: `translate(${(a.left - left) * 0.5}px, ${(a.top - top) * 0.5 - Math.min(60, m.height * 0.16)}px) scale(${1 + ((a.width / w) - 1) * 0.5})`, offset: 0.5 },
+        { transform: home, offset: 1 },
+      ],
+      { duration: 480, easing: "cubic-bezier(0.4, 0, 0.3, 1)", fill: "forwards" },
+    ).finished;
   } finally {
     deck.remove();
+    shadow.remove();
     src.style.visibility = before;
     matShuffling.delete(player);
   }
