@@ -608,7 +608,7 @@ const BEAM_U: [number, number] = [0.44, 0.56];
  * The cut-out head: a sheet of pictures (public/.../dragon-head-sheet.json), played like a flip book at `fps` pictures a second. A picture is `w` x `h`
  * pixels on the sheet, which is `scale` times the video's size; `tipX`, `tipY` is where the snout's tip is in a picture, in the video's own pixels.
  */
-const HEAD = { cols: 6, frames: 72, fps: 12, sheetW: 3516, sheetH: 2652, w: 586, h: 221, scale: 0.72, tipX: 407, tipY: 13 };
+const HEAD = { cols: 6, frames: 72, fps: 12, sheetW: 3510, sheetH: 2640, w: 585, h: 220, scale: 0.72, tipX: 406, tipY: 12 };
 /** The rows of the frame whose beam is stretched to fill the distance between the two pieces: straight beam, nothing else in them. */
 const BEAM_ROWS: [number, number] = [0.46, 0.55];
 
@@ -639,6 +639,8 @@ function dragonBody(t: number, dH: number) {
   const kick = (t0: number, power: number) => (t >= t0 ? Math.exp(-(t - t0) * 7) * Math.cos((t - t0) * 38) * power : 0); // a shock, then it rings out
   const shock = kick(0.35, 9) + kick(1.7, 7) + kick(3.5, 12);
   return {
+    shock,
+    firing,
     dx: Math.sin(t * 87) * 1.7 * firing + Math.sin(t * 53 + 1) * 1.1 * firing,
     dy: (1 - arrive) * dH * 1.15 + sink * dH * 0.55 + Math.sin(t * 61) * 1.4 * firing + shock,
     s: 1 + 0.014 * Math.sin(t * 5.2) + 0.02 * firing * Math.sin(t * 9) + (1 - arrive) * -0.1,
@@ -691,8 +693,20 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
       alpha,
     });
     const gain = smooth(0, 0.25, t);
-    const dragon = frameLayer(i0, gain);
-    const dragonNext = i0 + 1 < HEAD.frames ? frameLayer(i0 + 1, gain * (pos - i0)) : null;
+    // the lava on the head glows brighter as it breathes fire, and flashes with each shock
+    const heat = 1 + 0.1 * body.firing * (0.5 + 0.5 * Math.sin(t * 9)) + Math.min(0.3, Math.abs(body.shock) * 0.03);
+    const dragon = { ...frameLayer(i0, gain), brightness: heat };
+    const dragonNext = i0 + 1 < HEAD.frames ? { ...frameLayer(i0 + 1, gain * (pos - i0)), brightness: heat } : null;
+    // light: a soft shadow under the head (so that it sits on the table and not on the glass), a glow of its heat behind it, a flare at the snout where the
+    // fire starts, and a glow where the burst lands (which is also what lights the table around it)
+    const cx = wxt;
+    const cy = tipYt + (above ? 1 : -1) * hh * 0.5;
+    const light = (x: number, y: number, size: number, tint: [number, number, number], alpha: number, additive = true): Layer => ({ texture: "glow", src: [0, 0, 1, 1], dest: [x - size / 2, y - size / 2, size, size], tint, additive, alpha });
+    const pulse = 0.5 + 0.5 * Math.sin(t * 11);
+    const shadow = light(cx, cy + (above ? 1 : -1) * hh * 0.18, hw * 1.7, [0, 0, 0], 0.5 * gain, false);
+    const glowBehind = light(cx, cy, hw * 1.5, [1, 0.38, 0.06], (0.22 + 0.2 * body.firing * (0.7 + 0.3 * pulse)) * gain);
+    const flare = light(wxt, tipYt, hw * (0.3 + 0.08 * pulse), [1, 0.85, 0.5], 0.85 * body.firing * gain);
+    const bloom = light(lx, burstY, VIDEO_W * sB * (1.5 + 0.12 * pulse), [1, 0.48, 0.1], 0.5 * smooth(0.3, 0.9, t) * (0.8 + 0.2 * pulse));
     // the beam: from the burst's lower edge to the dragon's snout, a thin strip of the frame stretched along it, as wide at each end as the picture there is
     const burstEndY = burstY - dir * (BURST_END - BURST_ROW) * VIDEO_H * sB;
     // The beam runs a little way into each of the two pieces (and they fade over it), so no join shows: the beam is the same picture in all three.
@@ -712,7 +726,10 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
       feather: feather(grow < 1 ? 0.06 : 0.22, 0.12, 0.4),
       alpha: 1,
     };
-    return dragonNext ? [burst, beam, dragon, dragonNext] : [burst, beam, dragon];
+    const pieces = [shadow, glowBehind, burst, bloom, beam, dragon];
+    if (dragonNext) pieces.push(dragonNext);
+    pieces.push(flare);
+    return pieces;
   };
 }
 

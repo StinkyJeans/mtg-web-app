@@ -38,6 +38,12 @@ export interface Layer {
   pivot?: [number, number];
   /** Drawn from one of the pictures given to `playGreenVideo` (by its name) instead of from the video: it already has its transparency. */
   texture?: string;
+  /** The piece is light (it adds to what is under it, like a glow) instead of covering it. */
+  additive?: boolean;
+  /** Colours the piece (multiplied in); with the built-in texture "glow" (a soft round light) it makes a glow of that colour. */
+  tint?: [number, number, number];
+  /** Makes the piece brighter (1 = as it is). */
+  brightness?: number;
 }
 
 let warm: HTMLVideoElement | null = null;
@@ -95,7 +101,10 @@ const FRAG = `
   uniform vec4 feather;   // top, bottom, left, right
   uniform float alpha;
   uniform float keep;
-  uniform float isImage;  // 1: a picture with its own transparency, not the green screen
+  uniform float isImage;
+  uniform vec3 tint;
+  uniform float bright;
+  uniform float additive;  // 1: a picture with its own transparency, not the green screen
   uniform vec3 cone;      // tip row, width at the tip, widening per row (0 = no cone)     // the width of the middle column the top and bottom feather leaves alone
   float soft(float x, float f) { return f <= 0.0 ? 1.0 : smoothstep(0.0, f, x); }
   void main() {
@@ -119,7 +128,8 @@ const FRAG = `
       a *= 1.0 - smoothstep(hw - 0.05, hw + 0.02, abs(uv.x - 0.5));
     }
     a *= vert * soft(q.x, feather.z) * soft(1.0 - q.x, feather.w) * alpha;
-    gl_FragColor = vec4(fg * a, a);
+    fg = fg * tint * bright;
+    gl_FragColor = vec4(fg * a, additive > 0.5 ? 0.0 : a);
   }`;
 
 export interface VideoPlay {
@@ -200,7 +210,7 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     const u = (n: string) => gl.getUniformLocation(prog, n);
-    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha"), keep: u("keep"), cone: u("cone"), isImage: u("isImage"), rot: u("rot"), pivot: u("pivot") };
+    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha"), keep: u("keep"), cone: u("cone"), isImage: u("isImage"), tint: u("tint"), bright: u("bright"), additive: u("additive"), rot: u("rot"), pivot: u("pivot") };
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -215,6 +225,22 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
       textures.set(name, t);
     }
+    // a soft round light (white, fading to nothing at its edge), for the glows: coloured and sized by each piece that uses it
+    const lightPic = document.createElement("canvas");
+    lightPic.width = lightPic.height = 128;
+    const lc = lightPic.getContext("2d")!;
+    const rg = lc.createRadialGradient(64, 64, 0, 64, 64, 64);
+    rg.addColorStop(0, "rgba(255,255,255,1)");
+    rg.addColorStop(0.25, "rgba(255,255,255,.62)");
+    rg.addColorStop(0.6, "rgba(255,255,255,.16)");
+    rg.addColorStop(1, "rgba(255,255,255,0)");
+    lc.fillStyle = rg;
+    lc.fillRect(0, 0, 128, 128);
+    const light = gl.createTexture()!;
+    gl.bindTexture(gl.TEXTURE_2D, light);
+    for (const [k, val] of [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]] as const) gl.texParameteri(gl.TEXTURE_2D, k, val);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, lightPic);
+    textures.set("glow", light);
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
@@ -231,6 +257,9 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
         const own = l.texture ? textures.get(l.texture) : undefined;
         gl.bindTexture(gl.TEXTURE_2D, own ?? tex);
         gl.uniform1f(U.isImage, own ? 1 : 0);
+        gl.uniform3f(U.tint, l.tint?.[0] ?? 1, l.tint?.[1] ?? 1, l.tint?.[2] ?? 1);
+        gl.uniform1f(U.bright, l.brightness ?? 1);
+        gl.uniform1f(U.additive, l.additive ? 1 : 0);
         gl.uniform4f(U.src, ...l.src);
         gl.uniform4f(U.dest, l.dest[0] - x0, l.dest[1] - y0, l.dest[2], l.dest[3]);
         const w = l.widths ?? [l.dest[2], l.dest[2]];

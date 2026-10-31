@@ -91,7 +91,8 @@ for i in range(LO + 2, HI - 1):
 
 for i, keep in enumerate(masks):
     a = arrays[i]
-    mask = ndi.gaussian_filter(keep.astype(np.float32), 0.9)
+    keep = ndi.binary_erosion(keep, structure=np.ones((3, 3)))  # (a pixel in: the bright halo that sat on the edge goes)
+    mask = ndi.gaussian_filter(keep.astype(np.float32), 0.8)
     rgba = np.zeros_like(a)
     rgba[..., :3] = a[..., :3]
     rgba[..., 3] = np.clip(mask * np.clip(a[..., 3], 0, 1), 0, 1)
