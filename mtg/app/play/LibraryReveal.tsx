@@ -1,18 +1,17 @@
 "use client";
 
-import { useState } from "react";
-import type { PlayerId } from "@mtg/engine";
+import type { CardDef } from "@mtg/engine";
 import { cardImageUrl } from "@/lib/cards";
 import type { RevealPayload } from "@/lib/online/protocol";
-import { playerName } from "./log";
+import { useHoverZoom } from "./HoverZoom";
 
 type Card = RevealPayload["cards"][string];
 
-function Face({ card, className }: { card: Card | undefined; className: string }) {
+function Face({ card, className, zoom }: { card: Card | undefined; className: string; zoom: ReturnType<typeof useHoverZoom> }) {
   const url = card?.image ? cardImageUrl(card.image) : null;
   return (
     <div
-      title={card?.name}
+      {...(card ? zoom.on(card as unknown as CardDef) : {})}
       className={`relative shrink-0 overflow-hidden rounded-md border border-zinc-600 bg-slate-800 bg-cover bg-center ${className}`}
       style={url ? { backgroundImage: `url(${url})` } : undefined}
     >
@@ -22,46 +21,40 @@ function Face({ card, className }: { card: Card | undefined; className: string }
 }
 
 /**
- * The game is over: both libraries are turned face up, so a player can see what was left in theirs, which card they would have drawn next, and
- * what the opponent's deck still held. Shown before the Victory / Defeat screen.
+ * The game is over: the player's OWN library is turned face up, so they can see what was left in it and which card they would have drawn next.
+ * (The opponent's library is not sent to them, so it cannot be shown.) Hovering (or holding, on a phone) a card shows it big. Shown before the
+ * Victory / Defeat screen.
  */
-export default function LibraryReveal({ reveal, you, onContinue }: { reveal: RevealPayload; you: PlayerId; onContinue: () => void }) {
-  const [who, setWho] = useState<PlayerId>(you);
-  const ids = reveal.libraries[who];
+export default function LibraryReveal({ reveal, onContinue }: { reveal: RevealPayload; onContinue: () => void }) {
+  const zoom = useHoverZoom();
+  const ids = reveal.library;
   const next = ids[0] ? reveal.cards[ids[0]] : undefined;
-  const mine = who === you;
   return (
-    <div role="dialog" aria-modal="true" aria-label="The libraries" className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-3">
+    <div role="dialog" aria-modal="true" aria-label="Your library" className="fixed inset-0 z-[70] flex items-center justify-center bg-black/80 p-3">
       <div className="flex max-h-[92dvh] w-full max-w-4xl flex-col gap-3 overflow-hidden rounded-2xl border border-white/25 p-4 text-white shadow-2xl" style={{ background: "#0b1020" }}>
         <header className="flex flex-wrap items-center gap-3">
-          <h2 className="font-display text-xl font-extrabold tracking-wide">The libraries</h2>
-          <div className="flex gap-1 rounded-full border border-white/20 bg-white/5 p-0.5" role="tablist">
-            {([you, you === "p1" ? "p2" : "p1"] as PlayerId[]).map((p) => (
-              <button key={p} role="tab" aria-selected={who === p} onClick={() => setWho(p)} className={`min-h-9 rounded-full px-4 text-sm font-bold ${who === p ? "bg-amber-400 text-black" : "text-slate-200"}`}>
-                {p === you ? "Your library" : `${playerName(p)}'s library`} ({reveal.libraries[p].length})
-              </button>
-            ))}
-          </div>
+          <h2 className="font-display text-xl font-extrabold tracking-wide">Your library</h2>
+          <span className="rounded-full border border-white/20 bg-white/5 px-3 py-1 text-sm font-bold">{ids.length} cards left</span>
         </header>
 
         {ids.length === 0 ? (
-          <p className="rounded-xl border border-white/15 bg-white/5 px-4 py-6 text-center text-lg">{mine ? "Your library was empty." : `${playerName(who)}'s library was empty.`}</p>
+          <p className="rounded-xl border border-white/15 bg-white/5 px-4 py-6 text-center text-lg">Your library was empty.</p>
         ) : (
           <>
             <div className="flex items-center gap-4 rounded-xl border border-amber-300/50 bg-amber-400/10 p-3">
-              <Face card={next} className="h-36 w-[6.3rem] ring-2 ring-amber-300" />
+              <Face card={next} zoom={zoom} className="h-36 w-[6.3rem] ring-2 ring-amber-300" />
               <div className="min-w-0">
-                <p className="text-xs font-extrabold uppercase tracking-widest" style={{ color: "#fde68a" }}>{mine ? "You would have drawn next" : "They would have drawn next"}</p>
+                <p className="text-xs font-extrabold uppercase tracking-widest" style={{ color: "#fde68a" }}>You would have drawn next</p>
                 <p className="text-xl font-extrabold">{next?.name ?? "?"}</p>
                 {next?.typeLine && <p className="text-sm text-slate-300">{next.typeLine}</p>}
               </div>
             </div>
-            <p className="text-sm text-slate-300">The rest of the library, in the order it would have been drawn (top first):</p>
+            <p className="text-sm text-slate-300">The rest of the library, in the order it would have been drawn (top first). Hover a card to see it big.</p>
             <ol className="flex min-h-0 flex-1 flex-wrap content-start gap-1.5 overflow-y-auto pr-1">
               {ids.map((id, i) => (
                 <li key={`${id}-${i}`} className="relative">
-                  <Face card={reveal.cards[id]} className="h-[5.6rem] w-[4rem]" />
-                  <span className="absolute left-0.5 top-0.5 rounded bg-black/75 px-1 text-[10px] font-bold">{i + 1}</span>
+                  <Face card={reveal.cards[id]} zoom={zoom} className="h-[5.6rem] w-[4rem]" />
+                  <span className="pointer-events-none absolute left-0.5 top-0.5 rounded bg-black/75 px-1 text-[10px] font-bold">{i + 1}</span>
                 </li>
               ))}
             </ol>
@@ -72,6 +65,7 @@ export default function LibraryReveal({ reveal, you, onContinue }: { reveal: Rev
           Continue
         </button>
       </div>
+      {zoom.node}
     </div>
   );
 }

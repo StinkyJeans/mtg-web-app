@@ -1235,7 +1235,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
       )}
 
       {state.winner && endShown && online && !watching && net.reveal && seenReveal !== net.reveal && (
-        <LibraryReveal reveal={net.reveal} you={actor} onContinue={() => setSeenReveal(net.reveal)} />
+        <LibraryReveal reveal={net.reveal} onContinue={() => setSeenReveal(net.reveal)} />
       )}
       {state.winner && endShown && !(online && !watching && net.reveal && seenReveal !== net.reveal) && <VictoryDialog
           winner={state.winner}

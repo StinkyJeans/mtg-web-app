@@ -365,7 +365,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
       }
       client.send("room", this.snapshot(m));
       if (this.stage === "playing" || this.stage === "over") this.sendGame(m);
-      if (this.stage === "over" && this.revealed) client.send("reveal", this.revealed);
+      if (this.stage === "over" && this.revealed) client.send("reveal", this.revealFor(m.seat));
     },
 
     /** The host removes the guest, any time before the match starts. onLeave then frees the seat. */
@@ -824,6 +824,15 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     }
   }
 
+  /** What a player is shown when the game ends: their own library, top card first, and only the card details that library needs. */
+  private revealFor(seat: PlayerId) {
+    const all = this.revealed!;
+    const library = all.libraries[seat];
+    const cards: typeof all.cards = {};
+    for (const id of new Set(library)) if (all.cards[id]) cards[id] = all.cards[id];
+    return { library, cards };
+  }
+
   private async startGame(first: PlayerId) {
     const [a, b] = [this.members.find((x) => x.seat === "p1")!, this.members.find((x) => x.seat === "p2")!];
     this.deckNames = { p1: a.deck!.name, p2: b.deck!.name };
@@ -1014,7 +1023,8 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
         if (d && id !== HIDDEN_CARD_ID) cards[id] = { id: d.id, name: d.name, type: d.type, ...(d.image ? { image: d.image } : {}), ...(d.typeLine ? { typeLine: d.typeLine } : {}), ...(d.manaCost ? { manaCost: d.manaCost } : {}), ...(d.scryfallId ? { scryfallId: d.scryfallId } : {}) };
       }
       this.revealed = { libraries, cards };
-      this.broadcast("reveal", this.revealed);
+      // Each player is sent ONLY their own library: the opponent's stays hidden.
+      for (const m of this.members) this.clientOf(m)?.send("reveal", this.revealFor(m.seat));
     }
     this.winner = winner;
     this.endReason = reason;

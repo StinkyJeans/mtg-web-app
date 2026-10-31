@@ -39,7 +39,7 @@ function ZoomLayer({ store }: { store: ReturnType<typeof makeStore> }) {
   // if the card under the mouse was removed (a new page of cards), no mouse-leave arrives: nothing is shown then
   if (!hover || !hover.el.isConnected) return null;
   return createPortal(
-    <div className="pointer-events-none fixed z-[48] overflow-hidden rounded-2xl shadow-2xl ring-4 ring-white/80" style={{ left: hover.left, top: hover.top, width: ZOOM_W }}>
+    <div className="pointer-events-none fixed z-[95] overflow-hidden rounded-2xl shadow-2xl ring-4 ring-white/80" style={{ left: hover.left, top: hover.top, width: ZOOM_W }}>
       <CardImage def={hover.def} size="normal" className="block w-full" fallback={<div className="bg-slate-800 p-4 text-sm text-white">{hover.def.name}</div>} />
     </div>,
     document.body,

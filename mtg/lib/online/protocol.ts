@@ -57,9 +57,9 @@ export interface RoomSnapshot {
   spectating?: boolean;
 }
 
-/** After the game: both libraries, top card first, with what is needed to draw them. */
+/** After the game: this player's own library, top card first, with what is needed to draw it. (The opponent's is never sent.) */
 export interface RevealPayload {
-  libraries: Record<PlayerId, string[]>;
+  library: string[];
   cards: Record<string, { id: string; name: string; type: string; image?: string; typeLine?: string; manaCost?: string; scryfallId?: string }>;
 }
 
