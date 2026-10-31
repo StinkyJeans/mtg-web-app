@@ -120,10 +120,32 @@ export const myLook = {
   write: (kind: "sleeve" | "mat", value: string) => write(mineKey(kind), value),
 };
 
+/** The finishing move: what plays on the loser's mat when this player wins. "random" is settled (dragon or reaper) each time it is sent. */
+export type FinisherPref = "random" | "dragon" | "reaper" | "off";
+export const FINISHERS: { id: FinisherPref; name: string; note: string }[] = [
+  { id: "random", name: "Surprise me", note: "A different finisher each match" },
+  { id: "dragon", name: "Dragon", note: "A dragon breathes fire over their mat" },
+  { id: "reaper", name: "Grim Reaper", note: "A scythe cuts their mat and the world warps" },
+  { id: "off", name: "None", note: "No finishing animation" },
+];
+export const myFinisher = {
+  read: (): FinisherPref => {
+    const v = read("mtg-finisher-me");
+    return FINISHERS.some((f) => f.id === v) ? (v as FinisherPref) : "random";
+  },
+  write: (v: FinisherPref) => write("mtg-finisher-me", v),
+};
+/** What is sent to the server: "dragon", "reaper" or "" (a random pick is made now). */
+export function finisherToSend(pref: FinisherPref): "dragon" | "reaper" | "" {
+  if (pref === "off") return "";
+  if (pref === "random") return Math.random() < 0.5 ? "dragon" : "reaper";
+  return pref;
+}
+
 /** A random preset, for dressing the computer's table. */
-export function randomLook(): { sleeve: string; mat: string } {
+export function randomLook(): { sleeve: string; mat: string; finisher: string } {
   const pick = (list: Look[]) => `preset:${list[Math.floor(Math.random() * list.length)].id}`;
-  return { sleeve: pick(SLEEVES), mat: pick(MATS) };
+  return { sleeve: pick(SLEEVES), mat: pick(MATS), finisher: finisherToSend("random") };
 }
 
 /** Shrinks a picture to `maxWidth` pixels wide and returns it as a JPEG data URL, so it fits in browser storage. */

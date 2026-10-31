@@ -13,6 +13,8 @@ export const MATCH_GONE = 410;
 export interface Look {
   sleeve: string;
   mat: string;
+  /** The finishing move played on the loser's mat when this player wins: "dragon", "reaper" or "" (none). */
+  finisher?: string;
 }
 
 /** What a room looks like to the lobby list. */
