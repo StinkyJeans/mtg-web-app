@@ -2,7 +2,8 @@ import type { PlayerId } from "@mtg/engine";
 import { animationsEnabled, scaled } from "@/lib/motion";
 import { playSound } from "@/lib/sound";
 import { liteMode } from "./perfTier";
-import { canDo3D, dragon3D, reaper3D } from "./finisher3d";
+import { canDo3D, reaper3D } from "./finisher3d";
+import { playGreenVideo } from "./finisherVideo";
 
 /**
  * The finishing move: when a game is won, the winner's finisher plays on the loser's playmat, then the result comes up.
@@ -563,23 +564,51 @@ async function reaperFlat(root: HTMLElement, winner: Rect, loser: Rect): Promise
   void dist;
 }
 
-/** The dragon, in 3D: a dark veil over the table, the model rearing over the winner's mat, and its breath setting the loser's mat on fire. */
-async function dragon3dFinisher(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
+/**
+ * The dragon: a video of a dragon breathing a beam of fire that bursts (shot on a green screen, played silently with the green made see-through).
+ * It is placed so that the dragon's head is over the winner's mat and the burst is over the loser's, and flipped when the loser is below the winner.
+ */
+async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
   const lite = liteMode();
-  const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 60%, rgba(40,6,6,.2), rgba(0,0,0,.68))", opacity: "0" });
+  const vh = window.innerHeight;
+  const W = centerOf(winner);
+  const L = centerOf(loser);
+  const above = L.y < W.y; // the loser's mat is above the winner's
+  // In the picture the head's tip is 60% of the way down and the burst is 40% down: 20% of the picture's height apart. That distance is made the
+  // distance between the winner's mat and the loser's, so the picture is as big as it needs to be (but never smaller than the window).
+  const headY = above ? winner.top + winner.height * 0.15 : winner.top + winner.height * 0.85;
+  const gap = Math.abs(headY - L.y);
+  const height = Math.max(vh * 0.95, Math.min(gap / 0.2, vh * 1.4));
+  const top = above ? L.y - 0.4 * height : L.y - 0.6 * height;
+  const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 55%, rgba(40,6,6,.15), rgba(0,0,0,.62))", opacity: "0" });
   veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, fill: "forwards" });
   const run: Promise<unknown>[] = [];
-  const BREATH_S = 1.7;
   let burning: Promise<void> = Promise.resolve();
+  let step = 0;
   playSound("charge");
-  await dragon3D(root, winner, loser, {
-    breathS: BREATH_S,
-    onBreath: () => {
-      playSound("burn");
-      burning = burnMat(root, loser, lite, BREATH_S * 1000, run, false); // (the 3D flames stand on the mat: only the glow and the charring are drawn flat)
+  await playGreenVideo(root, {
+    left: (W.x + L.x) / 2,
+    top,
+    height,
+    flip: !above,
+    onTime: (t) => {
+      // the beam hits at once; the burst grows over the next seconds, and its ring of fire goes out near the end
+      if (step === 0 && t >= 0.35) {
+        step = 1;
+        playSound("burn");
+        burning = burnMat(root, loser, lite, 4200, run, false); // (the glow over the mat and its charring)
+        jolt(5, 500);
+      } else if (step === 1 && t >= 1.7) {
+        step = 2;
+        jolt(7, 600);
+      } else if (step === 2 && t >= 3.5) {
+        step = 3;
+        playSound("burn");
+        jolt(10, 800);
+      }
     },
   });
-  veil.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 700, fill: "forwards" });
+  veil.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 600, fill: "forwards" });
   await burning;
   await Promise.all(run.map((p) => Promise.resolve(p).catch(() => undefined)));
 }
@@ -633,10 +662,10 @@ export async function playFinisher(kind: FinisherKind, winner: PlayerId | null, 
     let done = false;
     if (canDo3D()) {
       try {
-        await (kind === "dragon" ? dragon3dFinisher(root, w, l) : reaper3dFinisher(root, w, l));
+        await (kind === "dragon" ? dragonVideoFinisher(root, w, l) : reaper3dFinisher(root, w, l));
         done = true;
       } catch (e) {
-        console.warn("3D finisher failed, using the flat one", e);
+        console.warn("finisher failed, using the flat one", e);
         root.replaceChildren();
       }
     }
