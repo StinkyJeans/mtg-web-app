@@ -208,7 +208,7 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
           <button onClick={() => void preview()} disabled={previewing || finisher === "off"} className="mt-3 rounded-xl border border-white/30 bg-white/10 px-4 py-1.5 text-sm font-bold text-white hover:bg-white/20 disabled:opacity-40">
             {previewing ? "Playing…" : "Preview"}
           </button>
-          <p className="mt-2 text-[11px] leading-snug text-slate-400">3D models from poly.pizza: Dragon Rigged by na3ee1 (CC BY), Grim Reaper by Falibu (CC BY 3.0), Scythe by Quaternius (CC0).</p>
+          <p className="mt-2 text-[11px] leading-snug text-slate-400">3D models from poly.pizza: Red Dragon by Tomek Zamojski (CC BY), Grim Reaper by Falibu (CC BY 3.0), Scythe by Quaternius (CC0).</p>
         </div>
         <p className="mt-3 text-sm text-slate-300">{vsBotRoom ? "Your table is shown on your side of the battlefield." : "Your opponent sees your mat and sleeve on their screen, and you see theirs."}</p>
       </div>

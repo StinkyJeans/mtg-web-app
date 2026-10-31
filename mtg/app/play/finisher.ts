@@ -113,7 +113,7 @@ const DRAGON_SVG = `
 </svg>`;
 
 /** The loser's mat on fire: a glow over it, flames licking up from its lower edge, the mat charring under it, and the table jolting. Pieces are added to `run`. */
-async function burnMat(root: HTMLElement, loser: Rect, lite: boolean, FIRE_MS: number, run: Promise<unknown>[]): Promise<void> {
+async function burnMat(root: HTMLElement, loser: Rect, lite: boolean, FIRE_MS: number, run: Promise<unknown>[], flat = true): Promise<void> {
   // the loser's mat: a glow of fire over it, flames licking up from its lower edge, the mat charring under it
   const wash = div(root, {
     left: `${loser.left}px`,
@@ -138,36 +138,38 @@ async function burnMat(root: HTMLElement, loser: Rect, lite: boolean, FIRE_MS: n
       { duration: FIRE_MS + 900, delay: 350, fill: "both" },
     ).finished,
   );
-  const tongues = lite ? 9 : 18;
-  const flameSvg = `<svg viewBox="0 0 100 140" preserveAspectRatio="none" width="100%" height="100%"><defs><linearGradient id="fl-g" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#fff7b0"/><stop offset=".25" stop-color="#fcd34d"/><stop offset=".55" stop-color="#f97316"/><stop offset=".85" stop-color="#dc2626"/><stop offset="1" stop-color="#7f1d1d" stop-opacity="0"/></linearGradient></defs><path d="M52 0 C58 26 92 44 94 86 C96 118 76 140 50 140 C24 140 4 118 6 88 C8 62 28 54 34 30 C40 44 44 36 52 0 Z" fill="url(#fl-g)"/><path d="M50 58 C56 76 78 86 78 110 C78 128 66 140 50 140 C34 140 22 128 22 110 C22 90 42 82 50 58 Z" fill="#fff3a0" opacity=".75"/></svg>`;
-  for (let i = 0; i < tongues; i++) {
-    const w = rnd((loser.width / 9) * 0.8, (loser.width / 9) * 1.4);
-    const h = rnd(loser.height * 0.6, loser.height * 1.15);
-    const x = loser.left + ((i + rnd(0.1, 0.9)) / tongues) * loser.width - w / 2;
-    const f = div(
-      root,
-      {
-        left: `${x}px`,
-        top: `${loser.top + loser.height - h * 0.95}px`,
-        width: `${w}px`,
-        height: `${h}px`,
-        transformOrigin: "50% 100%",
-        opacity: "0",
-      },
-      flameSvg,
-    );
-    run.push(
-      f.animate(
-        [
-          { transform: "scaleY(0.05) scaleX(.6)", opacity: 0 },
-          { transform: "scaleY(1) scaleX(1)", opacity: 0.95, offset: 0.25 },
-          { transform: `scaleY(${rnd(0.7, 0.9)}) scaleX(${rnd(1.05, 1.2)}) skewX(${rnd(-8, 8)}deg)`, opacity: 0.9, offset: 0.45 },
-          { transform: `scaleY(${rnd(0.95, 1.15)}) scaleX(.95) skewX(${rnd(-8, 8)}deg)`, opacity: 0.9, offset: 0.7 },
-          { transform: "scaleY(.5) scaleX(.8)", opacity: 0 },
-        ],
-        { duration: FIRE_MS + 700, delay: 450 + i * 35, easing: "ease-in-out", fill: "both" },
-      ).finished,
-    );
+  if (flat) {
+    const tongues = lite ? 9 : 18;
+    const flameSvg = `<svg viewBox="0 0 100 140" preserveAspectRatio="none" width="100%" height="100%"><defs><linearGradient id="fl-g" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#fff7b0"/><stop offset=".25" stop-color="#fcd34d"/><stop offset=".55" stop-color="#f97316"/><stop offset=".85" stop-color="#dc2626"/><stop offset="1" stop-color="#7f1d1d" stop-opacity="0"/></linearGradient></defs><path d="M52 0 C58 26 92 44 94 86 C96 118 76 140 50 140 C24 140 4 118 6 88 C8 62 28 54 34 30 C40 44 44 36 52 0 Z" fill="url(#fl-g)"/><path d="M50 58 C56 76 78 86 78 110 C78 128 66 140 50 140 C34 140 22 128 22 110 C22 90 42 82 50 58 Z" fill="#fff3a0" opacity=".75"/></svg>`;
+    for (let i = 0; i < tongues; i++) {
+      const w = rnd((loser.width / 9) * 0.8, (loser.width / 9) * 1.4);
+      const h = rnd(loser.height * 0.6, loser.height * 1.15);
+      const x = loser.left + ((i + rnd(0.1, 0.9)) / tongues) * loser.width - w / 2;
+      const f = div(
+        root,
+        {
+          left: `${x}px`,
+          top: `${loser.top + loser.height - h * 0.95}px`,
+          width: `${w}px`,
+          height: `${h}px`,
+          transformOrigin: "50% 100%",
+          opacity: "0",
+        },
+        flameSvg,
+      );
+      run.push(
+        f.animate(
+          [
+            { transform: "scaleY(0.05) scaleX(.6)", opacity: 0 },
+            { transform: "scaleY(1) scaleX(1)", opacity: 0.95, offset: 0.25 },
+            { transform: `scaleY(${rnd(0.7, 0.9)}) scaleX(${rnd(1.05, 1.2)}) skewX(${rnd(-8, 8)}deg)`, opacity: 0.9, offset: 0.45 },
+            { transform: `scaleY(${rnd(0.95, 1.15)}) scaleX(.95) skewX(${rnd(-8, 8)}deg)`, opacity: 0.9, offset: 0.7 },
+            { transform: "scaleY(.5) scaleX(.8)", opacity: 0 },
+          ],
+          { duration: FIRE_MS + 700, delay: 450 + i * 35, easing: "ease-in-out", fill: "both" },
+        ).finished,
+      );
+    }
   }
   // the mat itself burns: darker and warmer, then back
   matAt(loser)?.animate(
@@ -574,7 +576,7 @@ async function dragon3dFinisher(root: HTMLElement, winner: Rect, loser: Rect): P
     breathS: BREATH_S,
     onBreath: () => {
       playSound("burn");
-      burning = burnMat(root, loser, lite, BREATH_S * 1000, run);
+      burning = burnMat(root, loser, lite, BREATH_S * 1000, run, false); // (the 3D flames stand on the mat: only the glow and the charring are drawn flat)
     },
   });
   veil.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 700, fill: "forwards" });
