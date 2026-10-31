@@ -2,6 +2,7 @@ import type { PlayerId } from "@mtg/engine";
 import { animationsEnabled, scaled } from "@/lib/motion";
 import { playSound } from "@/lib/sound";
 import { liteMode } from "./perfTier";
+import { canDo3D, dragon3D, reaper3D } from "./finisher3d";
 
 /**
  * The finishing move: when a game is won, the winner's finisher plays on the loser's playmat, then the result comes up.
@@ -111,7 +112,77 @@ const DRAGON_SVG = `
   </g>
 </svg>`;
 
-async function dragonFinisher(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
+/** The loser's mat on fire: a glow over it, flames licking up from its lower edge, the mat charring under it, and the table jolting. Pieces are added to `run`. */
+async function burnMat(root: HTMLElement, loser: Rect, lite: boolean, FIRE_MS: number, run: Promise<unknown>[]): Promise<void> {
+  // the loser's mat: a glow of fire over it, flames licking up from its lower edge, the mat charring under it
+  const wash = div(root, {
+    left: `${loser.left}px`,
+    top: `${loser.top}px`,
+    width: `${loser.width}px`,
+    height: `${loser.height}px`,
+    borderRadius: "14px",
+    background: "radial-gradient(ellipse at 50% 85%, rgba(255,200,60,.95) 0%, rgba(249,115,22,.75) 32%, rgba(185,28,28,.55) 60%, rgba(0,0,0,0) 80%)",
+    opacity: "0",
+  });
+  run.push(
+    wash.animate(
+      [
+        { opacity: 0 },
+        { opacity: 0.55, offset: 0.2 },
+        { opacity: 0.85, offset: 0.35 },
+        { opacity: 0.6, offset: 0.5 },
+        { opacity: 0.9, offset: 0.65 },
+        { opacity: 0.7, offset: 0.8 },
+        { opacity: 0 },
+      ],
+      { duration: FIRE_MS + 900, delay: 350, fill: "both" },
+    ).finished,
+  );
+  const tongues = lite ? 9 : 18;
+  const flameSvg = `<svg viewBox="0 0 100 140" preserveAspectRatio="none" width="100%" height="100%"><defs><linearGradient id="fl-g" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#fff7b0"/><stop offset=".25" stop-color="#fcd34d"/><stop offset=".55" stop-color="#f97316"/><stop offset=".85" stop-color="#dc2626"/><stop offset="1" stop-color="#7f1d1d" stop-opacity="0"/></linearGradient></defs><path d="M52 0 C58 26 92 44 94 86 C96 118 76 140 50 140 C24 140 4 118 6 88 C8 62 28 54 34 30 C40 44 44 36 52 0 Z" fill="url(#fl-g)"/><path d="M50 58 C56 76 78 86 78 110 C78 128 66 140 50 140 C34 140 22 128 22 110 C22 90 42 82 50 58 Z" fill="#fff3a0" opacity=".75"/></svg>`;
+  for (let i = 0; i < tongues; i++) {
+    const w = rnd((loser.width / 9) * 0.8, (loser.width / 9) * 1.4);
+    const h = rnd(loser.height * 0.6, loser.height * 1.15);
+    const x = loser.left + ((i + rnd(0.1, 0.9)) / tongues) * loser.width - w / 2;
+    const f = div(
+      root,
+      {
+        left: `${x}px`,
+        top: `${loser.top + loser.height - h * 0.95}px`,
+        width: `${w}px`,
+        height: `${h}px`,
+        transformOrigin: "50% 100%",
+        opacity: "0",
+      },
+      flameSvg,
+    );
+    run.push(
+      f.animate(
+        [
+          { transform: "scaleY(0.05) scaleX(.6)", opacity: 0 },
+          { transform: "scaleY(1) scaleX(1)", opacity: 0.95, offset: 0.25 },
+          { transform: `scaleY(${rnd(0.7, 0.9)}) scaleX(${rnd(1.05, 1.2)}) skewX(${rnd(-8, 8)}deg)`, opacity: 0.9, offset: 0.45 },
+          { transform: `scaleY(${rnd(0.95, 1.15)}) scaleX(.95) skewX(${rnd(-8, 8)}deg)`, opacity: 0.9, offset: 0.7 },
+          { transform: "scaleY(.5) scaleX(.8)", opacity: 0 },
+        ],
+        { duration: FIRE_MS + 700, delay: 450 + i * 35, easing: "ease-in-out", fill: "both" },
+      ).finished,
+    );
+  }
+  // the mat itself burns: darker and warmer, then back
+  matAt(loser)?.animate(
+    [{ filter: "none" }, { filter: "brightness(.55) sepia(.7) saturate(1.4) hue-rotate(-12deg)", offset: 0.3 }, { filter: "brightness(.6) sepia(.6) saturate(1.3)", offset: 0.75 }, { filter: "none" }],
+    { duration: FIRE_MS + 1200, delay: 400, easing: "ease-in-out" },
+  );
+  jolt(5, 500);
+  await wait(600);
+  jolt(7, 600);
+  await wait(500);
+  playSound("burn");
+  await wait(FIRE_MS - 1100);
+}
+
+async function dragonFlat(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
   const lite = liteMode();
   const W = centerOf(winner);
   const T = centerOf(loser);
@@ -241,72 +312,7 @@ async function dragonFinisher(root: HTMLElement, winner: Rect, loser: Rect): Pro
       ).finished,
     );
   }
-  // the loser's mat: a glow of fire over it, flames licking up from its lower edge, the mat charring under it
-  const wash = div(root, {
-    left: `${loser.left}px`,
-    top: `${loser.top}px`,
-    width: `${loser.width}px`,
-    height: `${loser.height}px`,
-    borderRadius: "14px",
-    background: "radial-gradient(ellipse at 50% 85%, rgba(255,200,60,.95) 0%, rgba(249,115,22,.75) 32%, rgba(185,28,28,.55) 60%, rgba(0,0,0,0) 80%)",
-    opacity: "0",
-  });
-  run.push(
-    wash.animate(
-      [
-        { opacity: 0 },
-        { opacity: 0.55, offset: 0.2 },
-        { opacity: 0.85, offset: 0.35 },
-        { opacity: 0.6, offset: 0.5 },
-        { opacity: 0.9, offset: 0.65 },
-        { opacity: 0.7, offset: 0.8 },
-        { opacity: 0 },
-      ],
-      { duration: FIRE_MS + 900, delay: 350, fill: "both" },
-    ).finished,
-  );
-  const tongues = lite ? 9 : 18;
-  const flameSvg = `<svg viewBox="0 0 100 140" preserveAspectRatio="none" width="100%" height="100%"><defs><linearGradient id="fl-g" x1="0" y1="1" x2="0" y2="0"><stop offset="0" stop-color="#fff7b0"/><stop offset=".25" stop-color="#fcd34d"/><stop offset=".55" stop-color="#f97316"/><stop offset=".85" stop-color="#dc2626"/><stop offset="1" stop-color="#7f1d1d" stop-opacity="0"/></linearGradient></defs><path d="M52 0 C58 26 92 44 94 86 C96 118 76 140 50 140 C24 140 4 118 6 88 C8 62 28 54 34 30 C40 44 44 36 52 0 Z" fill="url(#fl-g)"/><path d="M50 58 C56 76 78 86 78 110 C78 128 66 140 50 140 C34 140 22 128 22 110 C22 90 42 82 50 58 Z" fill="#fff3a0" opacity=".75"/></svg>`;
-  for (let i = 0; i < tongues; i++) {
-    const w = rnd((loser.width / 9) * 0.8, (loser.width / 9) * 1.4);
-    const h = rnd(loser.height * 0.6, loser.height * 1.15);
-    const x = loser.left + ((i + rnd(0.1, 0.9)) / tongues) * loser.width - w / 2;
-    const f = div(
-      root,
-      {
-        left: `${x}px`,
-        top: `${loser.top + loser.height - h * 0.95}px`,
-        width: `${w}px`,
-        height: `${h}px`,
-        transformOrigin: "50% 100%",
-        opacity: "0",
-      },
-      flameSvg,
-    );
-    run.push(
-      f.animate(
-        [
-          { transform: "scaleY(0.05) scaleX(.6)", opacity: 0 },
-          { transform: "scaleY(1) scaleX(1)", opacity: 0.95, offset: 0.25 },
-          { transform: `scaleY(${rnd(0.7, 0.9)}) scaleX(${rnd(1.05, 1.2)}) skewX(${rnd(-8, 8)}deg)`, opacity: 0.9, offset: 0.45 },
-          { transform: `scaleY(${rnd(0.95, 1.15)}) scaleX(.95) skewX(${rnd(-8, 8)}deg)`, opacity: 0.9, offset: 0.7 },
-          { transform: "scaleY(.5) scaleX(.8)", opacity: 0 },
-        ],
-        { duration: FIRE_MS + 700, delay: 450 + i * 35, easing: "ease-in-out", fill: "both" },
-      ).finished,
-    );
-  }
-  // the mat itself burns: darker and warmer, then back
-  matAt(loser)?.animate(
-    [{ filter: "none" }, { filter: "brightness(.55) sepia(.7) saturate(1.4) hue-rotate(-12deg)", offset: 0.3 }, { filter: "brightness(.6) sepia(.6) saturate(1.3)", offset: 0.75 }, { filter: "none" }],
-    { duration: FIRE_MS + 1200, delay: 400, easing: "ease-in-out" },
-  );
-  jolt(5, 500);
-  await wait(600);
-  jolt(7, 600);
-  await wait(500);
-  playSound("burn");
-  await wait(FIRE_MS - 1100);
+  await burnMat(root, loser, lite, FIRE_MS, run);
   void dragonShake;
 
   // 4. the fire dies down and the dragon draws back
@@ -375,75 +381,9 @@ const WARP_FILTER = `
   </filter>
 </svg>`;
 
-async function reaperFinisher(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
-  const lite = liteMode();
-  const W = centerOf(winner);
+/** The blade goes through the loser's mat: a flash and a line of light, the table jolts, the cut opens as a dark seam, and the mat itself warps. */
+async function cutMat(root: HTMLElement, loser: Rect, lite: boolean): Promise<void> {
   const T = centerOf(loser);
-  const dist = Math.hypot(T.x - W.x, T.y - W.y) || 1;
-
-  // darkness and violet mist close in
-  const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 50%, rgba(46,16,101,.25), rgba(2,0,10,.82))", opacity: "0" });
-  veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 650, fill: "forwards" });
-  const mist = div(root, {
-    left: `${W.x - winner.width * 0.6}px`,
-    top: `${W.y - winner.height * 0.9}px`,
-    width: `${winner.width * 1.2}px`,
-    height: `${winner.height * 1.8}px`,
-    background: "radial-gradient(ellipse, rgba(139,92,246,.55) 0%, rgba(76,29,149,.3) 40%, rgba(0,0,0,0) 70%)",
-    opacity: "0",
-  });
-  mist.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "scale(1)" }], { duration: 800, easing: "ease-out", fill: "forwards" });
-
-  // the scythe and the hands: they rise at the centre of the winner's mat
-  const h = Math.max(300, Math.min(window.innerHeight * 0.62, 560));
-  const w = (h * 400) / 640;
-  const reaper = div(
-    root,
-    {
-      left: `${W.x - w / 2}px`,
-      top: `${W.y - h * 0.62}px`,
-      width: `${w}px`,
-      height: `${h}px`,
-      transformOrigin: "50% 62%",
-      filter: "drop-shadow(0 0 18px rgba(139,92,246,.7))",
-      opacity: "0",
-    },
-    REAPER_SVG,
-  );
-  playSound("charge");
-  // 1. it rises out of the mist
-  await reaper.animate(
-    [
-      { transform: "translateY(90px) rotate(-6deg) scale(.7)", opacity: 0 },
-      { transform: "translateY(0) rotate(-14deg) scale(1)", opacity: 1 },
-    ],
-    { duration: 800, easing: "cubic-bezier(.2,.8,.2,1)", fill: "forwards" },
-  ).finished;
-  // 2. it draws back: the scythe is raised and held, glowing
-  const aura = reaper.querySelector<SVGElement>(".rp-aura");
-  aura?.animate([{ opacity: 0.5 }, { opacity: 1 }, { opacity: 0.6 }], { duration: 700, iterations: 2 });
-  const toward = Math.atan2(T.y - W.y, T.x - W.x); // the swing goes towards the loser's mat
-  const lean = toward > 0 ? 1 : -1; // (towards the bottom of the screen or the top)
-  await reaper.animate(
-    [
-      { transform: "translateY(0) rotate(-14deg) scale(1)" },
-      { transform: `translateY(${-lean * 14}px) rotate(-52deg) scale(1.06)` },
-    ],
-    { duration: 650, easing: "ease-in-out", fill: "forwards" },
-  ).finished;
-  await wait(220);
-
-  // 3. the swing: the whole scythe sweeps across the loser's mat
-  const swing = reaper.animate(
-    [
-      { transform: `translateY(${-lean * 14}px) rotate(-52deg) scale(1.06)`, offset: 0 },
-      { transform: `translate(${(T.x - W.x) * 0.55}px, ${(T.y - W.y) * 0.55}px) rotate(18deg) scale(1.15)`, offset: 0.55 },
-      { transform: `translate(${(T.x - W.x) * 0.9}px, ${(T.y - W.y) * 0.9}px) rotate(60deg) scale(1.2)`, opacity: 1, offset: 0.85 },
-      { transform: `translate(${(T.x - W.x) * 1.0}px, ${(T.y - W.y) * 1.0}px) rotate(70deg) scale(1.2)`, opacity: 0 },
-    ],
-    { duration: 380, easing: "cubic-bezier(.6,0,.9,.4)", fill: "forwards" },
-  );
-  await wait(210);
   // the cut: a bright line through the loser's mat, with a flash
   playSound("die");
   const diag = Math.hypot(loser.width, loser.height);
@@ -458,6 +398,7 @@ async function reaperFinisher(root: HTMLElement, winner: Rect, loser: Rect): Pro
     boxShadow: "0 0 18px 6px #a78bfa, 0 0 60px 14px rgba(139,92,246,.7)",
     transformOrigin: "50% 50%",
     opacity: "0",
+    zIndex: "10",
   });
   line.animate(
     [
@@ -468,7 +409,7 @@ async function reaperFinisher(root: HTMLElement, winner: Rect, loser: Rect): Pro
     ],
     { duration: 700, easing: "ease-out", fill: "both" },
   );
-  const flash = div(root, { inset: "0", background: "#fff", opacity: "0" });
+  const flash = div(root, { inset: "0", background: "#fff", opacity: "0", zIndex: "10" });
   flash.animate([{ opacity: 0.85 }, { opacity: 0 }], { duration: 380, easing: "ease-out", fill: "both" });
   jolt(12, 700);
   // the rift: the cut opens into a dark seam, then closes
@@ -541,12 +482,133 @@ async function reaperFinisher(root: HTMLElement, winner: Rect, loser: Rect): Pro
   await wait(700);
   jolt(6, 600);
   await warping;
-  void swing;
+}
+
+async function reaperFlat(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
+  const lite = liteMode();
+  const W = centerOf(winner);
+  const T = centerOf(loser);
+  const dist = Math.hypot(T.x - W.x, T.y - W.y) || 1;
+
+  // darkness and violet mist close in
+  const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 50%, rgba(46,16,101,.25), rgba(2,0,10,.82))", opacity: "0" });
+  veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 650, fill: "forwards" });
+  const mist = div(root, {
+    left: `${W.x - winner.width * 0.6}px`,
+    top: `${W.y - winner.height * 0.9}px`,
+    width: `${winner.width * 1.2}px`,
+    height: `${winner.height * 1.8}px`,
+    background: "radial-gradient(ellipse, rgba(139,92,246,.55) 0%, rgba(76,29,149,.3) 40%, rgba(0,0,0,0) 70%)",
+    opacity: "0",
+  });
+  mist.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "scale(1)" }], { duration: 800, easing: "ease-out", fill: "forwards" });
+
+  // the scythe and the hands: they rise at the centre of the winner's mat
+  const h = Math.max(300, Math.min(window.innerHeight * 0.62, 560));
+  const w = (h * 400) / 640;
+  const reaper = div(
+    root,
+    {
+      left: `${W.x - w / 2}px`,
+      top: `${W.y - h * 0.62}px`,
+      width: `${w}px`,
+      height: `${h}px`,
+      transformOrigin: "50% 62%",
+      filter: "drop-shadow(0 0 18px rgba(139,92,246,.7))",
+      opacity: "0",
+    },
+    REAPER_SVG,
+  );
+  playSound("charge");
+  // 1. it rises out of the mist
+  await reaper.animate(
+    [
+      { transform: "translateY(90px) rotate(-6deg) scale(.7)", opacity: 0 },
+      { transform: "translateY(0) rotate(-14deg) scale(1)", opacity: 1 },
+    ],
+    { duration: 800, easing: "cubic-bezier(.2,.8,.2,1)", fill: "forwards" },
+  ).finished;
+  // 2. it draws back: the scythe is raised and held, glowing
+  const aura = reaper.querySelector<SVGElement>(".rp-aura");
+  aura?.animate([{ opacity: 0.5 }, { opacity: 1 }, { opacity: 0.6 }], { duration: 700, iterations: 2 });
+  const toward = Math.atan2(T.y - W.y, T.x - W.x); // the swing goes towards the loser's mat
+  const lean = toward > 0 ? 1 : -1; // (towards the bottom of the screen or the top)
+  await reaper.animate(
+    [
+      { transform: "translateY(0) rotate(-14deg) scale(1)" },
+      { transform: `translateY(${-lean * 14}px) rotate(-52deg) scale(1.06)` },
+    ],
+    { duration: 650, easing: "ease-in-out", fill: "forwards" },
+  ).finished;
+  await wait(220);
+
+  // 3. the swing: the whole scythe sweeps across the loser's mat
+  reaper.animate(
+    [
+      { transform: `translateY(${-lean * 14}px) rotate(-52deg) scale(1.06)`, offset: 0 },
+      { transform: `translate(${(T.x - W.x) * 0.55}px, ${(T.y - W.y) * 0.55}px) rotate(18deg) scale(1.15)`, offset: 0.55 },
+      { transform: `translate(${(T.x - W.x) * 0.9}px, ${(T.y - W.y) * 0.9}px) rotate(60deg) scale(1.2)`, opacity: 1, offset: 0.85 },
+      { transform: `translate(${(T.x - W.x) * 1.0}px, ${(T.y - W.y) * 1.0}px) rotate(70deg) scale(1.2)`, opacity: 0 },
+    ],
+    { duration: 380, easing: "cubic-bezier(.6,0,.9,.4)", fill: "forwards" },
+  );
+  await wait(210);
+  await cutMat(root, loser, lite);
   await wait(250);
   veil.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 600, fill: "forwards" });
   mist.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 600, fill: "forwards" });
   await wait(600);
   void dist;
+}
+
+/** The dragon, in 3D: a dark veil over the table, the model rearing over the winner's mat, and its breath setting the loser's mat on fire. */
+async function dragon3dFinisher(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
+  const lite = liteMode();
+  const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 60%, rgba(40,6,6,.2), rgba(0,0,0,.68))", opacity: "0" });
+  veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, fill: "forwards" });
+  const run: Promise<unknown>[] = [];
+  const BREATH_S = 1.7;
+  let burning: Promise<void> = Promise.resolve();
+  playSound("charge");
+  await dragon3D(root, winner, loser, {
+    breathS: BREATH_S,
+    onBreath: () => {
+      playSound("burn");
+      burning = burnMat(root, loser, lite, BREATH_S * 1000, run);
+    },
+  });
+  veil.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 700, fill: "forwards" });
+  await burning;
+  await Promise.all(run.map((p) => Promise.resolve(p).catch(() => undefined)));
+}
+
+/** The reaper, in 3D: darkness and violet mist, the model rising at the winner's mat, its scythe swung across the loser's. */
+async function reaper3dFinisher(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
+  const lite = liteMode();
+  const W = centerOf(winner);
+  const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 50%, rgba(46,16,101,.25), rgba(2,0,10,.82))", opacity: "0" });
+  veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 650, fill: "forwards" });
+  const mist = div(root, {
+    left: `${W.x - winner.width * 0.6}px`,
+    top: `${W.y - winner.height * 0.9}px`,
+    width: `${winner.width * 1.2}px`,
+    height: `${winner.height * 1.8}px`,
+    background: "radial-gradient(ellipse, rgba(139,92,246,.55) 0%, rgba(76,29,149,.3) 40%, rgba(0,0,0,0) 70%)",
+    opacity: "0",
+  });
+  mist.animate([{ opacity: 0, transform: "scale(.6)" }, { opacity: 1, transform: "scale(1)" }], { duration: 800, easing: "ease-out", fill: "forwards" });
+  playSound("charge");
+  let cut: Promise<void> = Promise.resolve();
+  await reaper3D(root, winner, loser, {
+    onImpact: () => {
+      playSound("die");
+      cut = cutMat(root, loser, lite);
+    },
+  });
+  await cut;
+  veil.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 600, fill: "forwards" });
+  mist.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 600, fill: "forwards" });
+  await wait(600);
 }
 
 /**
@@ -565,8 +627,18 @@ export async function playFinisher(kind: FinisherKind, winner: PlayerId | null, 
   Object.assign(root.style, { position: "fixed", inset: "0", zIndex: "9990", pointerEvents: "none", overflow: "hidden" });
   document.body.appendChild(root);
   try {
-    if (kind === "dragon") await dragonFinisher(root, w, l);
-    else await reaperFinisher(root, w, l);
+    // the 3D version; if it cannot be drawn (no WebGL, the models did not load) the flat drawing is played instead
+    let done = false;
+    if (canDo3D()) {
+      try {
+        await (kind === "dragon" ? dragon3dFinisher(root, w, l) : reaper3dFinisher(root, w, l));
+        done = true;
+      } catch (e) {
+        console.warn("3D finisher failed, using the flat one", e);
+        root.replaceChildren();
+      }
+    }
+    if (!done) await (kind === "dragon" ? dragonFlat(root, w, l) : reaperFlat(root, w, l));
   } finally {
     root.remove();
   }

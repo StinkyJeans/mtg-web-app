@@ -46,6 +46,7 @@ import { GraveyardDialog, Pile } from "./Piles";
 import ShuffleStage from "./ShuffleStage";
 import { shufflePending } from "./shuffleStep";
 import { playFinisher } from "./finisher";
+import { warmFinisher } from "./finisher3d";
 import type { FinisherKind } from "./finisher";
 import { handDraws, hideDrawn, holdLibraryCounts, holdPiles, isPileBusy, playDeal, playDraws, playOpponentDiscards, playOpponentDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
 import type { Draw } from "./pileFx";
@@ -273,6 +274,11 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const finisherChoice = finisherWinner && online ? net.game?.looks?.[finisherWinner]?.finisher : "";
   const finisherKind: FinisherKind | "" = finisherWinner && liveSeen && !(endNote ?? "").includes("resigned") && (finisherChoice === "dragon" || finisherChoice === "reaper") ? finisherChoice : "";
   const resultReady = endShown && (!finisherKind || finisherDone);
+  // both players' finishers are fetched at the start of the match: whoever wins, it starts at once
+  const looksKey = online ? `${net.game?.looks?.p1?.finisher ?? ""}|${net.game?.looks?.p2?.finisher ?? ""}` : "";
+  useEffect(() => {
+    for (const k of looksKey.split("|")) if (k === "dragon" || k === "reaper") warmFinisher(k);
+  }, [looksKey]);
   const finisherPlayed = useRef(false);
   useEffect(() => {
     if (!endShown || !finisherKind || !finisherWinner || finisherDone || finisherPlayed.current) return;
