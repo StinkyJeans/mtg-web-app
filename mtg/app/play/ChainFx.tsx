@@ -229,7 +229,13 @@ export default function ChainFx({ state, actor, extra, onPass }: { state: GameSt
       <p className="sr-only" role="status">
         Chain: {links.filter((l) => !l.leaving).map((l) => `${l.n}, ${l.name}`).join("; ")}
       </p>
-      <div className="absolute inset-0 bg-black transition-opacity duration-700" style={{ opacity: live ? 0.3 : 0 }} />
+      {/* the dimmed background: a click on it puts the chain away (the "Show chain" button brings it back) */}
+      <div
+        className={`absolute inset-0 bg-black transition-opacity duration-700 ${live && !choiceOpen ? "pointer-events-auto cursor-pointer" : ""}`}
+        style={{ opacity: live ? 0.3 : 0 }}
+        onClick={() => setHiddenAt(newest)}
+        aria-hidden="true"
+      />
       <div className="absolute" style={{ left: "50%", top: phone ? "44%" : "42%" }}>
         {/* the chains between a card and the one before it (over the older card, under the newer one) */}
         {shown.map((l, i) => {
