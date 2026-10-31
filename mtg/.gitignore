@@ -43,3 +43,6 @@ next-env.d.ts
 # importer downloads
 /.import-cache
 /.next-check/
+
+# the dragon finisher, as one transparent picture per frame (180 MB; made from the video, for editing - not part of the site)
+/finisher-animation-frames/
