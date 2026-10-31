@@ -13,6 +13,8 @@ export const DRAGON_VIDEO = "/finisher-animation/dragon-breath/dragon%20breath%2
 /** The video is 1264 x 720. */
 export const VIDEO_W = 1264;
 export const VIDEO_H = 720;
+/** The dragon's head, cut out of the video's first frame (scripts/cut-dragon-head.py): a picture of its own, with its own transparency, that we move. */
+export const DRAGON_HEAD = "/finisher-animation/dragon-breath/dragon-head.png";
 
 /** One piece of the frame, put somewhere on the page. Coordinates are CSS pixels of the window; `src` is a part of the frame in 0..1 (u0, v0, u1, v1). */
 export interface Layer {
@@ -34,6 +36,8 @@ export interface Layer {
   /** The piece turned by this many radians about `pivot` (page pixels): the dragon's head, tilting. */
   rot?: number;
   pivot?: [number, number];
+  /** Drawn from one of the pictures given to `playGreenVideo` (by its name) instead of from the video: it already has its transparency. */
+  texture?: string;
 }
 
 let warm: HTMLVideoElement | null = null;
@@ -55,6 +59,7 @@ export function warmVideo(src = DRAGON_VIDEO): void {
   if (typeof document === "undefined" || warm) return;
   warm = makeVideo(src);
   warm.load();
+  new Image().src = DRAGON_HEAD; // (the head's picture is small: it is fetched with the video)
 }
 
 const VERT = `
@@ -90,16 +95,23 @@ const FRAG = `
   uniform vec4 feather;   // top, bottom, left, right
   uniform float alpha;
   uniform float keep;
+  uniform float isImage;  // 1: a picture with its own transparency, not the green screen
   uniform vec3 cone;      // tip row, width at the tip, widening per row (0 = no cone)     // the width of the middle column the top and bottom feather leaves alone
   float soft(float x, float f) { return f <= 0.0 ? 1.0 : smoothstep(0.0, f, x); }
   void main() {
-    vec3 c = texture2D(tex, uv).rgb;
+    vec4 px = texture2D(tex, uv);
+    vec3 c = px.rgb;
     float spill = c.g - max(c.r, c.b);
     float m = clamp((spill + 0.03) * 1.3, 0.0, 1.0);
     float a = 1.0 - m;
     if (a < 0.02) { gl_FragColor = vec4(0.0); return; }
     vec3 fg = clamp((c - vec3(0.0, m, 0.0)) / max(a, 0.05), 0.0, 1.0);
     fg.g = min(fg.g, max(fg.r, fg.b) * 0.97); // (a flame is never greener than it is red)
+    if (isImage > 0.5) {
+      a = px.a;
+      fg = px.rgb;
+      if (a < 0.01) { gl_FragColor = vec4(0.0); return; }
+    }
     float vert = soft(q.y, feather.x) * soft(1.0 - q.y, feather.y);
     vert = mix(vert, 1.0, keep > 0.0 ? 1.0 - smoothstep(keep * 0.5, keep, abs(q.x - 0.5)) : 0.0);
     if (cone.z > 0.0) {
@@ -117,6 +129,8 @@ export interface VideoPlay {
   onTime?: (seconds: number) => void;
   /** Called once the picture is on screen, with a function that shakes it (pixels, milliseconds): cheap, because only the picture moves. */
   onReady?: (shake: (px: number, ms: number) => void) => void;
+  /** Pictures to draw pieces from, by name (their addresses): loaded before the video starts. */
+  images?: Record<string, string>;
   /** The whole picture's fade-out, in seconds before the end of the video (default 1). */
   fadeOut?: number;
 }
@@ -137,6 +151,15 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
       video.addEventListener("error", () => (window.clearTimeout(give), reject(new Error("the video could not be loaded"))), { once: true });
       video.load();
     });
+    const pictures = new Map<string, HTMLImageElement>();
+    await Promise.all(
+      Object.entries(o.images ?? {}).map(async ([name, src]) => {
+        const img = new Image();
+        img.src = src;
+        await img.decode();
+        pictures.set(name, img);
+      }),
+    );
     // The canvas covers only where the pieces go (they are all over the battlefield but the picture is much smaller than the window), so there is
     // less to draw and, above all, less for the browser to put together on every frame.
     const reach = [0, 0.15, 0.3, 0.6, 1, 2, 4, 5.5, 6].flatMap((t) => o.layers(t));
@@ -177,13 +200,22 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     const u = (n: string) => gl.getUniformLocation(prog, n);
-    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha"), keep: u("keep"), cone: u("cone"), rot: u("rot"), pivot: u("pivot") };
+    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha"), keep: u("keep"), cone: u("cone"), isImage: u("isImage"), rot: u("rot"), pivot: u("pivot") };
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const textures = new Map<string, WebGLTexture>();
+    for (const [name, img] of pictures) {
+      const t = gl.createTexture()!;
+      gl.bindTexture(gl.TEXTURE_2D, t);
+      for (const [k, val] of [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]] as const) gl.texParameteri(gl.TEXTURE_2D, k, val);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, img);
+      textures.set(name, t);
+    }
+    gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.enable(gl.BLEND);
@@ -191,10 +223,14 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     gl.uniform2f(U.view, vw, vh);
 
     const draw = (layers: Layer[]) => {
+      gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
       gl.clear(gl.COLOR_BUFFER_BIT);
       for (const l of layers) {
         if ((l.alpha ?? 1) <= 0.003) continue;
+        const own = l.texture ? textures.get(l.texture) : undefined;
+        gl.bindTexture(gl.TEXTURE_2D, own ?? tex);
+        gl.uniform1f(U.isImage, own ? 1 : 0);
         gl.uniform4f(U.src, ...l.src);
         gl.uniform4f(U.dest, l.dest[0] - x0, l.dest[1] - y0, l.dest[2], l.dest[3]);
         const w = l.widths ?? [l.dest[2], l.dest[2]];

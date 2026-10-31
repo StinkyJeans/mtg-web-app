@@ -3,7 +3,7 @@ import { animationsEnabled, scaled } from "@/lib/motion";
 import { playSound } from "@/lib/sound";
 import { liteMode } from "./perfTier";
 import { canDo3D, reaper3D } from "./finisher3d";
-import { playGreenVideo, VIDEO_H, VIDEO_W } from "./finisherVideo";
+import { DRAGON_HEAD, playGreenVideo, VIDEO_H, VIDEO_W } from "./finisherVideo";
 import type { Layer } from "./finisherVideo";
 
 /**
@@ -604,6 +604,8 @@ const TIP_ROW = 0.6;
 const BURST_END = 0.55;
 const BURST_ROW = 0.4;
 const BEAM_U: [number, number] = [0.44, 0.56];
+/** The cut-out head picture: its size (at the video's scale) and where the tip of its snout is in it. */
+const HEAD = { w: 693, h: 295, tipX: 346, tipY: 6 };
 /** The rows of the frame whose beam is stretched to fill the distance between the two pieces: straight beam, nothing else in them. */
 const BEAM_ROWS: [number, number] = [0.46, 0.55];
 
@@ -669,9 +671,19 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
     const sDt = sD * body.s;
     const tipYt = tipY + (above ? 1 : -1) * body.dy; // (the head rises from, and sinks to, the side the winner is on)
     const wxt = wx + body.dx;
-    const [dTop, dH] = place(TIP_ROW, 1, TIP_ROW, tipYt, sDt);
-    const dragon: Layer = { src: [0, TIP_ROW, 1, 1], dest: [wxt - (VIDEO_W * sDt) / 2, dTop, VIDEO_W * sDt, dH], rot: above ? body.rot : -body.rot, pivot: [wxt, tipYt], cone: { v0: TIP_ROW, base: 0.05, slope: 0.85 }, flipY: !above, feather: above ? [0.22, 0.16, 0.18, 0.18] : [0.16, 0.22, 0.18, 0.18],
- alpha: smooth(0, 0.25, t) };
+    // the dragon is the cut-out picture of the head, not a piece of the video: the snout's tip is put at the point the head turns and swells about
+    const hw = HEAD.w * sDt;
+    const hh = HEAD.h * sDt;
+    const dragon: Layer = {
+      texture: "head",
+      src: [0, 0, 1, 1],
+      dest: [wxt - HEAD.tipX * sDt, above ? tipYt - HEAD.tipY * sDt : tipYt - (HEAD.h - HEAD.tipY) * sDt, hw, hh],
+      flipY: !above,
+      rot: above ? body.rot : -body.rot,
+      pivot: [wxt, tipYt],
+      feather: above ? [0, 0.22, 0, 0] : [0.22, 0, 0, 0], // (the body goes on beyond the picture: it fades out at the bottom)
+      alpha: smooth(0, 0.25, t),
+    };
     // the beam: from the burst's lower edge to the dragon's snout, a thin strip of the frame stretched along it, as wide at each end as the picture there is
     const burstEndY = burstY - dir * (BURST_END - BURST_ROW) * VIDEO_H * sB;
     // The beam runs a little way into each of the two pieces (and they fade over it), so no join shows: the beam is the same picture in all three.
@@ -712,6 +724,7 @@ async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect)
   await playGreenVideo(root, {
     layers: dragonLayers(winner, loser, above),
     onReady: (s) => (shake = s),
+    images: { head: DRAGON_HEAD },
     onTime: (t) => {
       // the beam hits at once; the burst grows over the next seconds, and its ring of fire goes out near the end
       if (step === 0 && t >= 0.35) {
