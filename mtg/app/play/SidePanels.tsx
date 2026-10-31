@@ -1,8 +1,9 @@
 "use client";
 
 import { useAnimationsOn } from "@/lib/motion";
-import { memo, useCallback, useEffect, useRef, useState } from "react";
-import type { GameState, PlayerId } from "@mtg/engine";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { HIDDEN_CARD_ID } from "@mtg/engine";
+import type { CardDef, GameState, PlayerId } from "@mtg/engine";
 import { ManaText } from "./ManaSymbols";
 import { ManaMeter } from "./ManaMeter";
 import type { ManaNote } from "./manaInfo";
@@ -330,12 +331,60 @@ export function ChatPanel({ messages, as, onSend }: { messages: ChatMessage[]; a
   );
 }
 
-/** Game log, newest first. */
-/** One line of the log: drawn once (the mana symbols in it are worked out then) and left alone while it is not changed. */
-const LogLine = memo(function LogLine({ line }: { line: string }) {
+/** What the log needs to turn a card's name in a line into something to point at. */
+interface LogCards {
+  pattern: RegExp | null;
+  byName: Map<string, CardDef>;
+  onPreview: (def: CardDef, el: HTMLElement) => void;
+  onUnpreview: () => void;
+  onZoom: (def: CardDef) => void;
+}
+
+const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+/** One regex for every card in this game and both player names (longest first, so "Llanowar Elves" is not read as "Llanowar"). */
+function logPattern(cards: Record<string, CardDef>): { pattern: RegExp | null; byName: Map<string, CardDef> } {
+  const byName = new Map<string, CardDef>();
+  for (const d of Object.values(cards)) if (d.id !== HIDDEN_CARD_ID && d.name && !byName.has(d.name)) byName.set(d.name, d);
+  const words = [...byName.keys(), playerName("p1"), playerName("p2")].filter((w) => w.length > 1).sort((a, b) => b.length - a.length);
+  return { pattern: words.length ? new RegExp(`(?<![\\w'’])(${words.map(escapeRe).join("|")})(?![\\w])`, "g") : null, byName };
+}
+
+/**
+ * One line of the log. A card named in it can be pointed at (the big card shows, as on the board) or pressed (it opens); a player's name has
+ * their color. Drawn once and left alone while the line is not changed.
+ */
+const LogLine = memo(function LogLine({ line, cards }: { line: string; cards: LogCards }) {
+  const parts = cards.pattern ? line.split(cards.pattern) : [line];
   return (
     <div className={line.startsWith("—") ? "mt-2 border-t border-zinc-300/70 pt-1.5 font-bold text-zinc-900" : ""}>
-      <ManaText text={line} />
+      {parts.map((part, i) => {
+        if (i % 2 === 0) return <ManaText key={i} text={part} />;
+        const def = cards.byName.get(part);
+        if (def)
+          return (
+            <button
+              key={i}
+              type="button"
+              onMouseEnter={(e) => cards.onPreview(def, e.currentTarget)}
+              onMouseLeave={cards.onUnpreview}
+              onFocus={(e) => cards.onPreview(def, e.currentTarget)}
+              onBlur={cards.onUnpreview}
+              onClick={() => (cards.onUnpreview(), cards.onZoom(def))}
+              className="cursor-help rounded-sm font-semibold text-violet-800 underline decoration-violet-400/70 decoration-dotted underline-offset-2 hover:bg-violet-500/20"
+            >
+              {part}
+            </button>
+          );
+        const who = part === playerName("p1") ? "p1" : part === playerName("p2") ? "p2" : null;
+        return who ? (
+          <span key={i} className={`font-semibold ${PLAYER_STYLE[who].text}`}>
+            {part}
+          </span>
+        ) : (
+          part
+        );
+      })}
     </div>
   );
 });
@@ -345,7 +394,21 @@ const LogLine = memo(function LogLine({ line }: { line: string }) {
  * it, not by its place in the list: the lines already there keep their page elements and are not drawn again (the list can have sixty lines,
  * and it was redrawn in full after every single move, by every viewer).
  */
-export const LogPanel = memo(function LogPanel({ lines }: { lines: string[] }) {
+export const LogPanel = memo(
+  function LogPanel({ lines, cards, onPreview, onUnpreview, onZoom }: { lines: string[]; cards: Record<string, CardDef>; onPreview: LogCards["onPreview"]; onUnpreview: () => void; onZoom: (def: CardDef) => void }) {
+  // The game state is a new object after every move, its cards too: the pattern is rebuilt only when the cards or the names are others.
+  const signature = `${Object.keys(cards).join("|")}#${playerName("p1")}#${playerName("p2")}`;
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- (`signature` stands for `cards` and the player names)
+  const found = useMemo(() => logPattern(cards), [signature]);
+  const hooks = useRef({ onPreview, onUnpreview, onZoom });
+  useEffect(() => {
+    hooks.current = { onPreview, onUnpreview, onZoom };
+  });
+  // These forward to the latest handlers, so the lines (which are not drawn again) never hold on to an old one.
+  const logCards = useMemo<LogCards>(
+    () => ({ ...found, onPreview: (d, el) => hooks.current.onPreview(d, el), onUnpreview: () => hooks.current.onUnpreview(), onZoom: (d) => hooks.current.onZoom(d) }),
+    [found],
+  );
   const older = new Map<string, number>();
   const keyed = [...lines].reverse().map((line) => {
     const n = older.get(line) ?? 0;
@@ -357,12 +420,15 @@ export const LogPanel = memo(function LogPanel({ lines }: { lines: string[] }) {
       <h2 className={title}>Log</h2>
       <div className="min-h-0 flex-1 overflow-y-auto pr-1 text-[15px] leading-relaxed text-zinc-800">
         {keyed.map((x) => (
-          <LogLine key={x.key} line={x.line} />
+          <LogLine key={x.key} line={x.line} cards={logCards} />
         ))}
       </div>
     </section>
   );
-});
+  },
+  // the handlers are read through a ref and the cards only matter when lines are drawn: only new lines redraw the log
+  (a, b) => a.lines === b.lines,
+);
 
 /** What a players panel shows comes from these: both players (their mana can depend on the other's cards), whose turn it is and what is being waited for. The game state itself is a new object after every move. */
 const panelSig = (p: { state: GameState; order: PlayerId[]; actor: PlayerId; heading?: string; onResign?: unknown }) =>

@@ -507,7 +507,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     flushSync(() => {
       setGame(r.state);
       setPreview(null);
-      setLog((l) => [...describeEvents(r.events, r.state).reverse(), ...l].slice(0, 60));
+      setLog((l) => [...describeEvents(r.events, r.state).reverse(), ...l].slice(0, 300));
       setEndNote(endReason(r.events, r.state));
       setChain((c) => nextChain(c, steps, before, r.state));
       const notes = manaNotes(before, r.state, r.events);
@@ -882,7 +882,7 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
             onSend={(text) => (online ? netSend("chat", { text }) : setChat((c) => [...c, { id: c.length, from: actor, text }]))}
           />
         )}
-        <LogPanel lines={log} />
+        <LogPanel lines={log} cards={state.cards} onPreview={(d, el) => (showPreview(d, el), inspect(d))} onUnpreview={() => setPreview(null)} onZoom={setZoomed} />
         <div className="lg:hidden">
           <KeepRandomDecks decks={{ [actor]: playedDecks[actor] }} saved={savedDecks} onSaved={keepDeck} label={() => "Save my random deck"} />
         </div>
