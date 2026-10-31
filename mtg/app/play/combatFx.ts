@@ -1,5 +1,5 @@
 import type { GameEvent, GameState } from "@mtg/engine";
-import { animationsEnabled } from "@/lib/motion";
+import { animationsEnabled, scaled } from "@/lib/motion";
 import { playSound } from "@/lib/sound";
 import { dropLife } from "./lifeCount";
 import { liteMode, strain } from "./perfTier";
@@ -46,7 +46,7 @@ function waitUntil(anim: Animation, ms: number) {
   });
 }
 
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, scaled(ms)));
 const isPlayer = (id: string) => id === "p1" || id === "p2";
 const cardEl = (iid: string) => document.querySelector<HTMLElement>(`[data-card-iid="${iid}"]`);
 const lifeEl = (id: string) => document.querySelector<HTMLElement>(`[data-life="${id}"]`);

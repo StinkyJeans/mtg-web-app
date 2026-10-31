@@ -45,7 +45,7 @@ import { ResignDialog, VictoryDialog } from "./EndDialogs";
 import { GraveyardDialog, Pile } from "./Piles";
 import ShuffleStage from "./ShuffleStage";
 import { shufflePending } from "./shuffleStep";
-import { handDraws, hideDrawn, holdLibraryCounts, holdPiles, isPileBusy, playDeal, playDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
+import { handDraws, hideDrawn, holdLibraryCounts, holdPiles, isPileBusy, playDeal, playDraws, playOpponentDiscards, playOpponentDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
 import type { Draw } from "./pileFx";
 import { announcementsFrom, describeEvents, endReason, mergeAnnouncements, playerName, worthTelling } from "./log";
 import type { Announcement } from "./log";
@@ -493,7 +493,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     const steps = chainSteps(r.events, before ?? r.state, r.state);
     await playCasts(r.events, r.state); // beams fly to their targets, and the result shows as they land
     await playLeaving(before, r.state, r.events); // exiled or returned cards fade away first
-    await playToGraveyard(gone);
+    await playToGraveyard(gone, new Set(r.events.flatMap((e) => (e.type === "creatureDied" ? [e.iid] : []))));
+    // The other player's hand is a number, not cards: their draws and discards fly to and from it.
+    playOpponentDraws(r.events.flatMap((e) => (e.type === "cardDrawn" && e.player !== viewer && gameRef.current?.phase !== "mulligan" ? [e.player] : [])));
+    playOpponentDiscards(r.events.flatMap((e) => (e.type === "cardsDiscarded" && e.player !== viewer ? e.iids.flatMap((iid) => { const c = [...r.state.players[e.player].graveyard, ...(before?.players[e.player].hand ?? [])].find((x) => x.iid === iid); return c ? [{ owner: e.player, def: r.state.cards[c.defId] }] : []; }) : [])));
     // Only the viewer's own cards are animated: the opponent's hand is just a count, so their draw or mulligan
     // would fly across this screen as if it were the viewer's.
     const draws: Draw[] = gameRef.current?.phase === "mulligan" ? [] : r.events.flatMap((e) => {

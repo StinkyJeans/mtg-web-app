@@ -1,7 +1,7 @@
 import { useSyncExternalStore } from "react";
 import { playerToAct } from "@mtg/engine";
 import type { CardDef, GameState, PlayerId } from "@mtg/engine";
-import { animationsEnabled } from "@/lib/motion";
+import { animationsEnabled, scaled } from "@/lib/motion";
 import { liteMode } from "./perfTier";
 import { playSound } from "@/lib/sound";
 import { cardDetailImageUrl, cardImageUrl } from "@/lib/cards";
@@ -46,7 +46,7 @@ export function holdPiles(): () => void {
   };
 }
 
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, scaled(ms)));
 const cardEl = (iid: string) => document.querySelector<HTMLElement>(`[data-card-iid="${iid}"]`);
 const pileEl = (kind: "library" | "graveyard", owner: PlayerId) => document.querySelector<HTMLElement>(`[data-pile="${kind}-${owner}"]`);
 const ownerOf = (iid: string) => iid.split("-")[0] as PlayerId; // instance ids look like "p1-12"
@@ -57,7 +57,7 @@ function bump(pile: HTMLElement) {
   pile.animate([{ transform: "scale(1)" }, { transform: "scale(1.07)" }, { transform: "scale(1)" }], { duration: 260, easing: "ease-out" });
 }
 
-async function flyToGraveyard(el: HTMLElement, pile: HTMLElement, delay: number) {
+async function flyToGraveyard(el: HTMLElement, pile: HTMLElement, delay: number, dies = false) {
   const from = el.getBoundingClientRect();
   const to = pile.getBoundingClientRect();
   const ghost = el.cloneNode(true) as HTMLElement;
@@ -79,9 +79,22 @@ async function flyToGraveyard(el: HTMLElement, pile: HTMLElement, delay: number)
   const b = centerOf(to);
   const scale = Math.min(to.width / from.width, to.height / from.height) * 0.75;
   await wait(delay);
+  if (dies) {
+    // A creature that dies is struck first: it flares white-hot, shudders, and drains of color, and only then is it drawn down to the graveyard.
+    await ghost.animate(
+      [
+        { transform: "translate(0, 0) scale(1)", filter: "brightness(1) saturate(1)" },
+        { transform: "translate(-4px, 1px) scale(1.06)", filter: "brightness(2.6) saturate(.4) drop-shadow(0 0 14px #fb923c)", offset: 0.25 },
+        { transform: "translate(4px, -1px) scale(1.04)", filter: "brightness(1.8) saturate(.2) drop-shadow(0 0 10px #ef4444)", offset: 0.5 },
+        { transform: "translate(-2px, 0) scale(1)", filter: "brightness(.9) saturate(0)", offset: 0.75 },
+        { transform: "translate(0, 0) scale(.98)", filter: "brightness(.55) saturate(0)" },
+      ],
+      { duration: 380, easing: "ease-out", fill: "forwards" },
+    ).finished;
+  }
   await ghost.animate(
     [
-      { transform: "translate(0, 0) scale(1) rotate(0deg)", opacity: 1 },
+      { transform: "translate(0, 0) scale(1) rotate(0deg)", opacity: 1, filter: dies ? "brightness(.55) saturate(0)" : "none" },
       { transform: `translate(${(b.x - a.x) * 0.12}px, ${(b.y - a.y) * 0.12 - 28}px) scale(1.08) rotate(-5deg)`, opacity: 1, offset: 0.22 },
       { transform: `translate(${b.x - a.x}px, ${b.y - a.y}px) scale(${scale}) rotate(14deg)`, opacity: 0.85 },
     ],
@@ -92,14 +105,14 @@ async function flyToGraveyard(el: HTMLElement, pile: HTMLElement, delay: number)
 }
 
 /** Cards that were destroyed or discarded fly to their owner's graveyard. Call it BEFORE the state changes. */
-export async function playToGraveyard(iids: string[]): Promise<void> {
+export async function playToGraveyard(iids: string[], died: ReadonlySet<string> = new Set()): Promise<void> {
   if (!animationsEnabled() || iids.length === 0) return;
   busy = true;
   try {
     const flights = iids.flatMap((iid, i) => {
       const el = cardEl(iid);
       const pile = pileEl("graveyard", ownerOf(iid));
-      return el && pile ? [flyToGraveyard(el, pile, i * 150)] : [];
+      return el && pile ? [flyToGraveyard(el, pile, i * 150, died.has(iid))] : [];
     });
     await Promise.all(flights);
   } finally {
@@ -488,4 +501,61 @@ export async function playDeal(draws: Draw[], shuffleSound = true): Promise<void
 export function handDraws(s: GameState, seat: PlayerId | null): Draw[] {
   const viewer = seat ?? playerToAct(s);
   return s.players[viewer].hand.map((c) => ({ iid: c.iid, owner: viewer, faceUp: true, def: s.cards[c.defId] }));
+}
+
+/** The other player's hand is only a number: a card back flies from their library to it, so their draw is seen. Nothing waits for it. */
+export function playOpponentDraws(owners: PlayerId[]): void {
+  if (!animationsEnabled()) return;
+  owners.slice(0, 3).forEach((owner, i) => {
+    const library = pileEl("library", owner);
+    const hand = document.querySelector<HTMLElement>(`[data-hand="${owner}"]`);
+    if (!library || !hand) return;
+    const from = centerOf(library.getBoundingClientRect());
+    const to = centerOf(hand.getBoundingClientRect());
+    const { outer } = ghostCard({ id: "", name: "", type: "other", cost: 0 } as CardDef, owner);
+    Object.assign(outer.style, { left: `${from.x - W / 2}px`, top: `${from.y - H / 2}px`, willChange: "transform" });
+    document.body.appendChild(outer);
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    void outer
+      .animate(
+        [
+          { transform: "translate3d(0, 0, 0) scale(.4) rotate(-6deg)", opacity: 0.2 },
+          { transform: `translate3d(${dx * 0.35}px, ${dy * 0.35 - 40}px, 0) scale(.5) rotate(3deg)`, opacity: 1, offset: 0.35 },
+          { transform: `translate3d(${dx}px, ${dy}px, 0) scale(.22) rotate(0deg)`, opacity: 0.9 },
+        ],
+        { duration: 560, delay: i * 140, easing: "cubic-bezier(.3,.7,.3,1)", fill: "both" },
+      )
+      .finished.then(() => bump(hand))
+      .finally(() => outer.remove());
+  });
+}
+
+/** The other player discards: the card (it is shown to everyone) leaves their hand, turns face up and drops into their graveyard. */
+export function playOpponentDiscards(cards: { owner: PlayerId; def: CardDef }[]): void {
+  if (!animationsEnabled()) return;
+  cards.slice(0, 4).forEach(({ owner, def }, i) => {
+    const pile = pileEl("graveyard", owner);
+    const hand = document.querySelector<HTMLElement>(`[data-hand="${owner}"]`);
+    if (!pile || !hand) return;
+    const from = centerOf(hand.getBoundingClientRect());
+    const to = centerOf(pile.getBoundingClientRect());
+    const { outer, flipper } = ghostCard(def, owner);
+    Object.assign(outer.style, { left: `${from.x - W / 2}px`, top: `${from.y - H / 2}px`, willChange: "transform" });
+    document.body.appendChild(outer);
+    const dx = to.x - from.x;
+    const dy = to.y - from.y;
+    flipper.animate([{ transform: "rotateY(0deg)" }, { transform: "rotateY(180deg)" }], { duration: 300, delay: i * 200, easing: "ease-in-out", fill: "both" });
+    void outer
+      .animate(
+        [
+          { transform: "translate3d(0, 0, 0) scale(.3)", opacity: 0.3 },
+          { transform: `translate3d(${dx * 0.3}px, ${dy * 0.3 - 30}px, 0) scale(.75)`, opacity: 1, offset: 0.35 },
+          { transform: `translate3d(${dx}px, ${dy}px, 0) scale(.5) rotate(10deg)`, opacity: 0.85 },
+        ],
+        { duration: 780, delay: i * 200, easing: "cubic-bezier(.4,0,.7,.5)", fill: "both" },
+      )
+      .finished.then(() => bump(pile))
+      .finally(() => outer.remove());
+  });
 }

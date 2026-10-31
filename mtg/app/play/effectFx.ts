@@ -1,7 +1,7 @@
 import { liteMode } from "./perfTier";
 import { powerOf, toughnessOf } from "@mtg/engine";
 import type { CardDef, GameEvent, GameState, Permanent, PlayerId, TargetChoice } from "@mtg/engine";
-import { animationsEnabled } from "@/lib/motion";
+import { animationsEnabled, scaled } from "@/lib/motion";
 import { shuffleOnMat } from "./pileFx";
 
 // Animations for what spells, abilities and effects do. Everything is found from what the game reports (its events) and from
@@ -27,7 +27,7 @@ const GOOD = "#22c55e";
 const BAD = "#ef4444";
 const KEYWORD = "#c4b5fd";
 
-const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+const wait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, scaled(ms)));
 const isPlayer = (id: string) => id === "p1" || id === "p2";
 
 function layer(): HTMLElement {

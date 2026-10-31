@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
-import { animationsEnabled, setAnimationsEnabled } from "@/lib/motion";
+import { animationSpeed, animationsEnabled, setAnimationSpeed, setAnimationsEnabled, SPEEDS } from "@/lib/motion";
 import { connectSocial, disconnectSocial } from "@/lib/online/session";
 import { clearCached } from "@/lib/dashCache";
 import AudioMenu from "./AudioMenu";
@@ -15,6 +15,7 @@ export default function UserBar() {
   const router = useRouter();
   const [username, setUsername] = useState<string | null>(null);
   const [animations, setAnimations] = useState(animationsEnabled);
+  const [speed, setSpeed] = useState(animationSpeed);
   useEffect(() => {
     const { data } = createClient().auth.onAuthStateChange((_event, session) => {
       setUsername(session ? ((session.user.user_metadata.username as string | undefined) ?? "player") : null);
@@ -56,6 +57,21 @@ export default function UserBar() {
       >
         <span className={`min-[480px]:hidden ${animations ? "" : "opacity-40 grayscale"}`} aria-hidden="true">✨</span><span className="max-[479px]:hidden">Animations: </span><span className={`max-[479px]:hidden ${animations ? "font-semibold text-[#6ee7b7]" : "font-semibold text-slate-400"}`}>{animations ? "On" : "Off"}</span>
       </button>
+      {animations && (
+        <button
+          onClick={() => {
+            const next = SPEEDS[(SPEEDS.findIndex((x) => x.id === speed) + 1) % SPEEDS.length].id;
+            setAnimationSpeed(next);
+            setSpeed(next);
+          }}
+          title="How fast attacks, spells and cards move: Normal, Fast or Faster"
+          aria-label={`Animation speed: ${speed}`}
+          className="bar-btn"
+        >
+          <span aria-hidden="true">⏩</span> <span className="max-[479px]:hidden">Speed: </span>
+          <span className="font-semibold text-[#6ee7b7]">{SPEEDS.find((x) => x.id === speed)?.label}</span>
+        </button>
+      )}
       <AudioMenu />
       <span className="hidden sm:inline">
         Signed in as <span className="font-semibold text-white">{username}</span>

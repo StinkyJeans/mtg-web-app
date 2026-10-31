@@ -188,7 +188,7 @@ function PlayersPanelInner({
             </div>
             <ManaMeter state={state} id={id} note={manaNotes[id]} />
             <div className="mt-2 grid grid-cols-3 gap-1 text-center text-[11px] text-zinc-600">
-              <span className="rounded bg-emerald-50 py-0.5" title="Cards in hand">
+              <span data-hand={id} className="rounded bg-emerald-50 py-0.5" title="Cards in hand">
                 ✋ Hand <b>{p.hand.length}</b>
               </span>
               <span className="rounded bg-amber-50 py-0.5" title="Cards in library">
