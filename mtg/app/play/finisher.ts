@@ -3,7 +3,7 @@ import { animationsEnabled, scaled } from "@/lib/motion";
 import { playSound } from "@/lib/sound";
 import { liteMode } from "./perfTier";
 import { canDo3D, reaper3D } from "./finisher3d";
-import { playGreenVideo } from "./finisherVideo";
+import { playGreenVideo, VIDEO_ASPECT } from "./finisherVideo";
 
 /**
  * The finishing move: when a game is won, the winner's finisher plays on the loser's playmat, then the result comes up.
@@ -574,11 +574,13 @@ async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect)
   const W = centerOf(winner);
   const L = centerOf(loser);
   const above = L.y < W.y; // the loser's mat is above the winner's
-  // A modest size (well under the window's height): the dragon's head sits at the edge of the winner's mat that faces the loser, and the burst
-  // (in the picture, 20% of its height beyond the head) rises over the loser's mat. In the picture the head's tip is 60% of the way down.
-  const height = Math.max(340, Math.min(vh * 0.6, 640));
-  const headY = above ? winner.top + winner.height * 0.12 : winner.top + winner.height * 0.88;
-  const top = above ? headY - 0.6 * height : headY - 0.4 * height;
+  // It is fitted to the battlefield. In the picture the burst is 40% of the way down and the dragon's head tip 60%. The burst is put over the middle of the
+  // loser's mat (so the fire stays on that mat), and the dragon (below the burst) in the gap between the mats and over the near edge of the winner's mat,
+  // but not over its cards: the picture is made only as big as the winner's mat is wide, the window allows, and the room before the winner's cards allows.
+  const nearEdge = above ? winner.top + winner.height * 0.55 : winner.top + winner.height * 0.45;
+  const room = above ? (nearEdge - L.y) / 0.6 : (L.y - nearEdge) / 0.6;
+  const height = Math.max(300, Math.min(vh * 0.6, Math.min(winner.width, window.innerWidth * 0.9) / VIDEO_ASPECT, room));
+  const top = above ? L.y - 0.4 * height : L.y - 0.6 * height;
   const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 55%, rgba(40,6,6,.1), rgba(0,0,0,.4))", opacity: "0" });
   veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, fill: "forwards" });
   const run: Promise<unknown>[] = [];

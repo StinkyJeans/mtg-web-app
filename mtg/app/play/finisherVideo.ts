@@ -159,9 +159,9 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
         if (finished) return;
         draw();
         o.onTime?.(video.currentTime);
-        if (!fadingOut && video.duration - video.currentTime < 0.35) {
+        if (!fadingOut && video.duration - video.currentTime < 1.0) {
           fadingOut = true;
-          fade(0, 300);
+          fade(0, 900);
         }
         if (rvfc) rvfc(frame);
         else requestAnimationFrame(frame);
