@@ -248,7 +248,7 @@ export default function ChainFx({ state, actor, extra, onPass }: { state: GameSt
             <div
               key={`link-${l.id}`}
               className={`chain-link ${on && !l.leaving ? "chain-link-in" : ""} ${l.leaving ? "chain-link-out" : ""}`}
-              style={{ width: len, zIndex: 21 + 2 * l.n, transform: `translate(${a.x}px, ${a.y}px) rotate(${angle}deg)`, animationDelay: `${420 + l.fresh * STAGGER_MS}ms` }}
+              style={{ width: Math.max(1, Math.round(len / 73)) * 73, /* (whole links: the chain never ends in half a link) */ zIndex: 21 + 2 * l.n, transform: `translate(${a.x}px, ${a.y}px) rotate(${angle}deg)`, animationDelay: `${420 + l.fresh * STAGGER_MS}ms`, "--d": `${420 + l.fresh * STAGGER_MS}ms` } as React.CSSProperties}
             />
           );
         })}
