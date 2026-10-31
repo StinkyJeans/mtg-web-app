@@ -705,7 +705,7 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
     const pulse = 0.5 + 0.5 * Math.sin(t * 11);
     const shadow = light(cx, cy + (above ? 1 : -1) * hh * 0.18, hw * 1.7, [0, 0, 0], 0.5 * gain, false);
     const glowBehind = light(cx, cy, hw * 1.5, [1, 0.38, 0.06], (0.22 + 0.2 * body.firing * (0.7 + 0.3 * pulse)) * gain);
-    const flare = light(wxt, tipYt, hw * (0.3 + 0.08 * pulse), [1, 0.85, 0.5], 0.85 * body.firing * gain);
+    const flare = light(wxt, tipYt, hw * (0.26 + 0.06 * pulse), [1, 0.55, 0.15], 0.5 * body.firing * gain);
     const bloom = light(lx, burstY, VIDEO_W * sB * (1.5 + 0.12 * pulse), [1, 0.48, 0.1], 0.5 * smooth(0.3, 0.9, t) * (0.8 + 0.2 * pulse));
     // the beam: from the burst's lower edge to the dragon's snout, a thin strip of the frame stretched along it, as wide at each end as the picture there is
     const burstEndY = burstY - dir * (BURST_END - BURST_ROW) * VIDEO_H * sB;
@@ -726,9 +726,9 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
       feather: feather(grow < 1 ? 0.06 : 0.22, 0.12, 0.4),
       alpha: 1,
     };
-    const pieces = [shadow, glowBehind, burst, bloom, beam, dragon];
+    // (the flare is drawn BEHIND the head: on top of it, it washed the snout out)
+    const pieces = [shadow, glowBehind, burst, bloom, beam, flare, dragon];
     if (dragonNext) pieces.push(dragonNext);
-    pieces.push(flare);
     return pieces;
   };
 }
