@@ -243,6 +243,12 @@ const RECIPES: Record<Sound, (a: Out, at: number) => void> = {
   lose: (a, at) => notes(a, [392, 330, 262], 0.22, { type: "triangle", dur: 0.55, gain: 0.15 }, at),
 };
 
+/** Makes the audio context and its noise ahead of the first sound: creating them is the slow part of a first sound (a pause of several frames in the middle of the game). */
+export function primeAudio(): void {
+  const a = audio();
+  if (a) noiseBuffer(a.ctx);
+}
+
 /** Plays `sound`, `at` seconds from now. Does nothing when sound is off or the browser has no audio. */
 export function playSound(sound: Sound, at = 0): void {
   const a = audio();

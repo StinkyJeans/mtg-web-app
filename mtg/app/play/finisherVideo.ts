@@ -1,4 +1,5 @@
 import { scaled } from "@/lib/motion";
+import { liteMode } from "./perfTier";
 
 /**
  * A finisher that is a video shot on a green screen (public/finisher-animation/dragon-breath). It is played silently (its sound is never heard) and
@@ -95,6 +96,8 @@ export interface VideoPlay {
   layers: (seconds: number) => Layer[];
   /** Called with the seconds played so far, every frame. */
   onTime?: (seconds: number) => void;
+  /** Called once the picture is on screen, with a function that shakes it (pixels, milliseconds): cheap, because only the picture moves. */
+  onReady?: (shake: (px: number, ms: number) => void) => void;
   /** The whole picture's fade-out, in seconds before the end of the video (default 1). */
   fadeOut?: number;
 }
@@ -115,13 +118,26 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
       video.addEventListener("error", () => (window.clearTimeout(give), reject(new Error("the video could not be loaded"))), { once: true });
       video.load();
     });
-    const vw = window.innerWidth;
-    const vh = window.innerHeight;
-    const ratio = Math.min(window.devicePixelRatio || 1, 1.5);
+    // The canvas covers only where the pieces go (they are all over the battlefield but the picture is much smaller than the window), so there is
+    // less to draw and, above all, less for the browser to put together on every frame.
+    const reach = [0.3, 1, 2, 4, 6].flatMap((t) => o.layers(t));
+    const pad = 12;
+    const x0 = Math.max(0, Math.floor(Math.min(...reach.map((l) => l.dest[0] + l.dest[2] / 2 - Math.max(l.dest[2], ...(l.widths ?? [0])) / 2)) - pad));
+    const y0 = Math.max(0, Math.floor(Math.min(...reach.map((l) => l.dest[1])) - pad));
+    const x1 = Math.min(window.innerWidth, Math.ceil(Math.max(...reach.map((l) => l.dest[0] + l.dest[2] / 2 + Math.max(l.dest[2], ...(l.widths ?? [0])) / 2)) + pad));
+    const y1 = Math.min(window.innerHeight, Math.ceil(Math.max(...reach.map((l) => l.dest[1] + l.dest[3])) + pad));
+    const vw = Math.max(16, x1 - x0);
+    const vh = Math.max(16, y1 - y0);
+    const ratio = liteMode() ? 1 : Math.min(window.devicePixelRatio || 1, 1.25);
     canvas.width = Math.round(vw * ratio);
     canvas.height = Math.round(vh * ratio);
-    Object.assign(canvas.style, { position: "absolute", left: "0", top: "0", width: `${vw}px`, height: `${vh}px`, pointerEvents: "none", zIndex: "5", willChange: "opacity", opacity: "0" });
+    Object.assign(canvas.style, { position: "absolute", left: `${x0}px`, top: `${y0}px`, width: `${vw}px`, height: `${vh}px`, pointerEvents: "none", zIndex: "5", willChange: "opacity, transform", opacity: "0" });
     root.appendChild(canvas);
+    o.onReady?.((px, ms) => {
+      const k: Keyframe[] = [];
+      for (let i = 0; i <= 10; i++) k.push({ transform: `translate(${((i % 2 ? 1 : -1) * px * (1 - i / 10)).toFixed(1)}px, ${((i % 3 ? 1 : -1) * px * 0.6 * (1 - i / 10)).toFixed(1)}px)` });
+      canvas.animate(k, { duration: ms, easing: "linear" });
+    });
 
     const compile = (type: number, src: string) => {
       const s = gl.createShader(type)!;
@@ -161,7 +177,7 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
       for (const l of layers) {
         if ((l.alpha ?? 1) <= 0.003) continue;
         gl.uniform4f(U.src, ...l.src);
-        gl.uniform4f(U.dest, ...l.dest);
+        gl.uniform4f(U.dest, l.dest[0] - x0, l.dest[1] - y0, l.dest[2], l.dest[3]);
         const w = l.widths ?? [l.dest[2], l.dest[2]];
         gl.uniform2f(U.widths, w[0], w[1]);
         gl.uniform1f(U.flipY, l.flipY ? 1 : 0);
@@ -208,5 +224,6 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     video.pause();
     canvas.remove();
     gl.getExtension("WEBGL_lose_context")?.loseContext();
+    window.setTimeout(() => warmVideo(), 1500); // (a rematch can end the same way: the next one is already loading)
   }
 }

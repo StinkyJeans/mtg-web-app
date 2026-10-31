@@ -46,6 +46,7 @@ import { GraveyardDialog, Pile } from "./Piles";
 import ShuffleStage from "./ShuffleStage";
 import { shufflePending } from "./shuffleStep";
 import { playFinisher } from "./finisher";
+import { primeAudio } from "@/lib/sound";
 import { warmFinisher } from "./finisher3d";
 import type { FinisherKind } from "./finisher";
 import { handDraws, hideDrawn, holdLibraryCounts, holdPiles, isPileBusy, playDeal, playDraws, playOpponentDiscards, playOpponentDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
@@ -280,6 +281,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
     for (const k of looksKey.split("|")) if (k === "dragon" || k === "reaper") warmFinisher(k);
   }, [looksKey]);
   const finisherPlayed = useRef(false);
+  useEffect(() => {
+    const id = window.setTimeout(primeAudio, 1200); // (the first sound of the match must not be the one that builds the audio)
+    return () => window.clearTimeout(id);
+  }, []);
   useEffect(() => {
     if (!endShown || !finisherKind || !finisherWinner || finisherDone || finisherPlayed.current) return;
     finisherPlayed.current = true;

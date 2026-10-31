@@ -173,17 +173,33 @@ async function burnMat(root: HTMLElement, loser: Rect, lite: boolean, FIRE_MS: n
       );
     }
   }
-  // the mat itself burns: darker and warmer, then back
-  matAt(loser)?.animate(
-    [{ filter: "none" }, { filter: "brightness(.55) sepia(.7) saturate(1.4) hue-rotate(-12deg)", offset: 0.3 }, { filter: "brightness(.6) sepia(.6) saturate(1.3)", offset: 0.75 }, { filter: "none" }],
-    { duration: FIRE_MS + 1200, delay: 400, easing: "ease-in-out" },
-  );
-  jolt(5, 500);
-  await wait(600);
-  jolt(7, 600);
-  await wait(500);
-  playSound("burn");
-  await wait(FIRE_MS - 1100);
+  if (flat) {
+    // the mat itself burns: darker and warmer, then back
+    matAt(loser)?.animate(
+      [{ filter: "none" }, { filter: "brightness(.55) sepia(.7) saturate(1.4) hue-rotate(-12deg)", offset: 0.3 }, { filter: "brightness(.6) sepia(.6) saturate(1.3)", offset: 0.75 }, { filter: "none" }],
+      { duration: FIRE_MS + 1200, delay: 400, easing: "ease-in-out" },
+    );
+    jolt(5, 500);
+    await wait(600);
+    jolt(7, 600);
+    await wait(500);
+    playSound("burn");
+    await wait(FIRE_MS - 1100);
+  } else {
+    // The same charring, made cheap: a dark warm layer over the mat that fades in and out (only its opacity changes, on the graphics chip). A filter on
+    // the mat itself, or shaking the whole table, makes the browser redraw the entire battlefield, cards and pictures included, on every frame.
+    const char = div(root, {
+      left: `${loser.left}px`,
+      top: `${loser.top}px`,
+      width: `${loser.width}px`,
+      height: `${loser.height}px`,
+      borderRadius: "14px",
+      background: "linear-gradient(rgba(40,12,0,.62), rgba(20,6,0,.7))",
+      opacity: "0",
+    });
+    run.push(char.animate([{ opacity: 0 }, { opacity: 0.85, offset: 0.3 }, { opacity: 0.6, offset: 0.75 }, { opacity: 0 }], { duration: FIRE_MS + 1200, delay: 400, easing: "ease-in-out", fill: "both" }).finished);
+    await wait(FIRE_MS);
+  }
 }
 
 async function dragonFlat(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
@@ -601,8 +617,9 @@ const smooth = (a: number, b: number, x: number) => {
  */
 function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) => Layer[] {
   const L = DRAGON_LAYOUT;
-  const sD = (L.headSpan * winner.width) / HORNS_PX; // screen pixels per video pixel, for the dragon
-  const sB = (L.burstSpan * loser.width) / VIDEO_W; // ... and for the burst
+  // screen pixels per video pixel, for the dragon and for the burst; on a narrow screen (a phone) they are not allowed to get small
+  const sD = Math.max(L.headSpan * winner.width, Math.min(winner.width * 0.7, 260)) / HORNS_PX;
+  const sB = Math.max(L.burstSpan * loser.width, Math.min(loser.width * 0.9, 380)) / VIDEO_W;
   const wx = winner.left + winner.width / 2;
   const lx = loser.left + loser.width / 2;
   const tipY = above ? winner.top + L.headTip * winner.height : winner.top + (1 - L.headTip) * winner.height;
@@ -620,7 +637,7 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
     const grow = 1 - Math.pow(1 - Math.min(1, t / 0.5), 3); // the beam shoots out of the mouth in half a second
     // the burst
     const [bTop, bH] = place(0, TIP_ROW, BURST_ROW, burstY, sB);
-    const burst: Layer = { src: [0, 0, 1, TIP_ROW], dest: [lx - (VIDEO_W * sB) / 2, bTop, VIDEO_W * sB, bH], flipY: !above, feather: feather(0.12, 0.3, 0.2), alpha: smooth(0.3, 0.75, t) };
+    const burst: Layer = { src: [0, 0, 1, TIP_ROW], dest: [lx - (VIDEO_W * sB) / 2, bTop, VIDEO_W * sB, bH], flipY: !above, feather: feather(0.24, 0.4, 0.3), alpha: smooth(0.3, 0.75, t) };
     // the dragon
     const [dTop, dH] = place(0.56, 1, TIP_ROW, tipY, sD);
     const dragon: Layer = { src: [0, 0.56, 1, 1], dest: [wx - (VIDEO_W * sD) / 2, dTop, VIDEO_W * sD, dH], flipY: !above, feather: above ? [0.3, 0.16, 0.2, 0.2] : [0.16, 0.3, 0.2, 0.2], alpha: smooth(0, 0.25, t) };
@@ -651,6 +668,7 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
 async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
   const lite = liteMode();
   const above = centerOf(loser).y < centerOf(winner).y; // the loser's mat is above the winner's
+  let shake: (px: number, ms: number) => void = () => undefined;
   const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 55%, rgba(40,6,6,.1), rgba(0,0,0,.4))", opacity: "0" });
   veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, fill: "forwards" });
   const run: Promise<unknown>[] = [];
@@ -659,19 +677,20 @@ async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect)
   playSound("charge");
   await playGreenVideo(root, {
     layers: dragonLayers(winner, loser, above),
+    onReady: (s) => (shake = s),
     onTime: (t) => {
       // the beam hits at once; the burst grows over the next seconds, and its ring of fire goes out near the end
       if (step === 0 && t >= 0.35) {
         step = 1;
         playSound("burn");
         burning = burnMat(root, loser, lite, 3000, run, false); // (the glow over the mat and its charring)
-        jolt(2, 400);
+        shake(3, 400);
       } else if (step === 1 && t >= 1.7) {
         step = 2;
-        jolt(3, 500);
+        shake(4, 500);
       } else if (step === 2 && t >= 3.5) {
         step = 3;
-        jolt(4, 600);
+        shake(5, 600);
       }
     },
   });

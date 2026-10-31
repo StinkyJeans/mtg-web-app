@@ -57,7 +57,9 @@ export default function FitToHeight({
       if (now <= room) {
         if (Math.abs(now - settledHeight) < 0.5 && room === settledRoom) return; // (the same contents in the same room: still settled)
         if (current >= maxZoom - 0.001 || now * ((current + GROW) / current) > room || heightAt(Math.min(maxZoom, current + GROW)) > room) {
-          settledHeight = heightAt(current);
+          // (the size in use is put back without measuring it again: `now` is what it measured, and the layout this would force is done anyway when the screen is drawn)
+          content.style.zoom = String(current);
+          settledHeight = now;
           settledRoom = room;
           return;
         }
@@ -92,8 +94,16 @@ export default function FitToHeight({
         step = low;
       }
       // Only a real change is written back, so the size observers below do not wake themselves up again.
-      current = now <= room && Math.abs(step / 50 - current) < GROW ? current : step / 50;
-      settledHeight = heightAt(current);
+      const next = now <= room && Math.abs(step / 50 - current) < GROW ? current : step / 50;
+      // the height at the size chosen: it is already known when that is the last size looked at
+      if (next === step / 50) {
+        current = next;
+        content.style.zoom = String(current);
+        settledHeight = height;
+      } else {
+        current = next;
+        settledHeight = heightAt(current);
+      }
       settledRoom = room;
     };
     const later = () => {
