@@ -19,6 +19,9 @@ TOP = 380      # only the part of the frame below this row
 STEP = 2       # every second frame (24 -> 12 pictures a second)
 SCALE = 0.72   # the sheet is a little smaller than the video
 COLS = 6
+SPINE_X = 631     # the middle of the head in the video's pixels, and how far from it the lava spine reaches
+SPINE_HALF = 70
+SPINE_FROM = 105  # rows of the cut-out part of the frame (counted from TOP) below which the spine is filled
 
 def mask_of(path, prior=None):
     a = np.asarray(Image.open(path).convert("RGBA")).astype(np.float32)[TOP:] / 255.0
@@ -28,6 +31,14 @@ def mask_of(path, prior=None):
     mean = ndi.uniform_filter(r, 9)
     spread = np.sqrt(np.maximum(ndi.uniform_filter(r * r, 9) - mean * mean, 0))
     dark &= ~((r > 0.85) & (spread < 0.10))
+    # the bright lava running down the middle of the head is part of it (it is the brightest thing on it, so the colour rule alone would cut a hole there)
+    if True:
+        pr_ = prior if prior is not None else True
+        xs_ = np.arange(a.shape[1])[None, :]
+        rows_ = np.arange(a.shape[0])[:, None]
+        # (a narrow corridor that widens downwards, and only below the snout: above it is the beam)
+        half = np.clip(10 + (rows_ - SPINE_FROM) * 0.45, 0, SPINE_HALF)
+        dark |= (al > 0.5) & (rows_ >= SPINE_FROM) & (np.abs(xs_ - SPINE_X) < half) & pr_
     if prior is not None:
         dark &= prior                      # (smoke and sparks away from the head are not the head)
     dark = ndi.binary_opening(dark, structure=np.ones((3, 3)))
