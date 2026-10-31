@@ -3,7 +3,8 @@ import { animationsEnabled, scaled } from "@/lib/motion";
 import { playSound } from "@/lib/sound";
 import { liteMode } from "./perfTier";
 import { canDo3D, reaper3D } from "./finisher3d";
-import { playGreenVideo, VIDEO_ASPECT } from "./finisherVideo";
+import { playGreenVideo, VIDEO_H, VIDEO_W } from "./finisherVideo";
+import type { Layer } from "./finisherVideo";
 
 /**
  * The finishing move: when a game is won, the winner's finisher plays on the loser's playmat, then the result comes up.
@@ -565,22 +566,91 @@ async function reaperFlat(root: HTMLElement, winner: Rect, loser: Rect): Promise
 }
 
 /**
- * The dragon: a video of a dragon breathing a beam of fire that bursts (shot on a green screen, played silently with the green made see-through).
- * It is placed so that the dragon's head is over the winner's mat and the burst is over the loser's, and flipped when the loser is below the winner.
+ * How the dragon finisher is laid out on the battlefield. Everything is measured against the two playmats, so it follows any window size.
+ * These are the numbers to change to move the pieces:
+ */
+export const DRAGON_LAYOUT = {
+  /** The dragon's head: where the tip of its snout is, as a part of the winner's mat measured from the mat's edge that faces the loser (0 = that edge, 1 = the far edge). */
+  headTip: 0.43,
+  /** How wide the dragon's horns reach, as a part of the winner's mat width. */
+  headSpan: 0.47,
+  /** The burst: where its middle is, as a part of the loser's mat measured from the mat's FAR edge (the one away from the winner; 0 = that edge). */
+  burstAt: 0.45,
+  /** How wide the burst's picture is, as a part of the loser's mat width. */
+  burstSpan: 0.5,
+};
+
+// What is where in the video's frame (read off the picture itself): the horns reach 632 px across, the snout's tip is 60% of the way down and the burst
+// is centred 40% down; the beam between them is 12% of the frame wide.
+const HORNS_PX = 632;
+const TIP_ROW = 0.6;
+const BURST_ROW = 0.4;
+const BEAM_U: [number, number] = [0.44, 0.56];
+
+const smooth = (a: number, b: number, x: number) => {
+  const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+};
+
+/**
+ * The dragon, cut out of the video's frame in three pieces and put where they belong:
+ *   the dragon's head and horns (the bottom of the frame) over the winner's mat,
+ *   the burst (the top of the frame) over the loser's mat,
+ *   and the beam, which is a thin strip of the frame stretched to join them (so the fire travels the whole distance, whatever it is).
+ * `above` is true when the loser's mat is above the winner's; otherwise everything is turned upside down.
+ */
+function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) => Layer[] {
+  const L = DRAGON_LAYOUT;
+  const sD = (L.headSpan * winner.width) / HORNS_PX; // screen pixels per video pixel, for the dragon
+  const sB = (L.burstSpan * loser.width) / VIDEO_W; // ... and for the burst
+  const wx = winner.left + winner.width / 2;
+  const lx = loser.left + loser.width / 2;
+  const tipY = above ? winner.top + L.headTip * winner.height : winner.top + (1 - L.headTip) * winner.height;
+  const burstY = above ? loser.top + L.burstAt * loser.height : loser.top + (1 - L.burstAt) * loser.height;
+  const dir = above ? -1 : 1; // the way from the winner to the loser on the screen
+  // a piece of the frame, rows a..b, with row `anchor` at screen height `anchorY`: where it goes (top and height)
+  const place = (a: number, b: number, anchor: number, anchorY: number, s: number): [number, number] => {
+    const y = (row: number) => (above ? anchorY + (row - anchor) * VIDEO_H * s : anchorY - (row - anchor) * VIDEO_H * s);
+    return [Math.min(y(a), y(b)), (b - a) * VIDEO_H * s];
+  };
+  // a feather given in terms of the piece of the frame (near edge = the row towards the dragon's head), as the screen sees it
+  const feather = (far: number, near: number, side: number): [number, number, number, number] => (above ? [far, near, side, side] : [near, far, side, side]);
+
+  return (t) => {
+    const grow = 1 - Math.pow(1 - Math.min(1, t / 0.5), 3); // the beam shoots out of the mouth in half a second
+    // the burst
+    const [bTop, bH] = place(0, TIP_ROW, BURST_ROW, burstY, sB);
+    const burst: Layer = { src: [0, 0, 1, TIP_ROW], dest: [lx - (VIDEO_W * sB) / 2, bTop, VIDEO_W * sB, bH], flipY: !above, feather: feather(0.12, 0.3, 0.2), alpha: smooth(0.3, 0.75, t) };
+    // the dragon
+    const [dTop, dH] = place(0.56, 1, TIP_ROW, tipY, sD);
+    const dragon: Layer = { src: [0, 0.56, 1, 1], dest: [wx - (VIDEO_W * sD) / 2, dTop, VIDEO_W * sD, dH], flipY: !above, feather: above ? [0.3, 0.16, 0.2, 0.2] : [0.16, 0.3, 0.2, 0.2], alpha: smooth(0, 0.25, t) };
+    // the beam: from the burst's lower edge to the dragon's snout, a thin strip of the frame stretched along it, as wide at each end as the picture there is
+    const burstEndY = burstY - dir * (TIP_ROW - BURST_ROW) * VIDEO_H * sB;
+    const full = Math.abs(tipY - burstEndY);
+    const wTip = (BEAM_U[1] - BEAM_U[0]) * VIDEO_W * sD;
+    const wBurst = (BEAM_U[1] - BEAM_U[0]) * VIDEO_W * sB;
+    const len = full * grow;
+    const farY = tipY + dir * len; // the end of the beam that is growing towards the loser
+    const wFar = wTip + (wBurst - wTip) * grow;
+    const beam: Layer = {
+      src: [BEAM_U[0], 0.5, BEAM_U[1], 0.58],
+      dest: [(wx + lx) / 2 - Math.max(wTip, wFar) / 2, Math.min(tipY, farY), Math.max(wTip, wFar), Math.max(1, len)],
+      flipY: !above,
+      widths: above ? [wFar, wTip] : [wTip, wFar],
+      feather: feather(0.25, 0.12, 0.4),
+      alpha: 1,
+    };
+    return [burst, beam, dragon];
+  };
+}
+
+/**
+ * The dragon: a video of a dragon breathing a beam of fire that bursts (shot on a green screen, played silently with the green made see-through),
+ * cut into pieces and laid out by `dragonLayers`: the head over the winner's mat, the beam across the battlefield, the burst over the loser's mat.
  */
 async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect): Promise<void> {
   const lite = liteMode();
-  const vh = window.innerHeight;
-  const W = centerOf(winner);
-  const L = centerOf(loser);
-  const above = L.y < W.y; // the loser's mat is above the winner's
-  // It is fitted to the battlefield. In the picture the burst is 40% of the way down and the dragon's head tip 60%. The burst is put over the middle of the
-  // loser's mat (so the fire stays on that mat), and the dragon (below the burst) in the gap between the mats and over the near edge of the winner's mat,
-  // but not over its cards: the picture is made only as big as the winner's mat is wide, the window allows, and the room before the winner's cards allows.
-  const nearEdge = above ? winner.top + winner.height * 0.55 : winner.top + winner.height * 0.45;
-  const room = above ? (nearEdge - L.y) / 0.6 : (L.y - nearEdge) / 0.6;
-  const height = Math.max(300, Math.min(vh * 0.6, Math.min(winner.width, window.innerWidth * 0.9) / VIDEO_ASPECT, room));
-  const top = above ? L.y - 0.4 * height : L.y - 0.6 * height;
+  const above = centerOf(loser).y < centerOf(winner).y; // the loser's mat is above the winner's
   const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 55%, rgba(40,6,6,.1), rgba(0,0,0,.4))", opacity: "0" });
   veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, fill: "forwards" });
   const run: Promise<unknown>[] = [];
@@ -588,10 +658,7 @@ async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect)
   let step = 0;
   playSound("charge");
   await playGreenVideo(root, {
-    left: (W.x + L.x) / 2,
-    top,
-    height,
-    flip: !above,
+    layers: dragonLayers(winner, loser, above),
     onTime: (t) => {
       // the beam hits at once; the burst grows over the next seconds, and its ring of fire goes out near the end
       if (step === 0 && t >= 0.35) {
