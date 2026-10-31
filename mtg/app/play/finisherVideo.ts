@@ -29,6 +29,8 @@ export interface Layer {
   alpha?: number;
   /** The width, as a part of the piece, of a column down its middle (a beam) that its top and bottom feathering does not touch, so the beam runs on through a join. */
   keepCenter?: number;
+  /** Drawn from a still picture of an early frame (taken about a quarter of a second in) instead of the playing video: the dragon's head does not need to move, and the later frames have wide flames around it. */
+  still?: boolean;
 }
 
 let warm: HTMLVideoElement | null = null;
@@ -170,6 +172,11 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    const snap = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, snap);
+    for (const [k, val] of [[gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE], [gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE], [gl.TEXTURE_MIN_FILTER, gl.LINEAR], [gl.TEXTURE_MAG_FILTER, gl.LINEAR]] as const) gl.texParameteri(gl.TEXTURE_2D, k, val);
+    gl.bindTexture(gl.TEXTURE_2D, tex);
+    let snapped = false;
     gl.viewport(0, 0, canvas.width, canvas.height);
     gl.clearColor(0, 0, 0, 0);
     gl.enable(gl.BLEND);
@@ -177,10 +184,17 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     gl.uniform2f(U.view, vw, vh);
 
     const draw = (layers: Layer[]) => {
+      if (!snapped && video.currentTime >= 0.25) {
+        gl.bindTexture(gl.TEXTURE_2D, snap);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
+        snapped = true;
+      }
+      gl.bindTexture(gl.TEXTURE_2D, tex);
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGB, gl.RGB, gl.UNSIGNED_BYTE, video);
       gl.clear(gl.COLOR_BUFFER_BIT);
       for (const l of layers) {
         if ((l.alpha ?? 1) <= 0.003) continue;
+        gl.bindTexture(gl.TEXTURE_2D, l.still && snapped ? snap : tex);
         gl.uniform4f(U.src, ...l.src);
         gl.uniform4f(U.dest, l.dest[0] - x0, l.dest[1] - y0, l.dest[2], l.dest[3]);
         const w = l.widths ?? [l.dest[2], l.dest[2]];
