@@ -600,8 +600,12 @@ export const DRAGON_LAYOUT = {
 // is centred 40% down; the beam between them is 12% of the frame wide.
 const HORNS_PX = 632;
 const TIP_ROW = 0.6;
+/** The burst's piece of the frame ends here, above the snout (below this row the head tip begins to show). */
+const BURST_END = 0.55;
 const BURST_ROW = 0.4;
 const BEAM_U: [number, number] = [0.44, 0.56];
+/** The rows of the frame whose beam is stretched to fill the distance between the two pieces: straight beam, nothing else in them. */
+const BEAM_ROWS: [number, number] = [0.46, 0.55];
 
 const smooth = (a: number, b: number, x: number) => {
   const t = Math.max(0, Math.min(1, (x - a) / (b - a)));
@@ -636,25 +640,28 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
   return (t) => {
     const grow = 1 - Math.pow(1 - Math.min(1, t / 0.5), 3); // the beam shoots out of the mouth in half a second
     // the burst
-    const [bTop, bH] = place(0, TIP_ROW, BURST_ROW, burstY, sB);
-    const burst: Layer = { src: [0, 0, 1, TIP_ROW], dest: [lx - (VIDEO_W * sB) / 2, bTop, VIDEO_W * sB, bH], flipY: !above, feather: feather(0.24, 0.4, 0.3), alpha: smooth(0.3, 0.75, t) };
+    const [bTop, bH] = place(0, BURST_END, BURST_ROW, burstY, sB);
+    const burst: Layer = { src: [0, 0, 1, BURST_END], dest: [lx - (VIDEO_W * sB) / 2, bTop, VIDEO_W * sB, bH], flipY: !above, feather: feather(0.24, 0.4, 0.3), alpha: smooth(0.3, 0.75, t) };
     // the dragon
-    const [dTop, dH] = place(0.56, 1, TIP_ROW, tipY, sD);
-    const dragon: Layer = { src: [0, 0.56, 1, 1], dest: [wx - (VIDEO_W * sD) / 2, dTop, VIDEO_W * sD, dH], flipY: !above, feather: above ? [0.3, 0.16, 0.2, 0.2] : [0.16, 0.3, 0.2, 0.2], alpha: smooth(0, 0.25, t) };
+    const [dTop, dH] = place(TIP_ROW, 1, TIP_ROW, tipY, sD);
+    const dragon: Layer = { src: [0.2, TIP_ROW, 0.8, 1], dest: [wx - (0.6 * VIDEO_W * sD) / 2, dTop, 0.6 * VIDEO_W * sD, dH], flipY: !above, feather: above ? [0.22, 0.16, 0.18, 0.18] : [0.16, 0.22, 0.18, 0.18], alpha: smooth(0, 0.25, t) };
     // the beam: from the burst's lower edge to the dragon's snout, a thin strip of the frame stretched along it, as wide at each end as the picture there is
-    const burstEndY = burstY - dir * (TIP_ROW - BURST_ROW) * VIDEO_H * sB;
-    const full = Math.abs(tipY - burstEndY);
+    const burstEndY = burstY - dir * (BURST_END - BURST_ROW) * VIDEO_H * sB;
+    // The beam runs a little way into each of the two pieces (and they fade over it), so no join shows: the beam is the same picture in all three.
+    const over = 60;
     const wTip = (BEAM_U[1] - BEAM_U[0]) * VIDEO_W * sD;
     const wBurst = (BEAM_U[1] - BEAM_U[0]) * VIDEO_W * sB;
+    const startY = tipY - dir * over; // its end at the dragon, inside the dragon's picture
+    const full = Math.abs(tipY - burstEndY) + 2 * over;
     const len = full * grow;
-    const farY = tipY + dir * len; // the end of the beam that is growing towards the loser
+    const farY = startY + dir * len; // the end that is growing towards the loser
     const wFar = wTip + (wBurst - wTip) * grow;
     const beam: Layer = {
-      src: [BEAM_U[0], 0.5, BEAM_U[1], 0.58],
-      dest: [(wx + lx) / 2 - Math.max(wTip, wFar) / 2, Math.min(tipY, farY), Math.max(wTip, wFar), Math.max(1, len)],
+      src: [BEAM_U[0], BEAM_ROWS[0], BEAM_U[1], BEAM_ROWS[1]],
+      dest: [(wx + lx) / 2 - Math.max(wTip, wFar) / 2, Math.min(startY, farY), Math.max(wTip, wFar), Math.max(1, len)],
       flipY: !above,
       widths: above ? [wFar, wTip] : [wTip, wFar],
-      feather: feather(0.25, 0.12, 0.4),
+      feather: feather(grow < 1 ? 0.06 : 0.22, 0.12, 0.4),
       alpha: 1,
     };
     return [burst, beam, dragon];

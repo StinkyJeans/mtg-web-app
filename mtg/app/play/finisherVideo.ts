@@ -27,6 +27,8 @@ export interface Layer {
   feather?: [number, number, number, number];
   /** 0..1, for fading a piece in or out. */
   alpha?: number;
+  /** The width, as a part of the piece, of a column down its middle (a beam) that its top and bottom feathering does not touch, so the beam runs on through a join. */
+  keepCenter?: number;
 }
 
 let warm: HTMLVideoElement | null = null;
@@ -78,6 +80,7 @@ const FRAG = `
   uniform sampler2D tex;
   uniform vec4 feather;   // top, bottom, left, right
   uniform float alpha;
+  uniform float keep;     // the width of the middle column the top and bottom feather leaves alone
   float soft(float x, float f) { return f <= 0.0 ? 1.0 : smoothstep(0.0, f, x); }
   void main() {
     vec3 c = texture2D(tex, uv).rgb;
@@ -87,7 +90,9 @@ const FRAG = `
     if (a < 0.02) { gl_FragColor = vec4(0.0); return; }
     vec3 fg = clamp((c - vec3(0.0, m, 0.0)) / max(a, 0.05), 0.0, 1.0);
     fg.g = min(fg.g, max(fg.r, fg.b) * 0.97); // (a flame is never greener than it is red)
-    a *= soft(q.y, feather.x) * soft(1.0 - q.y, feather.y) * soft(q.x, feather.z) * soft(1.0 - q.x, feather.w) * alpha;
+    float vert = soft(q.y, feather.x) * soft(1.0 - q.y, feather.y);
+    vert = mix(vert, 1.0, keep > 0.0 ? 1.0 - smoothstep(keep * 0.5, keep, abs(q.x - 0.5)) : 0.0);
+    a *= vert * soft(q.x, feather.z) * soft(1.0 - q.x, feather.w) * alpha;
     gl_FragColor = vec4(fg * a, a);
   }`;
 
@@ -158,7 +163,7 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     const u = (n: string) => gl.getUniformLocation(prog, n);
-    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha") };
+    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha"), keep: u("keep") };
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -184,6 +189,7 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
         const f = l.feather ?? [0, 0, 0, 0];
         gl.uniform4f(U.feather, f[0], f[1], f[2], f[3]);
         gl.uniform1f(U.alpha, l.alpha ?? 1);
+        gl.uniform1f(U.keep, l.keepCenter ?? 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       }
     };
