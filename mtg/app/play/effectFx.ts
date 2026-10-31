@@ -124,6 +124,37 @@ export function ring(b: Box, color: string, delay = 0, grow = 1) {
   );
 }
 
+/** A blocker is tied to the attacker it stands in front of: a line that draws itself from the blocker to the attacker, an arrowhead on the attacker, a ring on the blocker. */
+export function blockLink(from: Box, to: Box, delay = 0) {
+  const a = center(from);
+  const b = center(to);
+  const len = Math.hypot(b.x - a.x, b.y - a.y);
+  if (len < 20) return;
+  const angle = Math.atan2(b.y - a.y, b.x - a.x);
+  const color = "#7dd3fc";
+  const dir = `rotate(${angle}rad)`;
+  const keep = [0, 0.22, 0.78, 1];
+  const fade = (t: string) => keep.map((offset, i) => ({ transform: t, opacity: i === 0 || i === 3 ? 0 : 1, offset }));
+  // the line: it grows out of the blocker
+  void piece(
+    { left: `${a.x}px`, top: `${a.y - 2.5}px`, width: `${Math.max(0, len - 26)}px`, height: "5px", borderRadius: "3px", transformOrigin: "0 50%", background: `linear-gradient(90deg, ${color}40, ${color})`, boxShadow: `0 0 10px ${color}` },
+    null,
+    [{ transform: `${dir} scaleX(0)`, opacity: 0 }, { transform: `${dir} scaleX(1)`, opacity: 1, offset: 0.22 }, { transform: `${dir} scaleX(1)`, opacity: 1, offset: 0.78 }, { transform: `${dir} scaleX(1)`, opacity: 0 }],
+    1250,
+    delay,
+    "ease-out",
+  );
+  // the arrowhead, on the attacker
+  void piece(
+    { left: `${b.x}px`, top: `${b.y}px`, width: "0", height: "0", borderTop: "12px solid transparent", borderBottom: "12px solid transparent", borderLeft: `22px solid ${color}`, filter: `drop-shadow(0 0 6px ${color})`, transformOrigin: "0 0" },
+    null,
+    fade(`translate(${-(Math.min(to.w, to.h) / 2 + 22) * Math.cos(angle)}px, ${-(Math.min(to.w, to.h) / 2 + 22) * Math.sin(angle)}px) ${dir} translateY(-12px)`),
+    1250,
+    delay,
+  );
+  ring(from, color, delay + 40, 1.3);
+}
+
 /** A quick bright stroke across a box, like a blade going through it. */
 export function slash(b: Box, color: string, delay = 0) {
   const { x, y } = center(b);
@@ -337,6 +368,16 @@ export function playEffects(before: GameState | null | undefined, after: GameSta
     jobs.push(() => void shuffleOnMat(e.player));
   }
 
+  // Blocks: each blocker is tied to the attacker it stops.
+  for (const e of events) {
+    if (e.type !== "blockersDeclared") continue;
+    e.blocks.forEach((blk, i) => {
+      const from = boxOf(cardEl(blk.blocker));
+      const to = boxOf(cardEl(blk.attacker));
+      if (from && to) jobs.push(() => blockLink(from, to, i * 160));
+    });
+  }
+
   // Damage and life: the numbers (combat hits are the attack animation's job).
   for (const e of events) {
     if (e.type === "damage" && !hadCombat) {
@@ -447,7 +488,7 @@ export async function playLeaving(before: GameState | null | undefined, after: G
   const died = new Set(events.flatMap((e) => (e.type === "creatureDied" ? [e.iid] : e.type === "cardsDiscarded" ? e.iids : [])));
   const leaving = battlefieldOf(before).filter(({ perm }) => !stays.has(perm.card.iid) && !died.has(perm.card.iid));
   if (leaving.length === 0 || leaving.length > 8) return;
-  const ghosts: { box: Box; node: HTMLElement; up: boolean }[] = [];
+  const ghosts: { box: Box; node: HTMLElement; up: boolean; exiled: boolean }[] = [];
   for (const { perm } of leaving) {
     const el = cardEl(perm.card.iid);
     const box = boxOf(el);
@@ -456,16 +497,24 @@ export async function playLeaving(before: GameState | null | undefined, after: G
     const node = el.cloneNode(true) as HTMLElement;
     node.removeAttribute("data-card-iid");
     el.style.visibility = "hidden"; // the ghost takes its place, so it is the ghost that fades
-    ghosts.push({ box, node, up: inHand });
+    const exiled = Object.values(after.players).some((p) => p.exile.some((c) => c.iid === perm.card.iid));
+    ghosts.push({ box, node, up: inHand, exiled });
   }
-  const run = ghosts.map(({ box, node, up }) => {
+  const run = ghosts.map(({ box, node, up, exiled }) => {
     Object.assign(node.style, { position: "absolute", left: `${box.x}px`, top: `${box.y}px`, width: `${box.w}px`, height: `${box.h}px`, margin: "0", willChange: "transform, opacity", pointerEvents: "none" });
     layer().appendChild(node);
     alive++;
     return node
       .animate(
-        [{ transform: "translateY(0) scale(1)", opacity: 1 }, { transform: up ? "translateY(-40px) scale(0.9)" : "translateY(-10px) scale(0.75) rotate(4deg)", opacity: 0 }],
-        { duration: 360, easing: "ease-in", fill: "both" },
+        exiled
+          ? // exile is not death: the card glows pale violet and rises out of the game, nothing falls
+            [
+              { transform: "translateY(0) scale(1)", opacity: 1, filter: "brightness(1)" },
+              { transform: "translateY(-8px) scale(1.06)", opacity: 1, filter: "brightness(1.7) drop-shadow(0 0 16px #c4b5fd)", offset: 0.4 },
+              { transform: "translateY(-34px) scale(1.14)", opacity: 0, filter: "brightness(2.4) drop-shadow(0 0 22px #ddd6fe)" },
+            ]
+          : [{ transform: "translateY(0) scale(1)", opacity: 1 }, { transform: up ? "translateY(-40px) scale(0.9)" : "translateY(-10px) scale(0.75) rotate(4deg)", opacity: 0 }],
+        { duration: exiled ? 560 : 360, easing: "ease-in", fill: "both" },
       )
       .finished.catch(() => undefined)
       .then(() => {
@@ -473,7 +522,7 @@ export async function playLeaving(before: GameState | null | undefined, after: G
         alive--;
       });
   });
-  await Promise.race([Promise.all(run), wait(420)]);
+  await Promise.race([Promise.all(run), wait(ghosts.some((g) => g.exiled) ? 620 : 420)]);
 }
 
 export type { PlayerId };
