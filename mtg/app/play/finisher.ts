@@ -574,13 +574,12 @@ async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect)
   const W = centerOf(winner);
   const L = centerOf(loser);
   const above = L.y < W.y; // the loser's mat is above the winner's
-  // In the picture the head's tip is 60% of the way down and the burst is 40% down: 20% of the picture's height apart. That distance is made the
-  // distance between the winner's mat and the loser's, so the picture is as big as it needs to be (but never smaller than the window).
-  const headY = above ? winner.top + winner.height * 0.15 : winner.top + winner.height * 0.85;
-  const gap = Math.abs(headY - L.y);
-  const height = Math.max(vh * 0.95, Math.min(gap / 0.2, vh * 1.4));
-  const top = above ? L.y - 0.4 * height : L.y - 0.6 * height;
-  const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 55%, rgba(40,6,6,.15), rgba(0,0,0,.62))", opacity: "0" });
+  // A modest size (well under the window's height): the dragon's head sits at the edge of the winner's mat that faces the loser, and the burst
+  // (in the picture, 20% of its height beyond the head) rises over the loser's mat. In the picture the head's tip is 60% of the way down.
+  const height = Math.max(340, Math.min(vh * 0.6, 640));
+  const headY = above ? winner.top + winner.height * 0.12 : winner.top + winner.height * 0.88;
+  const top = above ? headY - 0.6 * height : headY - 0.4 * height;
+  const veil = div(root, { inset: "0", background: "radial-gradient(ellipse at 50% 55%, rgba(40,6,6,.1), rgba(0,0,0,.4))", opacity: "0" });
   veil.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 500, fill: "forwards" });
   const run: Promise<unknown>[] = [];
   let burning: Promise<void> = Promise.resolve();
@@ -596,15 +595,14 @@ async function dragonVideoFinisher(root: HTMLElement, winner: Rect, loser: Rect)
       if (step === 0 && t >= 0.35) {
         step = 1;
         playSound("burn");
-        burning = burnMat(root, loser, lite, 4200, run, false); // (the glow over the mat and its charring)
-        jolt(5, 500);
+        burning = burnMat(root, loser, lite, 3000, run, false); // (the glow over the mat and its charring)
+        jolt(2, 400);
       } else if (step === 1 && t >= 1.7) {
         step = 2;
-        jolt(7, 600);
+        jolt(3, 500);
       } else if (step === 2 && t >= 3.5) {
         step = 3;
-        playSound("burn");
-        jolt(10, 800);
+        jolt(4, 600);
       }
     },
   });

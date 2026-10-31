@@ -98,6 +98,12 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
       willChange: "opacity",
       opacity: "0",
     });
+    // the picture is cut off at its edges (the burst is bigger than the frame): the edges fade out, so no straight line shows
+    const feather = "linear-gradient(to bottom, transparent 0%, #000 16%, #000 88%, transparent 100%), linear-gradient(to right, transparent 0%, #000 14%, #000 86%, transparent 100%)";
+    canvas.style.setProperty("-webkit-mask-image", feather);
+    canvas.style.setProperty("mask-image", feather);
+    canvas.style.setProperty("-webkit-mask-composite", "source-in");
+    canvas.style.setProperty("mask-composite", "intersect");
     root.appendChild(canvas);
 
     const compile = (type: number, src: string) => {
@@ -135,10 +141,10 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
 
     video.currentTime = 0;
     video.muted = true;
-    video.playbackRate = 1000 / scaled(1000); // (the speed setting)
+    video.playbackRate = (1000 / scaled(1000)) * 0.9; // (the speed setting; a touch slower, so that the burst is less violent)
     await video.play();
     const fade = (to: number, ms: number) => canvas.animate([{ opacity: getComputedStyle(canvas).opacity }, { opacity: to }], { duration: ms, fill: "forwards" });
-    fade(1, 160);
+    fade(0.92, 220);
     await new Promise<void>((resolve) => {
       let finished = false;
       let fadingOut = false;
