@@ -5,10 +5,7 @@ import { STARTER_DECK } from "@mtg/engine";
 import { holdWallpaper } from "../LiveWallpaper";
 import { CoinDisplay } from "../play/CoinFlip";
 import LookPicker from "../play/LookPicker";
-import { FINISHERS, finisherToSend, myFinisher, myLook, randomLook } from "@/lib/playmat";
-import type { FinisherPref } from "@/lib/playmat";
-import { playFinisher } from "../play/finisher";
-import { warmFinisher } from "../play/finisher3d";
+import { myLook, randomLook } from "@/lib/playmat";
 import { listPlayableDecks } from "@/lib/decks";
 import type { DeckChoice } from "@/lib/decks";
 import DeckPicker from "../decks/DeckPicker";
@@ -78,29 +75,11 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
   // The table: the card sleeve and playmat this player wants. The server shows them to both players (and to anyone watching).
   const [sleeve, setSleeve] = useState(() => myLook.read("sleeve"));
   const [mat, setMat] = useState(() => myLook.read("mat"));
-  const [finisher, setFinisher] = useState<FinisherPref>(() => myFinisher.read());
-  const [previewing, setPreviewing] = useState(false);
-  // the 3D models start downloading as soon as the player might use them, so that the preview (and the finisher) start at once
-  useEffect(() => {
-    if (finisher === "dragon" || finisher === "random") warmFinisher("dragon");
-    if (finisher === "reaper" || finisher === "random") warmFinisher("reaper");
-  }, [finisher]);
   const [botLook] = useState(() => randomLook()); // against the computer, the host also dresses its table
   const vsBotRoom = room.players.some((p) => p.bot);
   useEffect(() => {
-    send("look", { sleeve, mat, finisher: finisherToSend(finisher), ...(vsBotRoom ? { bot: botLook } : {}) });
-  }, [sleeve, mat, finisher, vsBotRoom, botLook]);
-  // the finisher is shown once, on the table behind this window, so the player sees what their opponent will see
-  async function preview() {
-    const kind = finisherToSend(finisher === "off" ? "random" : finisher);
-    if (!kind || previewing) return;
-    setPreviewing(true);
-    try {
-      await playFinisher(kind, null, null);
-    } finally {
-      setPreviewing(false);
-    }
-  }
+    send("look", { sleeve, mat, ...(vsBotRoom ? { bot: botLook } : {}) });
+  }, [sleeve, mat, vsBotRoom, botLook]);
   const cachedChoices = useCached<DeckChoice[]>("playable-decks"); // last time's decks, shown at once while the fresh list loads
   const [fetchedOptions, setOptions] = useState<DeckChoice[] | null>(null);
   const options = fetchedOptions ?? (cachedChoices ? [...cachedChoices, STARTER] : null);
@@ -186,30 +165,6 @@ function DeckStep({ room, ready }: { room: RoomSnapshot; ready: boolean }) {
           onSleeve={(v) => (setSleeve(v), myLook.write("sleeve", v))}
           onMat={(v) => (setMat(v), myLook.write("mat", v))}
         />
-        <div className="mt-4 border-t border-white/15 pt-4">
-          <h3 className="mb-1 text-base font-bold uppercase tracking-widest text-[#ffe29a]">Finishing move</h3>
-          <p className="mb-3 text-sm text-slate-300">Plays on your opponent&apos;s mat when you win. Both players see it.</p>
-          <div role="radiogroup" aria-label="Finishing move" className="grid grid-cols-2 gap-2 sm:grid-cols-4">
-            {FINISHERS.map((f) => (
-              <button
-                key={f.id}
-                role="radio"
-                aria-checked={finisher === f.id}
-                disabled={ready}
-                title={f.note}
-                onClick={() => (setFinisher(f.id), myFinisher.write(f.id))}
-                className={`rounded-xl border px-2 py-2 text-sm font-bold transition disabled:opacity-50 ${finisher === f.id ? "border-[#fcd34d] bg-amber-400/20 text-[#ffe29a] ring-2 ring-[#fcd34d]" : "border-white/30 bg-white/5 text-slate-100 hover:border-white/70"}`}
-              >
-                <span aria-hidden="true" className="mr-1">{f.id === "dragon" ? "🐉" : f.id === "reaper" ? "💀" : f.id === "random" ? "🎲" : "⛔"}</span>
-                {f.name}
-              </button>
-            ))}
-          </div>
-          <button onClick={() => void preview()} disabled={previewing || finisher === "off"} className="mt-3 rounded-xl border border-white/30 bg-white/10 px-4 py-1.5 text-sm font-bold text-white hover:bg-white/20 disabled:opacity-40">
-            {previewing ? "Playing…" : "Preview"}
-          </button>
-          <p className="mt-2 text-[11px] leading-snug text-slate-400">3D models from poly.pizza: Grim Reaper by Falibu (CC BY 3.0), Scythe by Quaternius (CC0).</p>
-        </div>
         <p className="mt-3 text-sm text-slate-300">{vsBotRoom ? "Your table is shown on your side of the battlefield." : "Your opponent sees your mat and sleeve on their screen, and you see theirs."}</p>
       </div>
       <button

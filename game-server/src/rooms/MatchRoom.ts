@@ -34,8 +34,6 @@ export const MATCH_GONE = 410;
 export interface Look {
   sleeve: string;
   mat: string;
-  /** The finishing move played on the loser's mat when this player wins: "dragon", "reaper" or "" (none). */
-  finisher?: string;
 }
 
 interface Member {
@@ -284,14 +282,13 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
     },
 
     /** The player's card sleeve and playmat, chosen before the game. Only a preset's name is accepted (never a picture), so it is small and safe to show the other player. */
-    look: (client: Client, message: { sleeve?: unknown; mat?: unknown; finisher?: unknown; bot?: { sleeve?: unknown; mat?: unknown; finisher?: unknown } }) => {
+    look: (client: Client, message: { sleeve?: unknown; mat?: unknown; bot?: { sleeve?: unknown; mat?: unknown } }) => {
       const m = this.member(client);
       if (!m || this.stage === "playing" || this.stage === "over") return;
       const clean = (v: unknown) => (typeof v === "string" && /^(preset:[a-z0-9-]{1,40})?$/.test(v) ? v : "");
-      const finisher = (v: unknown) => (v === "dragon" || v === "reaper" ? v : "");
-      m.look = { sleeve: clean(message?.sleeve), mat: clean(message?.mat), finisher: finisher(message?.finisher) };
+      m.look = { sleeve: clean(message?.sleeve), mat: clean(message?.mat) };
       const bot = this.bot; // the host also dresses the computer's table
-      if (bot && m.seat === "p1" && message?.bot) bot.look = { sleeve: clean(message.bot.sleeve), mat: clean(message.bot.mat), finisher: finisher(message.bot.finisher) };
+      if (bot && m.seat === "p1" && message?.bot) bot.look = { sleeve: clean(message.bot.sleeve), mat: clean(message.bot.mat) };
       this.publish();
     },
 
@@ -616,7 +613,7 @@ export class MatchRoom extends Room<{ metadata: RoomMeta }> {
 
   /** Both players' sleeves and playmats, by seat. */
   private looks(): Record<PlayerId, Look> {
-    const of = (seat: PlayerId) => this.members.find((x) => x.seat === seat)?.look ?? { sleeve: "", mat: "", finisher: "" };
+    const of = (seat: PlayerId) => this.members.find((x) => x.seat === seat)?.look ?? { sleeve: "", mat: "" };
     return { p1: of("p1"), p2: of("p2") };
   }
 

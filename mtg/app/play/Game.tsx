@@ -45,10 +45,7 @@ import { ResignDialog, VictoryDialog } from "./EndDialogs";
 import { GraveyardDialog, Pile } from "./Piles";
 import ShuffleStage from "./ShuffleStage";
 import { shufflePending } from "./shuffleStep";
-import { playFinisher } from "./finisher";
 import { primeAudio } from "@/lib/sound";
-import { warmFinisher } from "./finisher3d";
-import type { FinisherKind } from "./finisher";
 import { handDraws, hideDrawn, holdLibraryCounts, holdPiles, isPileBusy, playDeal, playDraws, playOpponentDiscards, playOpponentDraws, playToGraveyard, untilBattlefieldShown } from "./pileFx";
 import type { Draw } from "./pileFx";
 import { announcementsFrom, describeEvents, endReason, mergeAnnouncements, playerName, worthTelling } from "./log";
@@ -176,11 +173,9 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   useEffect(() => applyPerfClass(), []); // (cheaper effects and result screen on a weak computer)
   const won = !!game?.winner;
   const [endShown, setEndShown] = useState(false); // the result screen waits for the last life points to count down
-  const [finisherDone, setFinisherDone] = useState(false); // ...and for the winner's finishing move, when there is one
-  const [liveSeen, setLiveSeen] = useState(false); // this screen saw the game being played (not a finished game opened afterwards: no finisher then)
   useEffect(() => {
     if (!won) {
-      const off = setTimeout(() => (setEndShown(false), setFinisherDone(false), setLiveSeen(true)), 0);
+      const off = setTimeout(() => setEndShown(false), 0);
       return () => clearTimeout(off);
     }
     // Every attacker has to finish its attack, and the life total has to finish counting (below zero too): only then does the result come up.
@@ -270,29 +265,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
   const [abilityFocus, setAbilityFocus] = useState<string | null>(null); // a battlefield card clicked to see only its abilities
   const [viewingYard, setViewingYard] = useState<{ owner: PlayerId; zone: "graveyard" | "exile" } | null>(null); // whose graveyard or exile is open
   const [endNote, setEndNote] = useState<string | null>(null); // how the game ended, for the win popup
-  // The finishing move: the winner's choice (made before the match, shown to everyone), played on the loser's mat once the last blow has landed.
-  const finisherWinner = game?.winner === "p1" || game?.winner === "p2" ? game.winner : null;
-  const finisherChoice = finisherWinner && online ? net.game?.looks?.[finisherWinner]?.finisher : "";
-  const finisherKind: FinisherKind | "" = finisherWinner && liveSeen && !(endNote ?? "").includes("resigned") && (finisherChoice === "dragon" || finisherChoice === "reaper") ? finisherChoice : "";
-  const resultReady = endShown && (!finisherKind || finisherDone);
-  // both players' finishers are fetched at the start of the match: whoever wins, it starts at once
-  const looksKey = online ? `${net.game?.looks?.p1?.finisher ?? ""}|${net.game?.looks?.p2?.finisher ?? ""}` : "";
-  useEffect(() => {
-    for (const k of looksKey.split("|")) if (k === "dragon" || k === "reaper") warmFinisher(k);
-  }, [looksKey]);
-  const finisherPlayed = useRef(false);
   useEffect(() => {
     const id = window.setTimeout(primeAudio, 1200); // (the first sound of the match must not be the one that builds the audio)
     return () => window.clearTimeout(id);
   }, []);
-  useEffect(() => {
-    if (!endShown || !finisherKind || !finisherWinner || finisherDone || finisherPlayed.current) return;
-    finisherPlayed.current = true;
-    void playFinisher(finisherKind, finisherWinner, OPPONENT[finisherWinner]).finally(() => setTimeout(() => setFinisherDone(true), 300));
-  }, [endShown, finisherKind, finisherWinner, finisherDone]);
-  useEffect(() => {
-    if (!won) finisherPlayed.current = false;
-  }, [won]);
   const [stageSeen, setStageSeen] = useState(false); // the shuffle step was on screen
   const [stageDone, setStageDone] = useState(false); // ...and the decks are back at their libraries
   const [intro, setIntro] = useState(false); // the loading screen and the welcome message are still on: the decks wait for them
@@ -1266,10 +1242,10 @@ export default function Game({ online = false }: { online?: boolean } = {}) {
         <PassReminder state={state} after={state.phase === "main2" && onlyLandsLeft ? REMIND_DONE_MS : REMIND_IDLE_MS} opponent={playerName(other)} onEndTurn={endTurn} />
       )}
 
-      {state.winner && resultReady && online && !watching && net.reveal && seenReveal !== net.reveal && (
+      {state.winner && endShown && online && !watching && net.reveal && seenReveal !== net.reveal && (
         <LibraryReveal reveal={net.reveal} onContinue={() => setSeenReveal(net.reveal)} />
       )}
-      {state.winner && resultReady && !(online && !watching && net.reveal && seenReveal !== net.reveal) && <VictoryDialog
+      {state.winner && endShown && !(online && !watching && net.reveal && seenReveal !== net.reveal) && <VictoryDialog
           winner={state.winner}
           reason={endNote ?? (online ? net.snapshot?.endReason ?? null : null)}
           series={
