@@ -619,6 +619,28 @@ const smooth = (a: number, b: number, x: number) => {
  *   and the beam, which is a thin strip of the frame stretched to join them (so the fire travels the whole distance, whatever it is).
  * `above` is true when the loser's mat is above the winner's; otherwise everything is turned upside down.
  */
+/**
+ * The dragon's head as a body of its own, moved by us and not by the video: it RISES into place from beyond the edge with a little overshoot,
+ * breathes (it swells a touch with each breath), sways, shakes while it breathes fire, is kicked back by each shock of the burst, and sinks away at the
+ * end. `dH` is the height of its picture, which is how far it comes from. Offsets are in pixels, `s` is a scale, `rot` an angle in radians.
+ * (The beam starts at its snout, so it follows the head wherever the head goes.)
+ */
+function dragonBody(t: number, dH: number) {
+  const END = 6.04; // (the video's length)
+  const k = Math.min(1, t / 0.85);
+  const arrive = k >= 1 ? 1 : 1 - Math.exp(-6 * k) * Math.cos(9 * k); // 0 -> 1 with an overshoot that settles
+  const sink = smooth(END - 1.5, END - 0.25, t);
+  const firing = smooth(0.3, 0.6, t) * (1 - smooth(END - 1.6, END - 1.1, t));
+  const kick = (t0: number, power: number) => (t >= t0 ? Math.exp(-(t - t0) * 7) * Math.cos((t - t0) * 38) * power : 0); // a shock, then it rings out
+  const shock = kick(0.35, 9) + kick(1.7, 7) + kick(3.5, 12);
+  return {
+    dx: Math.sin(t * 87) * 1.7 * firing + Math.sin(t * 53 + 1) * 1.1 * firing,
+    dy: (1 - arrive) * dH * 1.15 + sink * dH * 0.55 + Math.sin(t * 61) * 1.4 * firing + shock,
+    s: 1 + 0.014 * Math.sin(t * 5.2) + 0.02 * firing * Math.sin(t * 9) + (1 - arrive) * -0.1,
+    rot: 0.012 * Math.sin(t * 1.7) + 0.006 * firing * Math.sin(t * 23) + shock * 0.0012,
+  };
+}
+
 function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) => Layer[] {
   const L = DRAGON_LAYOUT;
   // screen pixels per video pixel, for the dragon and for the burst; on a narrow screen (a phone) they are not allowed to get small
@@ -642,24 +664,28 @@ function dragonLayers(winner: Rect, loser: Rect, above: boolean): (t: number) =>
     // the burst
     const [bTop, bH] = place(0, BURST_END, BURST_ROW, burstY, sB);
     const burst: Layer = { src: [0, 0, 1, BURST_END], dest: [lx - (VIDEO_W * sB) / 2, bTop, VIDEO_W * sB, bH], flipY: !above, feather: feather(0.24, 0.4, 0.3), alpha: smooth(0.3, 0.75, t) };
-    // the dragon
-    const [dTop, dH] = place(TIP_ROW, 1, TIP_ROW, tipY, sD);
-    const dragon: Layer = { src: [0, TIP_ROW, 1, 1], dest: [wx - (VIDEO_W * sD) / 2, dTop, VIDEO_W * sD, dH], cone: { v0: TIP_ROW, base: 0.05, slope: 0.85 }, flipY: !above, feather: above ? [0.22, 0.16, 0.18, 0.18] : [0.16, 0.22, 0.18, 0.18],
+    // the dragon: its head is a body of its own (see `dragonBody`); its snout is the point it turns and swells about
+    const body = dragonBody(t, (1 - TIP_ROW) * VIDEO_H * sD);
+    const sDt = sD * body.s;
+    const tipYt = tipY + (above ? 1 : -1) * body.dy; // (the head rises from, and sinks to, the side the winner is on)
+    const wxt = wx + body.dx;
+    const [dTop, dH] = place(TIP_ROW, 1, TIP_ROW, tipYt, sDt);
+    const dragon: Layer = { src: [0, TIP_ROW, 1, 1], dest: [wxt - (VIDEO_W * sDt) / 2, dTop, VIDEO_W * sDt, dH], rot: above ? body.rot : -body.rot, pivot: [wxt, tipYt], cone: { v0: TIP_ROW, base: 0.05, slope: 0.85 }, flipY: !above, feather: above ? [0.22, 0.16, 0.18, 0.18] : [0.16, 0.22, 0.18, 0.18],
  alpha: smooth(0, 0.25, t) };
     // the beam: from the burst's lower edge to the dragon's snout, a thin strip of the frame stretched along it, as wide at each end as the picture there is
     const burstEndY = burstY - dir * (BURST_END - BURST_ROW) * VIDEO_H * sB;
     // The beam runs a little way into each of the two pieces (and they fade over it), so no join shows: the beam is the same picture in all three.
     const over = 60;
-    const wTip = (BEAM_U[1] - BEAM_U[0]) * VIDEO_W * sD;
+    const wTip = (BEAM_U[1] - BEAM_U[0]) * VIDEO_W * sDt;
     const wBurst = (BEAM_U[1] - BEAM_U[0]) * VIDEO_W * sB;
-    const startY = tipY - dir * over; // its end at the dragon, inside the dragon's picture
-    const full = Math.abs(tipY - burstEndY) + 2 * over;
+    const startY = tipYt - dir * over; // its end at the dragon, inside the dragon's picture
+    const full = Math.abs(tipYt - burstEndY) + 2 * over;
     const len = full * grow;
     const farY = startY + dir * len; // the end that is growing towards the loser
     const wFar = wTip + (wBurst - wTip) * grow;
     const beam: Layer = {
       src: [BEAM_U[0], BEAM_ROWS[0], BEAM_U[1], BEAM_ROWS[1]],
-      dest: [(wx + lx) / 2 - Math.max(wTip, wFar) / 2, Math.min(startY, farY), Math.max(wTip, wFar), Math.max(1, len)],
+      dest: [(wxt + lx) / 2 - Math.max(wTip, wFar) / 2, Math.min(startY, farY), Math.max(wTip, wFar), Math.max(1, len)],
       flipY: !above,
       widths: above ? [wFar, wTip] : [wTip, wFar],
       feather: feather(grow < 1 ? 0.06 : 0.22, 0.12, 0.4),

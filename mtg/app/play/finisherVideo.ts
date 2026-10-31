@@ -31,6 +31,9 @@ export interface Layer {
   keepCenter?: number;
   /** Keeps only a cone of the piece (its tip at row `v0` of the frame, `base` wide there as a part of the frame's width, widening by `slope` per row): the head without the flames that spread out at its sides. */
   cone?: { v0: number; base: number; slope: number };
+  /** The piece turned by this many radians about `pivot` (page pixels): the dragon's head, tilting. */
+  rot?: number;
+  pivot?: [number, number];
 }
 
 let warm: HTMLVideoElement | null = null;
@@ -61,11 +64,15 @@ const VERT = `
   uniform vec2 view;       // the window's size
   uniform vec4 src;        // u0, v0, u1, v1
   uniform float flipY;
+  uniform float rot;
+  uniform vec2 pivot;      // (in the canvas's own pixels)
   varying vec2 uv;
   varying vec2 q;
   void main() {
     float w = mix(widths.x, widths.y, c.y);
     vec2 p = vec2(dest.x + dest.z * 0.5 + (c.x - 0.5) * w, dest.y + c.y * dest.w);
+    vec2 d = p - pivot;
+    p = pivot + vec2(cos(rot) * d.x - sin(rot) * d.y, sin(rot) * d.x + cos(rot) * d.y);
     gl_Position = vec4(p.x / view.x * 2.0 - 1.0, 1.0 - p.y / view.y * 2.0, 0.0, 1.0);
     vec2 cc = vec2(c.x, flipY > 0.5 ? 1.0 - c.y : c.y);
     uv = mix(src.xy, src.zw, cc);
@@ -132,7 +139,7 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     });
     // The canvas covers only where the pieces go (they are all over the battlefield but the picture is much smaller than the window), so there is
     // less to draw and, above all, less for the browser to put together on every frame.
-    const reach = [0.3, 1, 2, 4, 6].flatMap((t) => o.layers(t));
+    const reach = [0, 0.15, 0.3, 0.6, 1, 2, 4, 5.5, 6].flatMap((t) => o.layers(t));
     const pad = 12;
     const x0 = Math.max(0, Math.floor(Math.min(...reach.map((l) => l.dest[0] + l.dest[2] / 2 - Math.max(l.dest[2], ...(l.widths ?? [0])) / 2)) - pad));
     const y0 = Math.max(0, Math.floor(Math.min(...reach.map((l) => l.dest[1])) - pad));
@@ -170,7 +177,7 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
     gl.enableVertexAttribArray(loc);
     gl.vertexAttribPointer(loc, 2, gl.FLOAT, false, 0, 0);
     const u = (n: string) => gl.getUniformLocation(prog, n);
-    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha"), keep: u("keep"), cone: u("cone") };
+    const U = { dest: u("dest"), widths: u("widths"), view: u("view"), src: u("src"), flipY: u("flipY"), feather: u("feather"), alpha: u("alpha"), keep: u("keep"), cone: u("cone"), rot: u("rot"), pivot: u("pivot") };
     const tex = gl.createTexture();
     gl.bindTexture(gl.TEXTURE_2D, tex);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
@@ -197,6 +204,8 @@ export async function playGreenVideo(root: HTMLElement, o: VideoPlay): Promise<v
         gl.uniform4f(U.feather, f[0], f[1], f[2], f[3]);
         gl.uniform1f(U.alpha, l.alpha ?? 1);
         gl.uniform1f(U.keep, l.keepCenter ?? 0);
+        gl.uniform1f(U.rot, l.rot ?? 0);
+        gl.uniform2f(U.pivot, (l.pivot?.[0] ?? 0) - x0, (l.pivot?.[1] ?? 0) - y0);
         gl.uniform3f(U.cone, l.cone?.v0 ?? 0, l.cone?.base ?? 0, l.cone?.slope ?? 0);
         gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
       }
